@@ -3,22 +3,29 @@
  * to integers in ../../../engine, verified against it there) on Dinghy's platform (platform.c: the
  * updater, the USB rescue, USB-MIDI, USB audio, the panel, the screen, the settings sector).
  *
- *   keys            play; two layers of 8 voices, as the patch says (single, split, double)
+ *   keys            play; two layers of 8 voices, as the patch says (single, split, double). The bottom two
+ *                   rows are force sensed (Velo's sense.c): velocity, and pressing harder is aftertouch
+ *                   (below), each when SETTINGS turns it on (both are off at first); the top row plays at 100
  *   PRESETS         the 80 factory sounds (PRESETS 10..49, MEMORIES 10..49)
  *   KNOB1..4        the four parameters on the screen; a change applies to both layers
  *   HOME            the page of the most played: cutoff, resonance, envelope, release
  *   EDIT ENV LFO    pages (press again for the next one in the group):
  *   GLO FX SEL        OSC 1, OSC 2, MIX / FILTER, FILTER ENV, AMP ENV / LFO 1, LFO 2 /
- *                     GLIDE / OUTPUT, REVERB / JOYSTICK (SEL again centres the stick)
+ *                     GLIDE, SETTINGS / OUTPUT, REVERB / JOYSTICK (SEL again centres the stick)
+ *   SETTINGS        TOUCH (aftertouch) on, its DEPTH, its FLOOR (a key's pressure under it is none),
+ *                   VELO (velocity) on (off: the keys play at 100); kept in flash
  *   SELECT          the joystick up and down: pitch bend (and the filter, by the BEND sliders)
  *   ALGORITHM       the joystick left and right: LFO 2 into the pitch (left) or the filter (right)
  *   OCT- OCT+       the octave
  *   MIDI in         USB and the DIN jack, any channel: notes with velocity, pitch bend (2 semitones),
  *                   CC1 = the stick pushed left (vibrato, as on the Synthex), CC74 the cutoff,
  *                   CC91 the reverb's mix and CC93 the chorus's (0 turns it off), program change,
- *                   CC120/123
+ *                   CC120/123, channel and poly pressure (aftertouch)
+ *   aftertouch      the hardest press (a key's, or MIDI's) pushes the stick further left: vibrato, as CC1;
+ *                   it springs back as the press eases. MIDI out: the keys' notes, and their poly pressure
+ *                   while TOUCH is on
  *
- * The preset, the octave and the page are kept in flash; edits to a sound are not (yet).
+ * The preset, the octave, the page and the settings are kept in flash; edits to a sound are not (yet).
  * Rules of the road: integers only, no float, no 64-bit division (docs/RULES.md). */
 #define APP_NAME "SCINTILLA"
 #ifdef HB_MODULE                                /* a module of fm1-harbor (its modules/scintilla): its platform calls */
@@ -26,7 +33,17 @@
 #else
 #define APP_EARLY_INIT din_init                 /* the DIN jack's UART, before platform.c starts the key scan */
 static void din_init(void);
+#ifndef DINGHY_HOST                             /* the key scan's analog rows: the keys' force (below) */
+#include <stdint.h>
+static void key_analog(uint32_t col, uint32_t rowbit, uint32_t v, uint32_t driven);
+static int key_analog_drive(uint32_t col, uint32_t rowbit);
+#define FM1_INPUT_ANALOG(col, rowbit, v, driven) key_analog(col, rowbit, v, driven)
+#define FM1_INPUT_DRIVE(col, rowbit) key_analog_drive(col, rowbit)
+#endif
 #include "platform.c"
+#ifndef DINGHY_HOST
+#include "sense.c"
+#endif
 #endif
 #include "sc_synth.h"
 #include "sc_presets.h"
@@ -111,10 +128,12 @@ static void app_audio(int32_t *out, uint32_t n)
 }
 
 /* ---- the parameters: a page is four, one per knob */
-enum { W_LAYER, W_PATCH, W_PERF };              /* where the field is: each layer's, the patch's, the joystick's */
-enum { K_LIN, K_EXP, K_ENUM, K_CHORUS, K_REVERB };   /* Q16 by steps, Q16 by ratios (times, rates), int8 choices;
-                                                 * CHORUS and REVERB: an int8 on and its mode, OFF first */
-enum { U_NUM, U_SEC, U_HZ, U_CENT, U_ST };
+enum { W_LAYER, W_PATCH, W_PERF, W_SET };       /* where the field is: each layer's, the patch's, the joystick's,
+                                                 * the settings' (set) */
+enum { K_LIN, K_EXP, K_ENUM, K_CHORUS, K_REVERB, K_INT };   /* Q16 by steps, Q16 by ratios (times, rates), int8
+                                                 * choices; CHORUS and REVERB: an int8 on and its mode, OFF first;
+                                                 * INT: an int8 by ones */
+enum { U_NUM, U_SEC, U_HZ, U_CENT, U_ST, U_PCT };
 #define NO_OFF 0xFFFFu
 typedef struct {
     const char *name;
@@ -134,9 +153,17 @@ static const char *const L_KEYS[] = {"POLY", "MONO", "UNISON"};
 static const char *const L_CHO[] = {"OFF", "1", "2", "3"};
 static const char *const L_REV[] = {"OFF", "PLATE", "ROOM", "HALL", "GALACTIC"};
 
+typedef struct {                                /* what survives a power-off (0.1's was the first three) */
+    uint8_t preset, page;
+    int8_t oct;
+    int8_t at_on, at_depth, at_floor, vel_on;   /* SETTINGS: aftertouch, its depth (%) and floor; velocity */
+} set_t;
+static set_t set;
+
 #define LO(f) ((uint16_t)__builtin_offsetof(sc_layer_t, f))
 #define PO(f) ((uint16_t)__builtin_offsetof(sc_patch_t, f))
 #define FO(f) ((uint16_t)__builtin_offsetof(sc_perf_t, f))
+#define SO(f) ((uint16_t)__builtin_offsetof(set_t, f))
 #define Q(x) SC_Q16(x)
 #define LIN(n, f, lo, hi, st, u) { n, W_LAYER, K_LIN, u, LO(f), NO_OFF, Q(lo), Q(hi), Q(st), 0 }
 #define EXP(n, f, lo, hi, u) { n, W_LAYER, K_EXP, u, LO(f), NO_OFF, Q(lo), Q(hi), Q(lo), 0 }
@@ -165,6 +192,10 @@ static const prm_t PAGE[][4] = {
       { "CUTOFF", W_PERF, K_LIN, U_NUM, FO(lfo2_filt), NO_OFF, 0, Q(1), Q(0.01), 0 } },
     { ENUM("MODE", glide_mode, 0, 2, L_GLIDE), LIN("AMOUNT", glide_amt, -24, 24, 1, U_ST),
       EXP("SPEED", glide_time, 0.01, 10, U_SEC), ENUM("KEYS", key_assign, 0, 2, L_KEYS) },
+    { { "TOUCH", W_SET, K_ENUM, U_NUM, SO(at_on), NO_OFF, 0, 1, 1, L_OFFON },
+      { "DEPTH", W_SET, K_INT, U_PCT, SO(at_depth), NO_OFF, 0, 100, 1, 0 },
+      { "FLOOR", W_SET, K_INT, U_NUM, SO(at_floor), NO_OFF, 0, 40, 1, 0 },
+      { "VELO", W_SET, K_ENUM, U_NUM, SO(vel_on), NO_OFF, 0, 1, 1, L_OFFON } },
     { { "CHORUS", W_PATCH, K_CHORUS, U_NUM, PO(fx.chorus.on), NO_OFF, 0, 3, 1, L_CHO },
       { "VOLUME", W_PATCH, K_LIN, U_NUM, PO(volume), NO_OFF, 0, Q(1), Q(0.01), 0 },
       { "UNISON", W_PATCH, K_LIN, U_NUM, PO(unison_detune), NO_OFF, 0, Q(1), Q(0.01), 0 },
@@ -181,25 +212,26 @@ static const prm_t PAGE[][4] = {
 #define N_PAGES (sizeof PAGE / sizeof PAGE[0])
 static const char *const PAGE_NAME[N_PAGES] = {
     "HOME", "OSC 1", "OSC 2", "MIX", "FILTER", "FILTER ENV", "AMP ENV", "LFO 1", "LFO 2", "GLIDE + KEYS",
-    "OUTPUT", "REVERB", "JOYSTICK"};
+    "SETTINGS", "OUTPUT", "REVERB", "JOYSTICK"};
 /* the buttons that pick pages: each opens its first page, and steps through its group when pressed again */
 static const struct { uint8_t btn, first, n; } GROUP[] = {
-    {BTN_HOME, 0, 1}, {BTN_EDIT, 1, 3}, {BTN_ENV, 4, 3}, {BTN_LFO, 7, 2}, {BTN_GLO, 9, 1}, {BTN_FX, 10, 2},
-    {BTN_SEL, 12, 1}};
+    {BTN_HOME, 0, 1}, {BTN_EDIT, 1, 3}, {BTN_ENV, 4, 3}, {BTN_LFO, 7, 2}, {BTN_GLO, 9, 2}, {BTN_FX, 11, 2},
+    {BTN_SEL, 13, 1}};
 #define N_GROUPS (sizeof GROUP / sizeof GROUP[0])
-#define PG_STICK 12u
+#define PG_STICK 13u
 
 static int32_t *field32(int layer, const prm_t *p, uint16_t off)
 {
     uint8_t *b = p->where == W_LAYER ? (uint8_t *)&syn.patch.layer[layer]
-               : p->where == W_PATCH ? (uint8_t *)&syn.patch : (uint8_t *)&syn.perf;
+               : p->where == W_PATCH ? (uint8_t *)&syn.patch : p->where == W_SET ? (uint8_t *)&set
+               : (uint8_t *)&syn.perf;
     return (int32_t *)(b + off);
 }
 static int8_t *field8(int layer, const prm_t *p) { return (int8_t *)field32(layer, p, p->off); }
 
 static int32_t prm_get(const prm_t *p)          /* the value shown: the upper layer's */
 {
-    if (p->kind == K_ENUM) return *field8(0, p);
+    if (p->kind == K_ENUM || p->kind == K_INT) return *field8(0, p);
     if (p->kind == K_CHORUS) { int8_t *c = field8(0, p); return c[0] ? c[1] : 0; }
     if (p->kind == K_REVERB) { int8_t *c = field8(0, p); return c[0] ? c[1] + 1 : 0; }
     return *field32(0, p, p->off);
@@ -212,9 +244,9 @@ static void prm_turn(const prm_t *p, int32_t d, int32_t acc)
 {
     int layers = p->where == W_LAYER && syn.patch.voice_mode != SC_VM_SINGLE ? 2 : 1, k;
     for (k = 0; k < layers; k++) {
-        if (p->kind == K_ENUM) {
+        if (p->kind == K_ENUM || p->kind == K_INT) {
             int8_t *f = field8(k, p);
-            *f = (int8_t)clamp32(*f + d, p->lo, p->hi);
+            *f = (int8_t)clamp32(*f + d * (p->kind == K_INT ? acc : 1), p->lo, p->hi);
         } else if (p->kind == K_CHORUS) {
             int8_t *c = field8(k, p);
             int32_t v = clamp32((c[0] ? c[1] : 0) + d, 0, 3);
@@ -257,6 +289,11 @@ static void prm_text(char *b, const prm_t *p, int32_t v)
     if (p->kind == K_ENUM || p->kind == K_CHORUS || p->kind == K_REVERB) {
         int32_t j = v - (p->kind == K_ENUM ? p->lo : 0);
         str_cpy(b, p->labels[j], 12);
+        return;
+    }
+    if (p->kind == K_INT) {
+        fmt_int(b, v);
+        if (p->unit == U_PCT) str_cpy(b + str_len(b), "%", 4);
         return;
     }
     if (v < 0) b[i++] = '-';
@@ -410,7 +447,7 @@ static void draw_stick(void)
 {
     char s[40], t[12];
     str_cpy(s, "STICK X ", 12);
-    prm_text(t, &PAGE[PG_STICK][0], perf.joy_x);
+    prm_text(t, &PAGE[PG_STICK][0], syn.perf.joy_x);   /* (where it is: the aftertouch moves it) */
     str_cpy(s + str_len(s), t, 12);
     str_cpy(s + str_len(s), "   Y ", 8);
     prm_text(t, &PAGE[PG_STICK][1], perf.joy_y);
@@ -445,12 +482,117 @@ static void draw_oct(int32_t oct)
 
 /* ---- the main loop: app_init() once, then app_loop() over and over (Dinghy's app_main, or a harbor
  * module's init() and draw()) */
-static struct { uint8_t preset, page; int8_t oct; } set;   /* what survives a power-off */
 static uint32_t prev, dirty, t_change, edited, patch_dirty;
 static uint32_t lit_drawn, page_drawn, preset_drawn, edited_drawn, cpu_drawn;
 static int32_t oct_drawn, shown[4], stick_drawn[2];
 static uint32_t knob_ms[4], knob_acc[4];
 static uint8_t held[27];                        /* the note each key started */
+
+/* ---- the keys' force and aftertouch. key_vel / key_press: a key's velocity (its last landing) and its
+ * pressure now, 0..127. Here the key scan senses the bottom two rows' force (Velo's sense.c, as fm1-harbor's
+ * host does, with its settings: DRIVE 2, curve 0.7): such a key plays from its landing, not from its
+ * contact, and the top row at 100. In a harbor module the host senses and the module's ui() fills them.
+ * The hardest press (a key's, MIDI's channel pressure, or its poly pressure on a note that sounds) pushes
+ * the stick left beyond where it is set (vibrato: LFO 2 into the pitch, as CC1 and the Synthex's stick),
+ * and it springs back as the press eases. VoiceCore has no aftertouch (nor had the Synthex): the engine only
+ * sees the stick move, so its output is VoiceCore's for that stick. Both are off until SETTINGS turns them
+ * on (set.at_on, set.vel_on): vibrato does not suit every sound. */
+static uint8_t key_vel[27], key_press[27], press_sent[27];
+static uint8_t at_chan, at_poly[128], at_any_poly;
+static uint32_t t_press;
+#if !defined(DINGHY_HOST) && !defined(HB_MODULE)
+static uint32_t sense_mask, sense_held;         /* bit k: key k is on an analog row / has landed */
+static void key_analog(uint32_t col, uint32_t rowbit, uint32_t v, uint32_t driven)   /* (the scan's ISR) */
+{
+    int id = FM1_KEYMAP[rowbit][col];
+    if (id >= 14)
+        sense_sample((uint32_t)id - 14u, v, fm1_ticks(), (int)driven);
+}
+static int key_analog_drive(uint32_t col, uint32_t rowbit)
+{
+    int id = FM1_KEYMAP[rowbit][col];
+    return id >= 14 && sense_want_drive((uint32_t)id - 14u);
+}
+static void keys_init(void)
+{
+    uint32_t k;
+    for (k = 0; k < FM1_NCOL; k++) {
+        if (FM1_KEYMAP[3][k] >= 14) sense_mask |= 1u << (FM1_KEYMAP[3][k] - 14);
+        if (FM1_KEYMAP[4][k] >= 14) sense_mask |= 1u << (FM1_KEYMAP[4][k] - 14);
+    }
+    sense_init(sense_mask);
+    sn_cfg.drive = 2;                           /* fm1-harbor's sense_defaults(): DRIVE 2, curve 0.7, ceiling 1000 */
+    sn_cfg.d_curve = 70;
+    sn_cfg.d_ceil = 1000;
+    sense_cal_reset();
+    fm1_an.drive = 2;
+    fm1_an.con = (uint16_t)FM1_ADC_CON(7, 2);   /* (CS-1's: divider 7, delay 2, as measured) */
+}
+static uint32_t keys_now(void)                  /* bit k: key k is down (a sensed one from its landing) */
+{
+    sense_ev_t e;
+    while (sense_take(&e)) {
+        if (e.key >= 27u || !(sense_mask >> e.key & 1u))
+            continue;
+        if (e.type == EV_ON) {
+            sense_held |= 1u << e.key;
+            key_vel[e.key] = e.vel ? e.vel : 1u;
+        } else if (e.type == EV_OFF) {
+            sense_held &= ~(1u << e.key);
+        }
+    }
+    return (fm1_in.notes & ~sense_mask) | sense_held;
+}
+static void keys_pressure(uint32_t keys)
+{
+    uint32_t k;
+    for (k = 0; k < 27u; k++)
+        if (sense_mask >> k & 1u)
+            key_press[k] = keys >> k & 1u ? sense_pressure(k) : 0;
+}
+#else
+static void keys_init(void) {}
+static uint32_t keys_now(void) { return fm1_in.notes; }
+static void keys_pressure(uint32_t keys) { (void)keys; }   /* (a module's ui() sets key_press) */
+#endif
+
+/* 100 times a second: a move of the stick costs the audio interrupt both layers' prep (SC_EV_PERF), and
+ * a held key's reading has a count or two of noise, so pressure under 8 is none and one within 2 of the
+ * one applied stays put (but 0 and 127 are reached) */
+static uint8_t at_applied;
+static uint32_t perf_dirty;
+static void aftertouch(uint32_t keys)
+{
+    uint32_t k, p = 0, f;
+    int32_t x;
+    if (fm1_ms - t_press < 10u)
+        return;
+    t_press = fm1_ms;
+    keys_pressure(keys);
+    for (k = 0; k < 27u; k++)                   /* the keys' pressure out, as poly pressure */
+        if (set.at_on && keys >> k & 1u && key_press[k] != press_sent[k]) {
+            press_sent[k] = key_press[k];
+            midi_send(0xA0, held[k], key_press[k]);
+        }
+    for (k = 0; k < 27u; k++)
+        if (keys >> k & 1u && key_press[k] > p) p = key_press[k];
+    f = (uint32_t)set.at_floor;                 /* a resting finger (~3 counts) is none: any vibrato costs the */
+    p = p < f ? 0u : (p - f) * 127u / (127u - f);   /* voices their per-sample pitch path (Ring mod. x8: 53 -> 63 %) */
+    if (at_chan > p) p = at_chan;               /* MIDI's pressure as it comes */
+    if (at_any_poly)
+        for (k = 0; k < 128u; k++)
+            if (at_poly[k] > p && sounding[k]) p = at_poly[k];
+    if (!set.at_on) p = 0;                      /* (SETTINGS: TOUCH off) */
+    if (p + 2u >= at_applied && p <= at_applied + 2u && p != 0u && p != 127u)
+        p = at_applied;
+    at_applied = (uint8_t)p;
+    x = -(int32_t)(p * 516u * (uint32_t)set.at_depth / 100u);   /* 0..127 -> 0..-DEPTH, Q16, as CC1 */
+    if (x > perf.joy_x) x = perf.joy_x;         /* (never less left than the stick is set) */
+    if (x != syn.perf.joy_x) {
+        syn.perf.joy_x = x;
+        perf_dirty = 1;
+    }
+}
 
 static void redraw_all(void)                    /* the whole screen again, from black */
 {
@@ -462,11 +604,21 @@ static void redraw_all(void)                    /* the whole screen again, from 
 
 static void app_init(void)
 {
-    settings_load(&set, sizeof set);
+    uint32_t k;
+    set.at_depth = 100;
+    set.at_floor = 8;
+    if (settings_load(&set, sizeof set) && !settings_load(&set, 3))   /* 0.1's: no SETTINGS page yet */
+        if (set.page >= 10u) set.page++;
     if (set.preset >= SC_N_PRESETS) set.preset = 0;
     if (set.page >= N_PAGES) set.page = 0;
     if (set.oct < -2 || set.oct > 2) set.oct = 0;
+    if (set.at_on != 1) set.at_on = 0;
+    if (set.vel_on != 1) set.vel_on = 0;
+    if (set.at_depth < 0 || set.at_depth > 100) set.at_depth = 100;
+    if (set.at_floor < 0 || set.at_floor > 40) set.at_floor = 8;
     sc_perf_default(&perf);
+    for (k = 0; k < 27u; k++) key_vel[k] = 100;
+    keys_init();
     load(set.preset);
     redraw_all();
 }
@@ -478,13 +630,18 @@ static void app_loop(void)
     uint8_t st, d1, d2;
     platform_poll();
 
-    keys = fm1_in.notes;                    /* bit k: key k (0 = F3 .. 26 = G5) */
+    keys = keys_now();                      /* bit k: key k (0 = F3 .. 26 = G5) */
     down = keys & ~prev;
     up = prev & ~keys;
     prev = keys;
     for (k = 0; k < 27u; k++) {             /* a key stops the note it started (the octave may change meanwhile) */
-        if (down >> k & 1u) { held[k] = (uint8_t)(base + k); note_on(held[k], 100); midi_send(0x90, held[k], 100); }
-        if (up >> k & 1u) { note_off(held[k]); midi_send(0x80, held[k], 0); }
+        if (down >> k & 1u) {
+            held[k] = (uint8_t)(base + k);
+            key_press[k] = press_sent[k] = 0;
+            note_on(held[k], set.vel_on ? key_vel[k] : 100u);
+            midi_send(0x90, held[k], set.vel_on ? key_vel[k] : 100u);
+        }
+        if (up >> k & 1u) { note_off(held[k]); midi_send(0x80, held[k], 0); key_press[k] = 0; }
     }
 
     b = fm1_input_edges(&rel);
@@ -496,7 +653,7 @@ static void app_loop(void)
             if (in && GROUP[k].first == PG_STICK) {          /* SEL on the joystick page: centre it */
                 perf.joy_x = perf.joy_y = 0;
                 syn.perf.joy_x = syn.perf.joy_y = 0;
-                patch_dirty = 1;
+                perf_dirty = 1;
             }
             set.page = (uint8_t)(in ? GROUP[k].first + (set.page - GROUP[k].first + 1u) % GROUP[k].n : GROUP[k].first);
             dirty = 1; t_change = fm1_ms;
@@ -514,6 +671,7 @@ static void app_loop(void)
             knob_acc[k] = fm1_ms - knob_ms[k] < 60u ? (knob_acc[k] < 15u ? knob_acc[k] + 1u : 15u) : 1u;
             knob_ms[k] = fm1_ms;
             prm_turn(p, d, (int32_t)(1u + knob_acc[k] / 4u));   /* turned fast: up to 4 steps a detent */
+            if (p->where == W_SET) { dirty = 1; t_change = fm1_ms; continue; }   /* (the sound is not touched) */
             if (p->where == W_PERF) *(int32_t *)((uint8_t *)&perf + p->off) = *field32(0, p, p->off);
             else edited = 1;
             patch_dirty = 1;
@@ -523,18 +681,20 @@ static void app_loop(void)
             const prm_t *p = &PAGE[PG_STICK][k ? 0 : 1];
             prm_turn(p, d, 2);
             *(int32_t *)((uint8_t *)&perf + p->off) = *field32(0, p, p->off);
-            patch_dirty = 1;
+            perf_dirty = 1;
         }
 
     while (midi_get(&st, &d1, &d2) || din_get(&st, &d1, &d2)) {   /* USB-MIDI, then the DIN jack */
         uint32_t ty = st & 0xF0u;
-        if (ty == 0x90u && d2) note_on(d1, d2);
-        else if (ty == 0x80u || ty == 0x90u) note_off(d1);
+        if (ty == 0x90u && d2) { at_poly[d1 & 127u] = 0; note_on(d1, d2); }
+        else if (ty == 0x80u || ty == 0x90u) { at_poly[d1 & 127u] = 0; note_off(d1); }
+        else if (ty == 0xD0u) at_chan = d1;                 /* channel pressure */
+        else if (ty == 0xA0u) { at_poly[d1 & 127u] = d2; at_any_poly = 1; }   /* poly pressure */
         else if (ty == 0xE0u) sc_post(&syn, SC_EV_BEND, 0, ((int32_t)(d1 | d2 << 7) - 8192) * 16);   /* +-2 st, Q16 */
         else if (ty == 0xC0u) { set.preset = (uint8_t)(d1 % SC_N_PRESETS); load(set.preset); edited = 0; dirty = 1; t_change = fm1_ms; }
         else if (ty == 0xB0u && d1 == 1u) {                  /* the mod wheel: the stick pushed left */
             perf.joy_x = syn.perf.joy_x = -(int32_t)(d2 * 516u);
-            patch_dirty = 1;
+            perf_dirty = 1;
         } else if (ty == 0xB0u && d1 == 74u) {
             int L;
             for (L = 0; L < 2; L++) syn.patch.layer[L].cutoff = (int32_t)(d2 * 516u);
@@ -547,10 +707,13 @@ static void app_loop(void)
             patch_dirty = 1;
         } else if (ty == 0xB0u && (d1 == 120u || d1 == 123u)) {
             sc_post(&syn, SC_EV_ALL_OFF, 0, 0);
-            for (k = 0; k < 128u; k++) sounding[k] = 0;
+            for (k = 0; k < 128u; k++) sounding[k] = at_poly[k] = 0;
+            at_chan = 0;
         }
     }
-    if (patch_dirty) { sc_post(&syn, SC_EV_PATCH, 0, 0); patch_dirty = 0; }
+    aftertouch(keys);
+    if (patch_dirty) { sc_post(&syn, SC_EV_PATCH, 0, 0); patch_dirty = perf_dirty = 0; }
+    else if (perf_dirty) { sc_post(&syn, SC_EV_PERF, 0, 0); perf_dirty = 0; }
 
     base = (uint32_t)(KEY0 + 12 * set.oct);
     for (k = 0; k < 27u; k++)               /* what sounds, on the keys of this octave */
@@ -575,8 +738,8 @@ static void app_loop(void)
         int32_t v = prm_get(&PAGE[set.page][k]);
         if (v != shown[k]) { shown[k] = v; draw_prm(k, &PAGE[set.page][k], v); }
     }
-    if (perf.joy_x != stick_drawn[0] || perf.joy_y != stick_drawn[1]) {
-        stick_drawn[0] = perf.joy_x; stick_drawn[1] = perf.joy_y;
+    if (syn.perf.joy_x != stick_drawn[0] || perf.joy_y != stick_drawn[1]) {
+        stick_drawn[0] = syn.perf.joy_x; stick_drawn[1] = perf.joy_y;
         draw_stick();
     }
     if (lit != lit_drawn) { lit_drawn = lit; draw_keys(lit); }

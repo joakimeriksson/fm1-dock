@@ -16,7 +16,8 @@
 #endif
 #define SC_CHORUS_LEN 1024                      /* samples: 23 ms, the chorus reaches ~20 */
 
-enum { SC_EV_NOTE_ON = 1, SC_EV_NOTE_OFF, SC_EV_ALL_OFF, SC_EV_BEND, SC_EV_PATCH };
+enum { SC_EV_NOTE_ON = 1, SC_EV_NOTE_OFF, SC_EV_ALL_OFF, SC_EV_BEND, SC_EV_PATCH,
+       SC_EV_PERF };                            /* PERF: only the stick moved (the layers again, not the reverb) */
 typedef struct { uint8_t type, note; int32_t val; } sc_event_t;
 #define SC_QUEUE 64
 
@@ -58,7 +59,7 @@ typedef struct {
 
 typedef struct {
     sc_patch_t patch;                           /* the sound being played; edit, then post SC_EV_PATCH */
-    sc_perf_t perf;                             /* the joystick section; edit, then post SC_EV_PATCH */
+    sc_perf_t perf;                             /* the joystick section; edit, then post SC_EV_PERF (or PATCH) */
     sc_layer_state_t layer[2];
     uint32_t clock;                             /* orders voice starts and releases */
     sc_event_t q[SC_QUEUE];

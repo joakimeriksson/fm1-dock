@@ -9,10 +9,17 @@
 #include "scintilla/scintilla.c"
 
 static void render(int32_t *out, uint32_t n) { app_audio(out, n); }
-static void ui(uint32_t ev, int32_t arg)
+static uint8_t clip127(int32_t v) { return (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v); }
+static void ui(uint32_t ev, int32_t arg)         /* the host senses the keys: their velocity and pressure */
 {
-    if (HB_EV_KIND(ev) != HB_EV_KEY_PRESSURE)
-        hbf_event(ev, arg);
+    uint32_t id = HB_EV_ID(ev);
+    if (HB_EV_KIND(ev) == HB_EV_KEY_PRESSURE) {  /* (Scintilla's aftertouch: the stick pushed left) */
+        if (id < 27u) key_press[id] = clip127(arg);
+        return;
+    }
+    if (HB_EV_KIND(ev) == HB_EV_KEY_DOWN && id < 27u)
+        key_vel[id] = arg > 0 ? clip127(arg) : 100u;   /* (0: a key the host does not sense) */
+    hbf_event(ev, arg);
 }
 static void midi(uint32_t st, uint32_t d1, uint32_t d2) { hbf_midi(st, d1, d2); }
 static void draw(uint32_t full)
