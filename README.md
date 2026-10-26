@@ -25,7 +25,7 @@ WebMIDI), the emulator in the browser, the module interface and the protocol.
 | **CS-1** | twochannels | A CS-80-style synthesizer: two layers, its tone bars, effects, user presets, velocity and aftertouch from the keys. |
 | **Scintilla** | Joakim Eriksson | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. |
 | **OberVave** | zvenson | A 4-track analog poly with arpeggiator, sequencer and effects. |
-| **FM-1 SID** | Joakim Eriksson | C64 music: a cycle-exact 6510, reSID and an own SID model; GoatTracker 2 songs and their editor. Not in the package: added with one click on [the page](https://joakimeriksson.github.io/fm1-dock/#install), or `tools/dock.py deploy`. |
+| **FM-1 SID** | Joakim Eriksson | C64 music: a cycle-exact 6510, reSID and an own SID model; GoatTracker 2 songs and their editor: [write your first chiptune](https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step) on the FM-1. Not in the package: added with one click on [the page](https://joakimeriksson.github.io/fm1-dock/#install), or `tools/dock.py deploy`. |
 | **AMB-1** | Charles Vestal | A generative ambient machine after *Music for Airports*: it plays itself. [The original](https://charlesvestal.github.io/fm1-amb/), its code unchanged (`modules/amb`). Not in the package: added with one click on the page. |
 | **FoMni** | Charles Vestal | A chord harp after the Omnichord: chords on the black keys, strummed on the white ones. [The original](https://charlesvestal.github.io/fm1-fomni/), its code unchanged (`modules/fomni`). Not in the package: added with one click. |
 | **SINE** | built in | Dinghy's 4-voice sine: the fallback when a module fails, and the smallest module to copy. |
@@ -40,7 +40,7 @@ over USB:
 
 ```sh
 pip3 install mido python-rtmidi
-python3 tools/fm1_install.py fm1-dock-0.5.fwsc  # asks before it writes, restarts into fm1-dock
+python3 tools/fm1_install.py fm1-dock-0.6.fwsc  # asks before it writes, restarts into fm1-dock
 ```
 
 Back to any other firmware, or to the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
