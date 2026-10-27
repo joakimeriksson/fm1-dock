@@ -8,8 +8,9 @@ loader and an installable .fwsc package.
   tools/build.py --board smk37 [--model pro|elite|mke] [--release X.Y] ...
       the M-Vave SMK-37 (Pro, Elite, MKE-P37: one keyboard, three model names): fm1-dock for its panel and flash
       (-DBOARD_SMK37=1, firmware/hal/fm1_flash_map.h), identity "SMK-37 Pro_921" (the model's name), the package
-      build/fm1-dock-smk37.fwsc (-elite, -mke; fm1-dock-X.Y-smk37.fwsc for a release). No BLE-MIDI, no boot slot,
-      no solo app on it yet. The FM-1 build gets no new flag: it stays byte for byte as it was
+      build/fm1-dock-smk37.fwsc (-elite, -mke; fm1-dock-X.Y-smk37.fwsc for a release), BLE-MIDI as on the FM-1
+      (HX at flash 0x65000). No boot slot, no solo app on it yet. The FM-1 build gets no new flag: it stays byte
+      for byte as it was
   tools/build.py --modules PATH/TO/MODULE --name NAME --app-name "NAME" --identity FM-1_9NN [--pack FILE]
       a solo app: fm1-dock with one module of its own (a directory anywhere: HB_MOUNT for Docker),
       its own name for the outputs and the crash / rescue screens, its own package identity, and
@@ -183,7 +184,7 @@ HOST = "dock"
 PACKAGE = ["cs1", "scintilla", "obervave"]   # the modules in the package (all of modules/ no longer fits its app slot)                       # the host's source: firmware/src/dock.c
 SLOT_TABLE = 0x02030000             # firmware/src/dock.c HB_TABLE_AT (flash 0x34000)
 SLOT_FIRST = SLOT_TABLE + 0x1000
-HX_XIP = 0x02084000                 # firmware/src/ble/hx.h HX_AT (flash 0x88000): BLE-MIDI, a unit of its own
+HX_XIP = 0x02084000                 # firmware/src/ble/hx.h HX_AT (flash 0x88000): BLE-MIDI, a unit of its own (SMK-37: main)
 HX_SIZE = 0xA000
 
 
@@ -201,7 +202,12 @@ def build_app():
              "-c", SRC / "modules" / "sine" / "sine.c", "-o", OUT / "sine_builtin.o")]
     tc_all(*cmds)
     elf = OUT / f"{APP}.elf"
-    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",
+    ld = FW / "app.ld"
+    if HX_XIP != 0x02084000:                    # (the SMK-37: app.ld with HX at its place there)
+        ld = OUT / f"app-{BOARD}.ld"
+        t = (FW / "app.ld").read_text()
+        ld.write_text(t.replace("ORIGIN = 0x02084000", f"ORIGIN = {HX_XIP:#010x}"))
+    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", ld, OUT / "crt0.o", OUT / "fm1_vec.o",
        OUT / "fm1_isr.o", OUT / f"{HOST}.o", OUT / "hx.o", OUT / "sine_builtin.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin", "hx_text.bin", "hx_data.bin"):
         (OUT / sect).unlink(missing_ok=True)
@@ -359,7 +365,7 @@ SOLO = False                        # --name: a solo app (a new install starts i
 
 
 def main():
-    global PRODUCT, VERSION, BOOT_SLOT, APP, APP_NAME, SOLO, BOARD, BOARD_DEFS, SLOT_TABLE, SLOT_FIRST, APP_SLOT
+    global PRODUCT, VERSION, BOOT_SLOT, APP, APP_NAME, SOLO, BOARD, BOARD_DEFS, SLOT_TABLE, SLOT_FIRST, APP_SLOT, HX_XIP
     ap = argparse.ArgumentParser()
     ap.add_argument("--board", choices=("fm1", "smk37"), help="the board: fm1 (default: $BOARD, else fm1) or smk37")
     ap.add_argument("--model", choices=sorted(MODELS), help="smk37: the model's name, pro (default: $MODEL, else pro), "
@@ -392,7 +398,7 @@ def main():
         SLOT_FIRST = SLOT_TABLE + 0x1000
         PRODUCT = MODELS[model] + PRODUCT[PRODUCT.index("_"):]
         APP = APP + "-smk37" + ("" if model == "pro" else "-" + model)
-        a.no_ble = True             # (BLE-MIDI not on the SMK-37 yet: hx.h's place is its deployed modules')
+        HX_XIP = 0x02061000         # (src/ble/hx.h HX_AT on the SMK-37: flash 0x65000, the top of its app slot)
     BOOT_SLOT = a.boot_slot
     APP = a.name or APP
     APP_NAME = a.app_name

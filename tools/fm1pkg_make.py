@@ -17,7 +17,7 @@ All integrity checks in the format are CRC16 (poly 0x1021, init 0).
   fm1pkg_make.py APP.bin OTA.bin OUT.fwsc [--board fm1|smk37] [--product FM-1_9XY] [--sdk DIR]
 
 --board smk37 (the M-Vave SMK-37: the same AC791N, SPL and loader) selects its flash layout: the app area up to
-0x6C000 (fm1-dock's: its deployed modules from there, firmware/hal/fm1_flash_map.h) and the stock v016 region
+0x70000 (fm1-dock's: its deployed modules from there, firmware/hal/fm1_flash_map.h) and the stock v016 region
 table (VM, BTIF, USRTRIM, USRFLASH, USR; genkigenki's fm1-to-smk37 kit, its reference port's fm1pkg_make.py).
 """
 import argparse
@@ -45,7 +45,7 @@ REGIONS = {
 }
 # per board: FLASH_SIZE (= PRCT = the end of what the update loader writes), APP_SLOT (as the FM-1's: what is left
 # after the head, cfg_tool and the descriptors)
-BOARDS = {"fm1": (0x93000, 0x8DFBC), "smk37": (0x6C000, 0x6C000 - (0x93000 - 0x8DFBC))}
+BOARDS = {"fm1": (0x93000, 0x8DFBC), "smk37": (0x70000, 0x70000 - (0x93000 - 0x8DFBC))}
 
 
 def set_board(board):

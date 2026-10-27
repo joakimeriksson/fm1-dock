@@ -8,9 +8,18 @@ _Static_assert(sizeof(struct ble_rf_trims) == BLE_RF_TRIMS_SIZE, "the four RF re
 
 #define VM_CHUNK 32u
 /* the candidate areas, in the order they are tried (ble_vm.h), and the mark a copy taken from each carries */
-static const uint32_t vm_cand_off[BLE_VM_NCAND] = {BLE_VM_HW, BLE_VM_HW2, BLE_VM_EMU_A, BLE_VM_EMU_B};
-static const uint32_t vm_cand_size[BLE_VM_NCAND] = {BLE_VM_HW_SIZE, BLE_VM_HW_SIZE, BLE_VM_EMU_SIZE, BLE_VM_EMU_SIZE};
-static const uint8_t vm_cand_mark[BLE_VM_NCAND] = {0xAC, 0xAD, 0xAA, 0xAB};
+#if BOARD_SMK37
+#define vm_cand_off(i) (BLE_VM_REGION_HI - 0x1000u * ((i) + 1u))     /* the region's sectors, from the top down */
+#define vm_cand_size(i) (0x1000u * ((i) + 1u))                      /* (to the region's end) */
+#define vm_cand_mark(i) ((uint8_t)(0xC0u + (i)))
+#else
+static const uint32_t vm_cand_off_[BLE_VM_NCAND] = {BLE_VM_HW, BLE_VM_HW2, BLE_VM_EMU_A, BLE_VM_EMU_B};
+static const uint32_t vm_cand_size_[BLE_VM_NCAND] = {BLE_VM_HW_SIZE, BLE_VM_HW_SIZE, BLE_VM_EMU_SIZE, BLE_VM_EMU_SIZE};
+static const uint8_t vm_cand_mark_[BLE_VM_NCAND] = {0xAC, 0xAD, 0xAA, 0xAB};
+#define vm_cand_off(i) vm_cand_off_[i]
+#define vm_cand_size(i) vm_cand_size_[i]
+#define vm_cand_mark(i) vm_cand_mark_[i]
+#endif
 static const uint16_t vm_ids[4] = {106, 107, 108, 187};
 static const uint8_t vm_lens[4] = {2, 7, 20, 68};
 
@@ -41,8 +50,8 @@ BLE_API uint32_t ble_vm_cand(uint32_t i, uint32_t *size)
     if (i >= BLE_VM_NCAND)
         return 0;
     if (size)
-        *size = vm_cand_size[i];
-    return vm_cand_off[i];
+        *size = vm_cand_size(i);
+    return vm_cand_off(i);
 }
 
 /* one record's data through the check (and into keep when wanted) -> 1 the check holds, 0 not, -1 a read failed */
@@ -69,10 +78,10 @@ static int vm_is_vm(ble_vm_read_fn rd, void *ctx, uint32_t i)
     static const uint8_t magic[4] = {0x55, 0xAA, 0xAA, 0x55};
     uint8_t m[8];
     uint32_t len;
-    if (rd(ctx, vm_cand_off[i], m, 8) || !ble_eq(m, magic, 4))
+    if (rd(ctx, vm_cand_off(i), m, 8) || !ble_eq(m, magic, 4))
         return 0;
     len = (uint32_t)(m[6] >> 4) | (uint32_t)m[7] << 4;
-    return len && 8u + len <= vm_cand_size[i] && vm_data(rd, ctx, vm_cand_off[i] + 8u, len, m[4], 0) == 1;
+    return len && 8u + len <= vm_cand_size(i) && vm_data(rd, ctx, vm_cand_off(i) + 8u, len, m[4], 0) == 1;
 }
 
 /* the first candidate that holds a VM (the emulator, both marked: 0x093000, §14.3 step 1) */
@@ -82,14 +91,30 @@ BLE_API uint32_t ble_vm_live(ble_vm_read_fn rd, void *ctx, uint32_t *size)
     for (i = 0; i < BLE_VM_NCAND; i++)
         if (vm_is_vm(rd, ctx, i)) {
             if (size)
-                *size = vm_cand_size[i];
-            return vm_cand_off[i];
+                *size = vm_cand_size(i);
+            return vm_cand_off(i);
         }
     return 0;
 }
 
+#if BOARD_SMK37
+/* the SMK-37: one live candidate from *from on (*from: where it was found), scanned as below */
+static uint32_t vm_live_from(ble_vm_read_fn rd, void *ctx, uint32_t *size, uint32_t *from)
+{
+    for (; *from < BLE_VM_NCAND; ++*from)
+        if (vm_is_vm(rd, ctx, *from)) {
+            *size = vm_cand_size(*from);
+            return vm_cand_off(*from);
+        }
+    return 0;
+}
+#define ble_vm_live(rd, ctx, size) vm_live_from(rd, ctx, size, from)
+static int vm_scan_from(ble_vm_read_fn rd, void *ctx, struct ble_vm_info *info, struct ble_rf_trims *t,
+                        ble_vm_visit_fn visit, void *vctx, uint32_t *from)
+#else
 BLE_API int ble_vm_scan(ble_vm_read_fn rd, void *ctx, struct ble_vm_info *info, struct ble_rf_trims *t,
                         ble_vm_visit_fn visit, void *vctx)
+#endif
 {
     uint8_t h[4], tmp[68];
     uint32_t size = 0, area, off = 4, id, len, i;
@@ -137,6 +162,23 @@ BLE_API int ble_vm_scan(ble_vm_read_fn rd, void *ctx, struct ble_vm_info *info, 
     info->ok187 = (uint8_t)((info->have & 8u) && vm_187_ok(t->x187));
     return info->have == BLE_VM_ALL && info->ok187 && !info->read_err;
 }
+#if BOARD_SMK37
+#undef ble_vm_live
+/* the first live candidate whose set is complete; with none, info is the first live one's (area 0: none) */
+BLE_API int ble_vm_scan(ble_vm_read_fn rd, void *ctx, struct ble_vm_info *info, struct ble_rf_trims *t,
+                        ble_vm_visit_fn visit, void *vctx)
+{
+    uint32_t from = 0, first;
+    if (vm_scan_from(rd, ctx, info, t, visit, vctx, &from))
+        return 1;
+    for (first = from++; info->area && from < BLE_VM_NCAND; from++)
+        if (vm_scan_from(rd, ctx, info, t, 0, 0, &from))
+            return 1;
+    if (first < BLE_VM_NCAND)
+        vm_scan_from(rd, ctx, info, t, 0, 0, &first);
+    return 0;
+}
+#endif
 
 /* ---------------------------------------------------------------------------------------------- the copy --- */
 
@@ -146,17 +188,17 @@ static uint8_t vm_mark(uint32_t area)               /* the mark of a copy taken 
 {
     uint32_t i;
     for (i = 0; i < BLE_VM_NCAND; i++)
-        if (vm_cand_off[i] == area)
-            return vm_cand_mark[i];
-    return vm_cand_mark[2];
+        if (vm_cand_off(i) == area)
+            return vm_cand_mark(i);
+    return vm_cand_mark(2u);
 }
 
 BLE_API uint32_t ble_rf_copy_area(uint8_t mark)
 {
     uint32_t i;
     for (i = 0; i < BLE_VM_NCAND; i++)
-        if (vm_cand_mark[i] == mark)
-            return vm_cand_off[i];
+        if (vm_cand_mark(i) == mark)
+            return vm_cand_off(i);
     return 0;
 }
 

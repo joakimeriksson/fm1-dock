@@ -5,8 +5,9 @@
  * driver may erase / program, and the ranges nothing may touch. Macros and compile-time checks only.
  *
  *   0x00000-0x03FFF  head (SPL, isd_config)                       NEVER
- *   0x04000-0x6BFFF  the app: the host and its modules            the update loader only (FL_APP)
- *   0x6C000-0xB7FFF  deployed modules (area 1, 304 KiB)           the plain window starts here
+ *   0x04000-0x6FFFF  the app: the host, its modules, HX (BLE-MIDI) the update loader only (FL_APP)
+ *                    at 0x65000
+ *   0x70000-0xB7FFF  deployed modules (area 1, 288 KiB)           the plain window starts here
  *   0xB8000-0xBAFFF  the deployed table (two copies), settings
  *   0xBB000-0xBFFFF  update staging + record (ota.c)              (the stock VM's end, as the reference port)
  *   0xC0000-0xC1FFF  BTIF (pairing), USRTRIM (the key / pad / wheel calibration, "trimdat")   NEVER
@@ -17,7 +18,9 @@
  *   0xFF000-0xFFFFF  key_mac                                      NEVER
  * The stock firmware keeps its key / knob mapping in USRFLASH (0xC2000..) and takes it unchecked while its
  * end marker "usrdata" sits at 0xEAFF8: a write there first erases the marker's sector (dock.c), so a return
- * to the stock firmware rebuilds its factory mapping (the reference port's st_stock_release). */
+ * to the stock firmware rebuilds its factory mapping (the reference port's st_stock_release).
+ * The stock VM region (0x9D000..0xBFFFF) holds the stock firmware's VM, with the radio's stored calibration
+ * somewhere in it: dock.c keeps a copy of that before anything writes the region (ble/ble_vm.h). */
 #pragma once
 #include <stdint.h>
 #include "fm1_cc.h"
@@ -36,7 +39,7 @@
 #define FL_USRRES_HI    0x000FE000u
 #define FL_KEYMAC_LO    0x000FF000u                /* protected: key_mac and above */
 #define FL_APP_LO       0x00004000u                /* the update loader: the app */
-#define FL_APP_HI       0x0006C000u
+#define FL_APP_HI       0x00070000u
 #define FL_REC_LO       0x0009D000u                /* the update loader: where it may drop records (the stock VM) */
 #define FL_REC_HI       0x000C0000u
 #define FL_PLAIN_LO     FL_APP_HI                  /* the plain XIP window: what is not the app */

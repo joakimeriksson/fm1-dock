@@ -3,16 +3,21 @@
 """fm1-dock on the M-Vave SMK-37 in fm1-emu (fm1-live, headless; its SMK-37 board from the package's identity):
   ./build.sh --board smk37 && tests/smk_test.py        (FM1_LIVE: an fm1-live that takes SMK-37 velocities, the
                                                        analog inputs `ms:aN:V` and FM1_USB_SEND=@file)
-  - boot: the unit's key curves read, the three modules of the package checked, no BLE; a key plays the sine;
+  - boot: the unit's key curves read, the three modules of the package checked, BLUETOOTH OFF; a key plays the sine;
+  - the radio's trims: stock's VM (as stock v016 writes it) anywhere in its region is found and copied into the
+    settings at boot, at its start (0x9D000) and in its last sector (0xBF000);
   - keys: the middle 27 play as the FM-1's, the outer ones (C3, C6) as notes beyond them, with their velocity;
     CS-1 (picked with PATCH, K2 and SCALE) plays a hard key louder than a soft one;
   - extras over USB-MIDI: the pads (notes 36..51, channel 10), a fader (CC 70), the mod wheel (CC 1), the pitch
     wheel (the bend, and back to the centre);
-  - deploys over USB (the SMK-37 has no MIDI in jack): FM-1 SID into the first area (from 0x6C000), AMB-1 into the
+  - deploys over USB (the SMK-37 has no MIDI in jack): FM-1 SID into the first area (from 0x70000), AMB-1 into the
     second (from 0xC2000, above the calibration); the stock firmware's mapping marker goes first; both run; the
     protected ranges (the head, BTIF and the calibration, the stock resources, key_mac) are as they were;
+  - BLE-MIDI: FM-1 SID wrote over stock's VM; BLUETOOTH ON from the list starts the radio from the copy (as far as
+    fm1-emu goes: its start-up program against the emulator's BT registers, then advertising), and from boot after;
   - OCTAVE- held at power-on: the USB rescue, which answers the installers as an SMK-37 (SMK-37 Pro_000)."""
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -28,10 +33,20 @@ import hbmod  # noqa: E402
 
 FWSC = SRC / "build" / "fm1-dock-smk37.fwsc"
 DT = (0xB8000, 0xB9000)
-AREA1, AREA2 = (0x6C000, 0xB8000), (0xC2000, 0xE2000)
+AREA1, AREA2 = (0x70000, 0xB8000), (0xC2000, 0xE2000)
 PROTECTED = [(0x0, 0x4000), (0xC0000, 0xC2000), (0xF4000, 0xFE000), (0xFF000, 0x100000)]
 STOCKTAG = 0xEA000
 HS_QUERY = "f0003245000000407ff7"
+# stock SMK-37 Pro v016's VM after its first boot in fm1-emu, at the start of its region (0x9D000), its first 0xB0
+# bytes: the area's magic, records 106, 107, 187, 108, 113, 109 (106 / 107 / 108 / 113 as the FM-1's, measured on one)
+SMK_VM = bytes.fromhex("""
+55 aa aa 55 91 6a 20 00 0b 0b 2c 6b 70 00 01 07  04 07 0b 01 07 9f bb 40 04 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  00 40 40 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 ff 80 80 80 ff 80 80 80 00 02 00 02 00 02 00  02 00 02 00 02 00 02 00 02 9f c5 00 00 00 6c 40
+01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  00 00 00 00 00 97 71 e0 00 06 1a 00 00 ff ff ff
+ff ff ff ff ff ff ff 71 6d 20 02 a1 55 36 74 ec  79 cf ea 8b 8e 15 03 fd 9e 1f ff b8 75 61 cc 4a
+fb f2 70 e2 8d ab 1f 11 80 10 43 e6 bd ff ff ff""")
+ST = {0: "OFF", 1: "NO CAL", 2: "HELD", 3: "ON", 4: "LINKED", 5: "READY"}
 failures = []
 
 
@@ -103,6 +118,27 @@ def table(flash):
     return out
 
 
+def states(log, what):
+    """HX's states the host logged: 'BLE' at boot, 'BLE set' from the list"""
+    return [ST.get(int(v, 16), v) for v in re.findall(rf"^\s*\d+ {what} ([0-9a-f]{{8}})\s*$", log, re.M)]
+
+
+def toggle(at):
+    """BLUETOOTH from the list: PATCH held (HOME, past a module's own panel), K2 (SELECT) down to its last line,
+    SCALE (SEL), PATCH: at .. at + 2950 ms"""
+    return [f"{at}:patch", f"{at + 1800}:patch^", f"{at + 2100}:e1:40", f"{at + 2600}:scale", f"{at + 2650}:scale^",
+            f"{at + 2900}:patch", f"{at + 2950}:patch^"]
+
+
+def planted(src, at):
+    """a copy of the flash file src with stock's VM at at"""
+    f = bytearray(src.read_bytes())
+    f[at:at + len(SMK_VM)] = SMK_VM
+    dst = src.with_name(f"vm{at:x}.bin")
+    dst.write_bytes(bytes(f))
+    return dst
+
+
 def notes(usb_out):
     return [m.hex() for m in usb_out if len(m) == 3 and m[0] & 0xE0 == 0x80]
 
@@ -116,9 +152,19 @@ def main():
         out, log, _ = live(1500, ["900:k12"], flash)
         check("curves", "SMK-37: the factory key curves" in log, "the unit's key curves read (USRTRIM, 0xC1000)")
         check("modules", sum("slot ok" in ln for ln in log.splitlines()) == 3, "CS-1, Scintilla and OberVave checked")
-        check("ble", "BLE: not on the SMK-37" in log, "no BLE-MIDI on the SMK-37")
+        check("ble", states(log, "BLE") == ["OFF"] and "BLE: no radio trims" in log,
+              f"HX checked, BLUETOOTH {states(log, 'BLE')}; no stock VM in a new flash")
         check("sine", peak(out) > 1000, f"a middle key plays the sine (peak {peak(out)})")
         base = flash.read_bytes()
+
+        print("the radio's trims")
+        for at in (0xBF000, 0x9D000):           # (0x9D000 last: its flash goes on to the deploys)
+            fl = planted(flash, at)
+            _, log, _ = live(1200, [], fl)
+            again = live(1200, [], fl)[1]
+            check(f"trims {at:#x}", f"BLE: the radio's trims kept, from {at:08x}" in log and "trims kept" not in again,
+                  f"stock's VM at {at:#x} found, copied once ({'kept' if 'trims kept' in log else 'not found'})")
+        flash.write_bytes(fl.read_bytes())
 
         print("keys and the extras")
         keys = ["900:k0@100", "1100:k0^", "1300:k36@60", "1500:k36^", "1700:a0:700", "2000:a0:0", "2200:a9:400",
@@ -159,9 +205,20 @@ def main():
               "the stock mapping's marker sector erased before USRFLASH was written")
         check("protected", all(before[lo:hi] == after[lo:hi] == base[lo:hi] for lo, hi in PROTECTED),
               "the head, BTIF + calibration, the stock resources and key_mac unchanged")
-        out, log, _ = live(9000, ["900:patch", "2700:patch^", "3300:e1:2", "3800:e1:1", "4300:scale", "4400:scale^"], flash)
-        check("both", sum(n in log for n in ("FM-1 SID", "AMB-1")) == 2 and "started 00000005" in log and peak(out) > 100,
+        out, log, _ = live(9000, ["900:patch", "2700:patch^", "3000:e1:-40", "3900:e1:5", "4500:scale", "4600:scale^"],
+                           flash)                # (the list: the sine, CS-1, Scintilla, OberVave, FM-1 SID, AMB-1, BLUETOOTH)
+        check("both", sum(n in log for n in ("FM-1 SID", "AMB-1")) == 2 and "started 00000005" in log and peak(out) > 100
+              and not states(log, "BLE set"),
               f"FM-1 SID and AMB-1 in the list; AMB-1 from the second area plays (peak {peak(out)})")
+
+        print("BLE-MIDI")
+        gone = after[0x9D000:0x9D000 + len(SMK_VM)] != SMK_VM
+        out, log, _ = live(6500, toggle(900) + ["4800:k12", "5500:k12^"], flash)
+        check("ble on", gone and states(log, "BLE set") == ["ON"] and peak(out) > 100,
+              f"stock's VM written over ({gone}); BLUETOOTH ON from the list: {states(log, 'BLE set')} (the radio's "
+              f"start-up ran, from the copy); the module plays on (peak {peak(out)})")
+        out, log, _ = live(5000, [], flash)
+        check("ble boot", states(log, "BLE") == ["ON"], f"after a reboot: {states(log, 'BLE')} from boot")
 
         print("rescue")
         _, _, usb = live(2500, ["0:octave-", "2400:octave-^"], flash, usb=[f"1800:{HS_QUERY}"])

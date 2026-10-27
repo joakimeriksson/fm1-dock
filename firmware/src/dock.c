@@ -38,7 +38,7 @@
 #if BOARD_SMK37
 /* the SMK-37 (hal/fm1_flash_map.h): the deployed modules, their table and the banks from the app's end up, around
  * the protected calibration (0xC0000..0xC1FFF) and below the stock resources (0xF4000); no boot slot */
-#define APP_FL_LO 0x6C000u
+#define APP_FL_LO 0x70000u
 #define APP_FL_HI 0xF4000u
 #define SETTINGS_AT 0xBA000u
 #define APP_FL_KEEP_LO 0xC0000u                 /* BTIF and the factory calibration: never written (FL_PROTECTED too) */
@@ -79,10 +79,10 @@ static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #if BOARD_SMK37
 #define HB_TABLE_AT 0x18000u                    /* flash offset of the image's slot table (XIP 0x02014000) */
 #define HB_AREA_LO  0x19000u                    /* the image's modules, packed by tools/build.py */
-#define HB_AREA_HI  FL_APP_HI                   /* (the end of what an update writes: 0x6C000) */
+#define HB_AREA_HI  FL_APP_HI                   /* (the end of what an update writes: 0x70000) */
 #define DT_A        0xB8000u                    /* the deployed table, two copies (deploys, below) */
 #define DT_B        0xB9000u
-#define DP_LO       0x6C000u                    /* the deployed modules, in the plain window: two areas around */
+#define DP_LO       0x70000u                    /* the deployed modules, in the plain window: two areas around */
 #define DP_HI       0xB8000u                    /* the table, the update's staging and the calibration */
 #define DP2_LO      0xC2000u
 #define DP2_HI      0xE2000u
@@ -477,14 +477,38 @@ static void ble_start(uint32_t failed)          /* HX's first code: only once BL
     fm1_irq_on();
 }
 
+#if BOARD_SMK37
+/* the SMK-37: the stock VM's region (ble/ble_vm.h) is where its deployed modules, their table, the settings and an
+ * update's staging go, so the radio's trims are copied out of it at boot, before anything here writes it: HX takes
+ * the copy when the VM is gone. ble_vm.c's reader, the host's own (HX's is HX's) */
+#undef BLE_API
+#define BLE_API static
+#include "ble/ble_vm.c"
+static int ble_vm_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n) { (void)ctx; return ble_flash_read(off, dst, n); }
+static void ble_capture(void)                   /* after the settings, before any flash write */
+{
+    struct ble_vm_info info;
+    struct ble_rf_trims t;
+    uint8_t *copy = ble_rec + 4 + 8;            /* (HX_KEPT: [0..7] the address, [8..107] the trims copy) */
+    if (rec_load(BLE_KEY, ble_rec, sizeof ble_rec))
+        memset(ble_rec, 0, sizeof ble_rec);
+    if (!ble_vm_scan(ble_vm_rd, 0, &info, &t, 0, 0)) {
+        hb_log_u32(ble_rf_copy_ok(copy) ? "BLE: no stock VM, the trims copy kept" : "BLE: no radio trims (stock's VM)",
+                   info.area);
+        return;
+    }
+    if (ble_rf_copy_ok(copy) && ble_eq(copy + 1, (const uint8_t *)&t, BLE_RF_TRIMS_SIZE))
+        return;
+    ble_rf_copy_make(copy, &t, info.area);
+    rec_save(BLE_KEY, ble_rec, sizeof ble_rec);
+    store_flush();                              /* (now: a deploy may write over the VM next) */
+    hb_log_u32("BLE: the radio's trims kept, from", info.area);
+}
+#endif
+
 static void ble_boot(uint32_t safe)             /* after the settings, the module table and the boot guard */
 {
     const hx_api_t *h = (const hx_api_t *)HX_XIP;
-#if BOARD_SMK37
-    (void)h; (void)safe;                        /* not on the SMK-37 yet (where the radio's trims are is not known; */
-    hb_log("BLE: not on the SMK-37");           /* HX_XIP is in its deployed modules' area) */
-    return;
-#endif
     if (h->magic != HX_MAGIC || h->abi != HX_ABI || h->size < sizeof *h || h->size > HX_SIZE ||
         crc_fast(0, (const uint8_t *)h + 16, h->size - 16u) != h->crc) {
         hb_log(h->magic == 0xFFFFFFFFu ? "BLE: not in this build" : "BLE: HX damaged (written over?)");
@@ -2050,6 +2074,7 @@ static void app_main(void)
     store_load();
     if (st.oct < -2 || st.oct > 2) st.oct = 0;
 #if BOARD_SMK37
+    ble_capture();                              /* (the stock VM's region: before anything writes it) */
     sense_mask = (1u << 27) - 1u;               /* (every key: its velocity is the scan's) */
     {
         static uint8_t trim[SMK_TRIM_SIZE];     /* the unit's own key and pad curves (read only) */

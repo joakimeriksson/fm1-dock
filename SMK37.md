@@ -9,7 +9,7 @@ faders, the wheels) reaches it as MIDI.
 
 > **Status**: built and tested in [fm1-emu](https://github.com/joakimeriksson/fm1-emu), which runs the SMK-37
 > (`tests/smk_test.py`: the keys and their velocity, the pads, faders and wheels, the module list, deploys into both
-> areas, the USB rescue). Not yet tried on a real SMK-37.
+> areas, BLE-MIDI's start-up, the USB rescue). Not yet tried on a real SMK-37.
 
 ## Packages and models
 
@@ -83,12 +83,36 @@ editor, ...): where it says KNOB1..4, those are K5..K8 here.
 ## Added modules
 
 The same `.dock` files as on the FM-1. The SMK-37's flash has room for added modules in two areas around its
-protected calibration: 304 KiB (from `0x6C000`) and 128 KiB (from `0xC2000`). A module needs one of them whole: FM-1
+protected calibration: 288 KiB (from `0x70000`) and 128 KiB (from `0xC2000`). A module needs one of them whole: FM-1
 SID (268 KiB) and AMB-1 (76 KiB) fit together; FoMni (139 KiB) fits in the first area, not beside FM-1 SID.
+
+## BLE-MIDI
+
+As on the FM-1: **BLUETOOTH** at the end of the module list (PATCH, K2 down, SCALE) switches it ON; the keyboard then
+shows up as `FM1-DOCK XXXX` among a computer's or a tablet's Bluetooth MIDI devices. It is the same code as the FM-1's
+(the chip and its radio are the same), with one difference: where the radio's stored calibration comes from.
+
+The radio starts from a calibration the stock firmware stores in its settings store (VM), as on the FM-1. On the SMK-37
+that store's region (`0x9D000`-`0xBFFFF`) is where fm1-dock keeps its added modules, their table, its settings and an
+update's staging. So fm1-dock copies the calibration out of it **at its first start**, before it writes anything
+there, and keeps the copy with its settings (the log says `BLE: the radio's trims kept`). It looks in the whole
+region: where the stock firmware keeps its store on a unit is not measured.
+
+So install fm1-dock **from the stock firmware**, after the stock firmware has run at least once: then the calibration is
+there. If the keyboard ran another firmware that wrote over that region, BLUETOOTH says **NO CAL**: install the stock
+firmware with M-Vave's updater, switch the keyboard on once, then install fm1-dock again.
+
+What is known, and how (fm1-emu runs the stock firmwares of both on the same chip model):
+
+- Of the four stored records the radio needs, three (the crystal and amplifier trims) are not per unit: stock FM-1 V15
+  and stock SMK-37 v016 write the same values on a blank flash in fm1-emu, and they are the values read from a real
+  FM-1. Both firmwares carry byte-identical Bluetooth configuration.
+- The fourth (187) is the radio's own calibration result, measured by the stock firmware on the unit, which it
+  measures again when it is missing: a return to stock loses nothing.
+- Not yet tried: the radio of a real SMK-37 started by fm1-dock.
 
 ## Not yet on the SMK-37
 
-- **BLE-MIDI**: not started (where the SMK keeps its radio's factory trims is not known yet).
 - **MIDI in from a jack**: the SMK-37 has none (the FM-1's MIDI in pin is a key matrix row there). USB-MIDI works.
 - **The boot slot** (a developer's tool) and **solo apps** (FM-1 SID as its own firmware).
 - The first click of a knob after power-on may not count (the encoder decoder settles on it).

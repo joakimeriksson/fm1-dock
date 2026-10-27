@@ -24,7 +24,11 @@
 
 #define HX_MAGIC 0x31584248u                    /* "HBX1" */
 #define HX_ABI 1u
+#if BOARD_SMK37
+#define HX_AT 0x65000u                          /* flash: the top 40 KiB of the SMK-37's app area (to 0x6F000; its app slot ends at 0x6F0DC) */
+#else
 #define HX_AT 0x88000u                          /* flash: the top 40 KiB of the image area (to 0x92000; the app slot ends at 0x920DC) */
+#endif
 #define HX_SIZE 0xA000u
 #define HX_XIP (0x02000000u + HX_AT - 0x4000u)
 #define HX_KEPT 112u                            /* the settings record: [0..7] the address, [8..107] the trims copy */
