@@ -54,10 +54,10 @@
 #define APP_BOOT_HOOK hb_boot_hook
 #define APP_SYSEX hb_sysex
 #define APP_MIDI_OUT ble_out                    /* BLE-MIDI (src/ble/hx.h): out from the audio ISR, in from TIMER5 */
-#define APP_T5_POLL ble_poll
+#define APP_T5_POLL t5_poll                     /* TIMER5: the DIN jack's UART flushed, BLE-MIDI in */
 #include <stdint.h>
 static void ble_out(uint32_t pkt);
-static void ble_poll(void);
+static void t5_poll(void);
 static void hb_boot_hook(uint32_t p3);
 static void hb_boot_now(void);
 #if !BOARD_SMK37                                /* (the SMK-37's keys have two contacts: their velocity is the scan's) */
@@ -908,6 +908,18 @@ static void hb_early_init(void)
 #if !BOARD_SMK37                                /* (the SMK-37 has no MIDI in: PH8 is a row of its key matrix) */
     fm1_uart1_midi_init(din_ring, DIN_RING);
 #endif
+}
+
+/* TIMER5's 2 kHz part. The DIN jack's UART latched (RDC) and its pendings cleared every poll, as Dinghy's
+ * midi_uart.c does (fm1_uart1_rx_take): without it, notes from the jack were reported lagging badly on an
+ * FM-1 where Dinghy's OberVave played them at once (fm1-emu cannot tell: its UART DMA writes each byte
+ * as it lands). The ring is still read by content, in the main loop (din_get). */
+static void t5_poll(void)
+{
+#if !BOARD_SMK37
+    fm1_uart1_rx_take();
+#endif
+    ble_poll();
 }
 
 static struct { uint8_t st, n, d[2]; } din;      /* the parser: running status, data bytes so far */
