@@ -4,8 +4,8 @@
 // by Leo Kuroshita, Hügelton Instruments, GPL-3.0).
 //   node tests/install_test.mjs [DIR]
 import { readFileSync, existsSync } from "node:fs";
-import { checkPackage, packageDamage, logicalImage, productOf, installOn, addModule, playTune, tuneSteps } from "../docs/install/fm1install.js";
-import { pack7, unpack7 } from "../docs/install/fm1ota.js";
+import { checkPackage, packageDamage, logicalImage, productOf, installOn, entryFor, addModule, playTune, tuneSteps } from "../docs/install/fm1install.js";
+import { pack7, unpack7, Updater, sameKeyboard } from "../docs/install/fm1ota.js";
 import { frame, parse, moduleInfo, crc32, CMD } from "../docs/dock.js";
 
 let failed = 0;
@@ -17,7 +17,9 @@ const reject = (p) => p.then(() => null, (e) => e);
 const dir = process.argv[2];
 if (dir && existsSync(`${dir}/index.json`)) {
   const index = JSON.parse(readFileSync(`${dir}/index.json`, "utf8"));
-  for (const [id, entry] of Object.entries(index.firmwares)) {
+  const all = Object.entries(index.firmwares).flatMap(([id, e]) =>
+    [[id, e], ...Object.entries(e.variants || {}).map(([model, v]) => [`${id} (${model})`, v])]);   // (the SMK-37's too)
+  for (const [id, entry] of all) {
     const raw = new Uint8Array(readFileSync(`${dir}/${entry.file}`));
     const pkg = await checkPackage(raw, entry);
     ok(pkg.product === entry.product && pkg.image.length === raw.length - 20, `${id}: ${entry.file} passes, ${pkg.product}`);
@@ -41,8 +43,9 @@ const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 // an FM-1 on WebMIDI: identity, then "device asks, host answers" reads of the image; boots into the loader
 // after step 1, into the new firmware (identity `product`) after step 2
 class FakeFM1 {
-  constructor(image, identity, product) {
+  constructor(image, identity, product, loader = "ota-FM-1_900") {
     this.image = image; this.product = product; this.served = 0; this.bad = 0; this.sent = 0; this.upgrades = 0;
+    this.loader = loader;                       // the update loader it boots into (the package's: ota-<model>_900)
     this.access = { inputs: new Map(), outputs: new Map() };
     this.boot(identity, identity.startsWith("ota-") ? "Felucca Update" : "Felucca");
   }
@@ -78,7 +81,7 @@ class FakeFM1 {
       if (!eq(got, want)) this.bad++;
       this.waiting = null;
       this.served++;
-      if (addr === 0xE0000000) setTimeout(() => this.boot("ota-FM-1_900", "Felucca Update"), 300);
+      if (addr === 0xE0000000) setTimeout(() => this.boot(this.loader, "Felucca Update"), 300);
       else if (addr === 0xF0000000) setTimeout(() => this.boot(this.product, "Felucca"), 300);
       else this.next();
     }
@@ -137,6 +140,55 @@ const yes = async () => true, no = async () => false;
   ok(e && e.code === "model", "another device than an FM-1: refused (model)");
 }
 ok(productOf(new Uint8Array(0x400).fill(0x7D)) === "", "productOf: no marker bytes, no identity");
+
+// ------------------------------------------------------------------ the SMK-37 ---
+const smkPkg = { product: "SMK-37 Pro_921", image };
+{
+  const dev = new FakeFM1(image, "SMK-37 Pro_016", "SMK-37 Pro_921", "ota-SMK-37 Pro_900");
+  const got = await installOn(dev.access, smkPkg, "fm1-dock", yes, () => {});
+  ok(got === "SMK-37 Pro_921" && dev.bad === 0, "SMK-37 Pro (stock): its package installs, through ota-SMK-37 Pro_900");
+}
+{
+  const dev = new FakeFM1(image, "STARRYKEY-37 PLAY_016", "SMK-37 Pro_921", "ota-SMK-37 Pro_900");
+  const got = await installOn(dev.access, smkPkg, "fm1-dock", yes, () => {});
+  ok(got === "SMK-37 Pro_921", "Starrykey 37 Play: the SMK-37 Pro's package (the same keyboard)");
+}
+{
+  const dev = new FakeFM1(image, "SMK-37 Pro_016", "FM-1_921");
+  const e = await reject(installOn(dev.access, { product: "FM-1_921", image }, "fm1-dock", yes, () => {}));
+  ok(e && e.code === "model" && dev.upgrades === 0, "an FM-1 package on an SMK-37: refused, nothing sent");
+}
+{
+  const dev = new FakeFM1(image, "FM-1_921", "SMK-37 Pro_921");
+  const e = await reject(installOn(dev.access, smkPkg, "fm1-dock", yes, () => {}));
+  ok(e && e.code === "model" && dev.upgrades === 0, "an SMK-37 package on an FM-1: refused, nothing sent");
+}
+{
+  const dev = new FakeFM1(image, "ota-SMK-37 Elite_900", "FM-1_921");
+  const e = await reject(installOn(dev.access, { product: "FM-1_921", image }, "fm1-dock", yes, () => {}));
+  ok(e && dev.upgrades === 0 && dev.served === 0, "an SMK-37 in update mode, an FM-1 package: nothing written");
+}
+{
+  const dev = new FakeFM1(image, "ota-SMK-37 Pro_900", "SMK-37 Pro_921");
+  const done = await new Updater(dev.access).resume(image, () => {});
+  ok(done === false && dev.upgrades === 0, "resume without the package's identity: nothing written");
+}
+ok(sameKeyboard("ota-SMK-37 Elite", "SMK-37 Pro") && !sameKeyboard("FM-1", "SMK-37 Pro") && sameKeyboard("MKE-P37", "STARRYKEY-37 PLAY"),
+  "sameKeyboard: the SMK-37 family is one keyboard, never with the FM-1");
+{
+  const entry = { file: "fm1-dock-0.7.fwsc", product: "FM-1_921", variants: {
+    "SMK-37 Pro": { file: "fm1-dock-0.7-smk37.fwsc", product: "SMK-37 Pro_921" },
+    "SMK-37 Elite": { file: "fm1-dock-0.7-smk37-elite.fwsc", product: "SMK-37 Elite_921" } } };
+  const pick = async (identity, e = entry) => (await entryFor(new FakeFM1(image, identity, "").access, e)).file;
+  ok(await pick("FM-1_921") === "fm1-dock-0.7.fwsc", "the package for an FM-1: the FM-1's");
+  ok(await pick("SMK-37 Elite_016") === "fm1-dock-0.7-smk37-elite.fwsc", "for an SMK-37 Elite: the Elite's");
+  ok(await pick("STARRYKEY-37 PLAY_016") === "fm1-dock-0.7-smk37.fwsc", "for a Starrykey 37 Play: the SMK-37 Pro's");
+  ok(await pick("ota-SMK-37 Pro_900") === "fm1-dock-0.7-smk37.fwsc", "for an SMK-37 Pro in update mode: its own");
+  const e = await reject(pick("MKE-P37_016"));
+  ok(e && e.code === "nosmk", "an MKE-P37 with no package of its own on the site: refused (nosmk)");
+  const e2 = await reject(pick("SMK-37 Pro_016", { file: "fm1-sid-0.3.fwsc", product: "FM-1_922" }));
+  ok(e2 && e2.code === "nosmk", "an SMK-37 and a firmware without SMK-37 packages: refused (nosmk)");
+}
 
 // ------------------------------------------------------------------ a module into fm1-dock ---
 // an FM-1 running fm1-dock (firmware/src/dock.c's deploys, as docs/dock.js speaks them), on WebMIDI

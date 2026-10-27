@@ -5,6 +5,12 @@
 loader and an installable .fwsc package.
 
   tools/build.py [--release X.Y[-suffix]] [--modules cs1,scintilla,obervave] [--no-package]
+  tools/build.py --board smk37 [--model pro|elite|mke] [--release X.Y] ...
+      the M-Vave SMK-37 (Pro, Elite, MKE-P37: one keyboard, three model names): fm1-dock for its panel and flash
+      (-DBOARD_SMK37=1, firmware/hal/fm1_flash_map.h), identity "SMK-37 Pro_921" (the model's name), the package
+      build/fm1-dock-smk37.fwsc (-elite, -mke; fm1-dock-X.Y-smk37.fwsc for a release), BLE-MIDI as on the FM-1
+      (HX at flash 0x65000). No boot slot, no solo app on it yet. The FM-1 build gets no new flag: it stays byte
+      for byte as it was
   tools/build.py --modules PATH/TO/MODULE --name NAME --app-name "NAME" --identity FM-1_9NN [--pack FILE]
       a solo app: fm1-dock with one module of its own (a directory anywhere: HB_MOUNT for Docker),
       its own name for the outputs and the crash / rescue screens, its own package identity, and
@@ -55,6 +61,9 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
+BOARD = "fm1"                       # fm1 (default) or smk37 (--board, or $BOARD)
+MODELS = {"pro": "SMK-37 Pro", "elite": "SMK-37 Elite", "mke": "MKE-P37"}   # smk37: the model's name (--model)
+BOARD_DEFS = []                     # the SMK's -D flags (the FM-1 build gets none: byte-identical)
 PRODUCT = "FM-1_921"                # fm1-dock's own, for every release (free on the Firmware Hub, 2026-10-26: 95N, as
                                     # it was, is other firmwares'); FM-1_9NN as OUR_LOADER in the installer wants
 VERSION = None                      # APP_VER for release builds
@@ -142,7 +151,7 @@ def ldr_wrap(image):
 def build_loader():
     LDR.mkdir(parents=True, exist_ok=True)
     src = FW / "loader"
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src"]
+    flags = [*CFLAGS, *BOARD_DEFS, "-Ifirmware/hal", "-Ifirmware/src"]
     tc_all(("cc", "-c", src / "crt0_ldr.S", "-o", LDR / "crt0_ldr.o"),
            ("cc", *flags, "-c", src / "loader.c", "-o", LDR / "loader.o"))
     elf = LDR / "loader.elf"
@@ -175,12 +184,12 @@ HOST = "dock"
 PACKAGE = ["cs1", "scintilla", "obervave"]   # the modules in the package (all of modules/ no longer fits its app slot)                       # the host's source: firmware/src/dock.c
 SLOT_TABLE = 0x02030000             # firmware/src/dock.c HB_TABLE_AT (flash 0x34000)
 SLOT_FIRST = SLOT_TABLE + 0x1000
-HX_XIP = 0x02084000                 # firmware/src/ble/hx.h HX_AT (flash 0x88000): BLE-MIDI, a unit of its own
+HX_XIP = 0x02084000                 # firmware/src/ble/hx.h HX_AT (flash 0x88000): BLE-MIDI, a unit of its own (SMK-37: main)
 HX_SIZE = 0xA000
 
 
 def build_app():
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/dock",
+    flags = [*CFLAGS, *BOARD_DEFS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/dock",
              f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"', *(["-DHB_BOOT_SLOT=1"] if BOOT_SLOT else []),
              *([f'-DAPP_NAME="{APP_NAME}"'] if APP_NAME else []), *(["-DHB_SOLO=1"] if SOLO else [])]
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
@@ -193,7 +202,12 @@ def build_app():
              "-c", SRC / "modules" / "sine" / "sine.c", "-o", OUT / "sine_builtin.o")]
     tc_all(*cmds)
     elf = OUT / f"{APP}.elf"
-    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",
+    ld = FW / "app.ld"
+    if HX_XIP != 0x02084000:                    # (the SMK-37: app.ld with HX at its place there)
+        ld = OUT / f"app-{BOARD}.ld"
+        t = (FW / "app.ld").read_text()
+        ld.write_text(t.replace("ORIGIN = 0x02084000", f"ORIGIN = {HX_XIP:#010x}"))
+    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", ld, OUT / "crt0.o", OUT / "fm1_vec.o",
        OUT / "fm1_isr.o", OUT / f"{HOST}.o", OUT / "hx.o", OUT / "sine_builtin.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin", "hx_text.bin", "hx_data.bin"):
         (OUT / sect).unlink(missing_ok=True)
@@ -241,7 +255,7 @@ def pack_slots(host, modules, hx):
     aligned slot, relocated to run there (hbmod.move); HX (BLE-MIDI) at its place at the top"""
     import hbmod
     boot_lo = 0x02000000 + 0x14000 - 0x4000      # hb_module.h HB_BOOT_LO: a boot firmware's first sector
-    if APP_XIP + len(host) > boot_lo:
+    if BOARD == "fm1" and APP_XIP + len(host) > boot_lo:
         raise SystemExit(f"the host ({len(host)} B) runs into the boot slot at flash 0x14000")
     if APP_XIP + len(host) > SLOT_TABLE:
         raise SystemExit(f"the host ({len(host)} B) runs into the slot table at {SLOT_TABLE:#x}")
@@ -351,8 +365,11 @@ SOLO = False                        # --name: a solo app (a new install starts i
 
 
 def main():
-    global PRODUCT, VERSION, BOOT_SLOT, APP, APP_NAME, SOLO
+    global PRODUCT, VERSION, BOOT_SLOT, APP, APP_NAME, SOLO, BOARD, BOARD_DEFS, SLOT_TABLE, SLOT_FIRST, APP_SLOT, HX_XIP
     ap = argparse.ArgumentParser()
+    ap.add_argument("--board", choices=("fm1", "smk37"), help="the board: fm1 (default: $BOARD, else fm1) or smk37")
+    ap.add_argument("--model", choices=sorted(MODELS), help="smk37: the model's name, pro (default: $MODEL, else pro), "
+                    "elite or mke")
     ap.add_argument("--release", metavar="X.Y", help="release build: version string X.Y (the identity stays fm1-dock's)")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--modules", help=f"the modules to pack, in slot order (default: {','.join(PACKAGE)}; every "
@@ -367,6 +384,21 @@ def main():
     ap.add_argument("--identity", help="the package identity (FM-1_9NN) in place of fm1-dock's")
     ap.add_argument("--pack", type=Path, help="data for the module, right after the modules (in the app slot)")
     a = ap.parse_args()
+    BOARD = (a.board or os.environ.get("BOARD") or "fm1").lower().replace("-", "")
+    model = (a.model or os.environ.get("MODEL") or "pro").lower()
+    if BOARD not in ("fm1", "smk37") or model not in MODELS or (model != "pro" and BOARD != "smk37"):
+        raise SystemExit(f"BOARD={BOARD} MODEL={model}: fm1, or smk37 with pro, elite or mke")
+    fm1pkg_make.set_board(BOARD)
+    APP_SLOT = fm1pkg_make.APP_SLOT
+    if BOARD == "smk37":            # (hal/fm1_flash_map.h, src/dock.c HB_TABLE_AT: the slot table at flash 0x18000)
+        if a.boot_slot or a.name or a.pack or a.identity:
+            raise SystemExit("--board smk37: no boot slot, no solo app (--name, --pack, --identity) yet")
+        BOARD_DEFS = ["-DBOARD_SMK37=1", *([f'-DSMK_MODEL="{MODELS[model]}"'] if model != "pro" else [])]
+        SLOT_TABLE = 0x02014000
+        SLOT_FIRST = SLOT_TABLE + 0x1000
+        PRODUCT = MODELS[model] + PRODUCT[PRODUCT.index("_"):]
+        APP = APP + "-smk37" + ("" if model == "pro" else "-" + model)
+        HX_XIP = 0x02061000         # (src/ble/hx.h HX_AT on the SMK-37: flash 0x65000, the top of its app slot)
     BOOT_SLOT = a.boot_slot
     APP = a.name or APP
     APP_NAME = a.app_name
@@ -381,7 +413,7 @@ def main():
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix, one digit each")
         VERSION = m[1] + "." + m[2] + (m[3] or "")
-        name = f"{APP}-{a.release}.fwsc"
+        name = f"{APP}-{a.release}.fwsc" if BOARD == "fm1" else f"{APP.replace('-smk37', '-' + a.release + '-smk37')}.fwsc"
     fm1pkg_make.SDK = a.sdk
     if not a.no_package:
         for rel, sha in SDK_SHA256.items():      # fail early without the SDK
@@ -430,7 +462,7 @@ def main():
     pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT)
     (OUT / name).write_bytes(pkg)
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
-    print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}")
+    print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}, board {BOARD}")
     return 0
 
 

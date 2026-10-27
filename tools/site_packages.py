@@ -8,6 +8,9 @@ tools/fm1_install.py checks a package before it installs one (identity, update l
   tools/site_packages.py OUT_DIR ID=OWNER/REPO ... [--modules DIR]      (GH_TOKEN, or gh logged in)
   e.g. tools/site_packages.py _site/fw fm1-dock=joakimeriksson/fm1-dock fm1-sid=joakimeriksson/fm1-sid --modules docs/modules
 
+A release may carry the SMK-37's packages beside the FM-1's (fm1-dock: NAME-X.Y-smk37.fwsc, -smk37-elite, -smk37-mke):
+those go into the firmware's "variants", by the model their identity names, for the page to pick by the keyboard.
+
 The modules the page adds to an fm1-dock (FM-1 SID): a .dock attached to that firmware's latest release when there is
 one, else DIR's copy (DIR/modules.json says what it is). Each is checked as tools/hbdeploy.py checks one (its header).
 """
@@ -81,24 +84,34 @@ def main(argv):
         rel = gh_json(f"repos/{repo}/releases/latest")
         releases[fid] = {**rel, "repo": repo}
         assets = [a for a in rel["assets"] if a["name"].endswith(".fwsc")]
-        if len(assets) != 1:
-            raise SystemExit(f"{repo} {rel['tag_name']}: {len(assets)} .fwsc assets, expected one")
-        a = assets[0]
-        subprocess.run(["gh", "release", "download", rel["tag_name"], "-R", repo, "-p", a["name"], "-D", str(out),
-                        "--clobber"], check=True)
-        path = out / a["name"]
-        raw = path.read_bytes()
-        sha = hashlib.sha256(raw).hexdigest()
-        if a.get("digest") and a["digest"] != "sha256:" + sha:
-            raise SystemExit(f"{repo} {a['name']}: SHA-256 {sha}, GitHub says {a['digest']}")
-        try:
-            product, _ = fm1_install.load_package(str(path), False)
-        except fm1_install.InstallError as e:
-            raise SystemExit(f"{repo} {a['name']}: {e}")
-        index["firmwares"][fid] = {"name": rel["name"] or a["name"], "version": rel["tag_name"].removeprefix("v"),
-                                   "tag": rel["tag_name"], "file": a["name"], "sha256": sha, "size": len(raw),
-                                   "product": product, "release": rel["html_url"]}
-        print(f"{fid:10} {a['name']:28} {product:14} {sha[:16]}")
+        fm1 = [a for a in assets if "-smk37" not in a["name"]]
+        if len(fm1) != 1:
+            raise SystemExit(f"{repo} {rel['tag_name']}: {len(fm1)} FM-1 .fwsc assets, expected one")
+        variants = {}
+        for a in fm1 + [a for a in assets if "-smk37" in a["name"]]:
+            subprocess.run(["gh", "release", "download", rel["tag_name"], "-R", repo, "-p", a["name"], "-D", str(out),
+                            "--clobber"], check=True)
+            path = out / a["name"]
+            raw = path.read_bytes()
+            sha = hashlib.sha256(raw).hexdigest()
+            if a.get("digest") and a["digest"] != "sha256:" + sha:
+                raise SystemExit(f"{repo} {a['name']}: SHA-256 {sha}, GitHub says {a['digest']}")
+            try:
+                product, image = fm1_install.load_package(str(path), False)
+            except fm1_install.InstallError as e:
+                raise SystemExit(f"{repo} {a['name']}: {e}")
+            board = fm1_install.package_board(image)
+            if (board == "smk") != ("-smk37" in a["name"]):
+                raise SystemExit(f"{repo} {a['name']}: laid out for {board}, named for the other board")
+            print(f"{fid:10} {a['name']:28} {product:14} {sha[:16]}")
+            if board == "smk":
+                variants[fm1_install.model_of(product)] = {"file": a["name"], "sha256": sha, "size": len(raw), "product": product}
+                continue
+            index["firmwares"][fid] = {"name": rel["name"] or a["name"], "version": rel["tag_name"].removeprefix("v"),
+                                       "tag": rel["tag_name"], "file": a["name"], "sha256": sha, "size": len(raw),
+                                       "product": product, "release": rel["html_url"]}
+        if variants:
+            index["firmwares"][fid]["variants"] = variants
     if mdir:
         modules(out, index, mdir, releases)
     (out / "index.json").write_text(json.dumps(index, indent=1) + "\n")

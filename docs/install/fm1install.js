@@ -4,8 +4,9 @@
 // this site's fw/ by .github/workflows/pages.yml (tools/site_packages.py) with fw/index.json: GitHub does not let
 // a page download a release asset itself. The page checks its copy against the SHA-256 GitHub gave for the
 // release asset, and the package itself as tools/fm1_install.py does (identity, update loader, every file's CRC).
-// The update is Felucca's fm1ota.js (hugelton/Felucca 727f272, Felucca 1.0, unchanged), over WebMIDI:
-// Chrome or Edge.
+// The update is Felucca's fm1ota.js (hugelton/Felucca 727f272, Felucca 1.0; with the SMK-37's names and checks), over
+// WebMIDI: Chrome or Edge. On an SMK-37 (Pro, Elite, MKE-P37, Starrykey 37 Play) the button installs the package for
+// that keyboard (index.json's variants, by model), never the FM-1's.
 //
 //   <div data-fm1-install="fm1-sid"></div>             a whole firmware
 //   <div data-fm1-add="fm1-sid"></div>                 a module into the fm1-dock on the FM-1 (addButton)
@@ -14,14 +15,15 @@
 //     import { installButton } from "/fm1-dock/install/fm1install.js";
 //     for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install);
 //   </script>
-import { Updater } from "./fm1ota.js";
+import { Updater, sameKeyboard } from "./fm1ota.js";
 import { Dock, CMD, moduleInfo } from "../dock.js";
 
 const SITE = new URL("../", import.meta.url);           // fm1-dock's site: fw/ is there
 const BLOCKS = 20, BLK = 0x30, KEEP = 0x2F;
 const LOADER_MARK = "FELUCCA-LOADER-1";
 const IS_OTA = (id) => /^ota-/i.test(id.model);
-const OUR_LOADER = (id) => /^ota-FM-1_9\d\d$/i.test(id.text);   // Felucca's and fm1-dock's (both ota-FM-1_900)
+const OUR_LOADER = (id) => /^ota-(FM-1|SMK-37 Pro|SMK-37 Elite|MKE-P37)_9\d\d$/i.test(id.text);   // Felucca's and fm1-dock's
+const SMK_FAMILY = /^(SMK-37[ +].*|MKE-P37|STARRYKEY-37.*)$/i;   // (the Starrykey 37 Play takes the SMK-37 Pro's)
 
 // what the pages call them, and what each keeps over an install
 export const FIRMWARES = {
@@ -122,7 +124,8 @@ export async function checkPackage(raw, entry) {
   return { product, image };
 }
 
-// fw/index.json: { firmwares: { id: { name, version, tag, file, sha256, size, product, release } } }
+// fw/index.json: { firmwares: { id: { name, version, tag, file, sha256, size, product, release,
+//   variants: { "SMK-37 Pro": { file, sha256, size, product }, ... } } } }: variants are the SMK-37 models' packages
 let catalogue = null;
 export function catalog() {
   catalogue ||= fetch(new URL("fw/index.json", SITE), { cache: "no-cache" }).then((r) => {
@@ -130,6 +133,20 @@ export function catalog() {
     return r.json();
   }).catch((e) => { catalogue = null; throw e; });
   return catalogue;
+}
+
+// the catalogue entry for the device on midi (running, or in update mode): the FM-1's, or its SMK-37 model's
+export async function entryFor(midi, entry) {
+  const up = new Updater(midi);
+  const dev = await up.find();
+  if (!dev) throw fail("notfound", "FM-1 not found");
+  dev.link.close();
+  const model = dev.id.model.replace(/^ota-/i, "");
+  if (!SMK_FAMILY.test(model)) return entry;
+  const v = entry.variants || {};
+  const e = v[model] || (/^STARRYKEY/i.test(model) ? v["SMK-37 Pro"] : null);
+  if (!e || !sameKeyboard(e.product.split("_")[0], model)) throw fail("nosmk", model);
+  return { ...entry, ...e };
 }
 
 export async function loadPackage(entry) {
@@ -261,7 +278,8 @@ const SAY = {
   nomidi: "This browser cannot reach the FM-1: open the page in Chrome or Edge.",
   denied: "MIDI (SysEx) was not allowed. Allow MIDI in the site settings (the address bar) and press Install again.",
   notfound: "FM-1 not found. Plug it in with a USB data cable, close other apps that use MIDI, and press Install again.",
-  model: "The connected device is not an FM-1.",
+  model: "The connected device is not the one this package is for: nothing was written.",
+  nosmk: "There is no SMK-37 package of this firmware on this site: it runs on the FM-1 only.",
   foreign: "The FM-1 is in the update mode of another firmware: finish that update with its own installer, then press Install again.",
   stopped: "Stopped. Replug the USB cable and press Install again: the FM-1 stays in update mode until it is finished.",
   lost: "The USB connection was lost. Replug it and press Install again: the FM-1 stays in update mode until it is finished.",
@@ -299,7 +317,7 @@ export function installButton(el, id, opts = {}) {
     (fw.keeps ? fw.keeps + " " : "") + "Installing firmware is at your own risk; OCT− held at power-on is the USB rescue.";
   el.append(btn, bar, status, note);
   const say = (text) => { status.textContent = text; };
-  let entry = null, pkg = null, writing = false;
+  let entry = null, pkg = null, writing = false;   // (pkg: the last package loaded, by its file)
 
   if (!navigator.requestMIDIAccess) say(SAY.nomidi);
   catalog().then((c) => {
@@ -307,6 +325,8 @@ export function installButton(el, id, opts = {}) {
     if (!entry) { say(`No ${fw.name} package on this site yet.`); return; }
     btn.textContent = `Install ${fw.name} ${entry.version} on my FM-1`;
     btn.disabled = !navigator.requestMIDIAccess;
+    if (entry.variants && Object.keys(entry.variants).length)
+      note.textContent += " An SMK-37 keyboard gets its own package (Pro, Elite, MKE-P37).";
   }).catch((e) => say(`Could not load the list of packages (${e.message}).`));
 
   addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = ""; } });
@@ -314,10 +334,11 @@ export function installButton(el, id, opts = {}) {
     if (writing || !entry) return;
     writing = true; btn.disabled = true;
     try {
-      pkg ||= await loadPackage(entry);
       let midi;
       try { midi = await navigator.requestMIDIAccess({ sysex: true }); } catch (_) { throw fail("denied", ""); }
       say("Looking for the FM-1 …");
+      const want = await entryFor(midi, entry);      // (the FM-1's package, or the SMK-37 model's)
+      if (!pkg || pkg.file !== want.file) pkg = { ...await loadPackage(want), file: want.file };
       const reads = Math.ceil(pkg.image.length / 512);
       const step = (k, n) => {
         if (k === "verify") { bar.hidden = false; bar.value = Math.min(10, n / 8); }

@@ -33,7 +33,9 @@ FINISH_CHECK, FINISH_WRITE = 0xE0000000, 0xF0000000
 MAXDATA = 512
 BLOCKS, BLK, KEEP = 20, 0x30, 0x2F
 LOADER_MARK = b"FELUCCA-LOADER-1"
-PORT_RE = re.compile(r"fm-1|felucca|ota|composite|sinco|usb-midi", re.I)   # never probe other gear
+PORT_RE = re.compile(r"fm-1|smk|elite|mke-p37|starry|felucca|ota|composite|sinco|usb-midi", re.I)   # never probe other
+# gear (the FM-1 and the SMK-37 family: their stock firmwares, Felucca's and fm1-dock's, the update loaders)
+OWN_LOADER_RE = re.compile(r"ota-(FM-1|SMK-37 Pro|SMK-37 Elite|MKE-P37)_9\d\d", re.I)   # Felucca's own update loader
 
 # seconds; the tests shorten them
 DELAY = {"open": 0.3, "start": 2.0, "reply": 0.01, "loader": 3.0, "reboot": 3.0, "retry": 1.0,
@@ -135,6 +137,17 @@ def logical_image(raw):
 
 def model_of(text):
     return text.split("_")[0].removeprefix("ota-")
+
+
+# the SMK-37 Pro, SMK-37 Elite, MKE-P37 and Starrykey 37 Play: one keyboard under several names (genkigenki's
+# fm1-to-smk37; its reference port's installer)
+SMK_FAMILY = re.compile(r"SMK-37[ +].*|MKE-P37|STARRYKEY-37.*", re.I)
+
+
+def same_keyboard(a, b):
+    """the models of identities a and b are the same hardware (never an FM-1 and an SMK-37)"""
+    ma, mb = model_of(a), model_of(b)
+    return ma == mb or bool(SMK_FAMILY.fullmatch(ma) and SMK_FAMILY.fullmatch(mb))
 
 
 # ------------------------------------------------------------------ MIDI ---
@@ -353,10 +366,14 @@ class Updater:
     def install(self, dev, image, product, step=lambda *a: None):
         """running firmware -> loader -> new firmware; dev from find(). A device already in
         update mode only needs the write."""
-        if model_of(dev.id.text) != model_of(product):
+        refusal = board_refusal(model_of(dev.id.text), image)   # (the package's own board, before anything)
+        if refusal:
+            dev.link.close()
+            raise refusal
+        if not same_keyboard(dev.id.text, product):
             dev.link.close()
             raise InstallError("model", f"the device is {dev.id.text}, the package is for {product}")
-        if dev.id.loader and not re.fullmatch(r"ota-FM-1_9\d\d", dev.id.text, re.I):
+        if dev.id.loader and not OWN_LOADER_RE.fullmatch(dev.id.text):
             dev.link.close()           # another firmware's loader: its image layout may differ
             raise InstallError("foreign", f"the FM-1 is in the update mode of another firmware ({dev.id.text}): "
                                           "finish that update with its own updater (M-UPGRADE), then install again")
@@ -428,6 +445,86 @@ def package_damage(image):
             return f"{name}: cut short"
         if _crc16(image[off:off + size]) != dcrc:
             return f"{name}: CRC"
+    return None
+
+
+# ---------------------------------------------------- the package's board ---
+# Read from the package itself, not from an identity: the FM-1's and the SMK-37's packages share the head and the
+# update loader, and an FM-1 firmware running on an SMK-37 reports an FM-1. An FM-1 package on an SMK-37 would write
+# over what the SMK keeps at the FM-1's places (the reference port's board_refusal). The board: flash.bin's region
+# table (app offset 0x60 = flash 0x4060-0x411F, SFC-enciphered with the chip key 0x980F): BTIF and USR at 0xC0000 /
+# 0xF4000 on the SMK-37, at 0xE9000 / 0xEA000 on the FM-1 (fm1-dock's SMK app area is shorter than the stock's).
+LAYOUT = {"smk": (0xC0000, (0xF4000, 0xA000)), "fm1": (0xE9000, (0xEA000, 0x12000))}
+SMK_MODEL_RE = re.compile(r"(ota-)?(SMK-37([ +].*)?|MKE-P37|STARRYKEY-37.*)", re.I)
+
+
+def _sfc(data, base, key=0x980F):
+    """the JieLi SFC cipher of the app area (32-byte blocks, its own inverse)"""
+    out = bytearray(data)
+    for i in range(0, len(out), 32):
+        k = (key ^ ((base + i) >> 2)) & 0xFFFF
+        for j in range(i, min(i + 32, len(out))):
+            out[j] ^= k & 0xFF
+            k = ((k << 1) ^ (0x1021 if k & 0x8000 else 0)) & 0xFFFF
+    return bytes(out)
+
+
+def package_files(image):
+    """[(type, offset, size, USR target, USR size)] from the UFW file list"""
+    if len(image) < 0x40:
+        return []
+    rd = lambda b, o, n: int.from_bytes(b[o:o + n], "little")  # noqa: E731
+    out = []
+    for i in range(min(rd(_dec(image[0:0x40]), 8, 2), 11)):
+        if 0x90 + i * 0x50 > len(image):
+            break
+        e = _dec(image[0x40 + i * 0x50:0x90 + i * 0x50])
+        out.append((rd(e, 0, 2), rd(e, 8, 4), rd(e, 12, 4), rd(e, 0x1C, 4), rd(e, 0x20, 4)))
+    return out
+
+
+def region_table(flash):
+    """flash.bin's region table: {name: (address, size)}"""
+    if len(flash) < 0x4120:
+        return {}
+    t, out = _sfc(flash[0x4060:0x4120], 0x60), {}
+    for r in range(0, 0xC0, 32):
+        name = bytearray()
+        for c in t[r + 16:r + 32]:
+            if not 0x20 < c < 0x7F:
+                break
+            name.append(c)
+        if name:
+            out[name.decode()] = (int.from_bytes(t[r + 4:r + 8], "little"), int.from_bytes(t[r + 8:r + 12], "little"))
+    return out
+
+
+def package_board(image):
+    """"smk", "fm1" (any sign of the FM-1's layout) or None (not a package, or another layout)"""
+    files = package_files(image)
+    fl = next((f for f in files if f[0] == 0), None)
+    if not fl or fl[1] + fl[2] > len(image):
+        return None
+    rt = region_table(image[fl[1]:fl[1] + fl[2]])
+    usr = [(f[3], f[4]) for f in files if f[0] == 50]
+    s_btif, s_usr = LAYOUT["smk"]
+    f_btif, f_usr = LAYOUT["fm1"]
+    if rt.get("BTIF", (0,))[0] == s_btif and rt.get("USR") == s_usr and all(u == s_usr for u in usr):
+        return "smk"
+    if rt.get("BTIF", (0,))[0] == f_btif or rt.get("USR", (0,))[0] == f_usr[0] or any(u[0] == f_usr[0] for u in usr):
+        return "fm1"
+    return None
+
+
+def board_refusal(model, image):
+    """None, or why image must not be written to a device reporting model (nothing is sent): a package laid out
+    for the FM-1 on an SMK-37, or one for the SMK-37 on anything else"""
+    board, smk = package_board(image), bool(SMK_MODEL_RE.fullmatch(model))
+    if smk and board == "fm1":
+        return InstallError("board", f"this package is for the FM-1; the device is an SMK-37 ({model}): nothing was sent. "
+                                     "Use the SMK-37 package (fm1-dock-smk37.fwsc)")
+    if not smk and board == "smk":
+        return InstallError("board", f"this package is for the SMK-37; the device reports {model}: nothing was sent")
     return None
 
 

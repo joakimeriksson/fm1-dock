@@ -8,3 +8,13 @@
 #pragma once
 
 #define FM1_INLINE static inline __attribute__((always_inline))
+
+/* The board: 0 = M-Vave FM-1 (default), 1 = M-Vave SMK-37 (Pro / Elite, MKE-P37: the FM-1's AC791N, SPL
+ * and update loader behind a different panel; genkigenki's fm1-to-smk37 kit). tools/build.py --board
+ * smk37 sets it; SMK_MODEL is the model name the build reports (--model elite / mke). */
+#ifndef BOARD_SMK37
+#define BOARD_SMK37 0
+#endif
+#if BOARD_SMK37 && !defined(SMK_MODEL)
+#define SMK_MODEL "SMK-37 Pro"
+#endif

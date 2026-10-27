@@ -34,12 +34,23 @@
 #define CV_MAX (240u * 96u)
 #define APP_FAULT_HOOK hb_fault
 #define APP_EARLY_INIT hb_early_init
+#include "fm1_cc.h"                             /* BOARD_SMK37 */
+#if BOARD_SMK37
+/* the SMK-37 (hal/fm1_flash_map.h): the deployed modules, their table and the banks from the app's end up, around
+ * the protected calibration (0xC0000..0xC1FFF) and below the stock resources (0xF4000); no boot slot */
+#define APP_FL_LO 0x70000u
+#define APP_FL_HI 0xF4000u
+#define SETTINGS_AT 0xBA000u
+#define APP_FL_KEEP_LO 0xC0000u                 /* BTIF and the factory calibration: never written (FL_PROTECTED too) */
+#define APP_FL_KEEP_HI 0xC2000u
+#else
 #define APP_FL_LO 0x14000u                      /* what the host may erase / program besides its settings: the boot */
 #define APP_FL_HI 0xFC000u                      /* slot, the deployed modules, their table, the banks; never the host
                                                  * (below; tools/build.py checks that it ends there) */
 #define SETTINGS_AT 0x95000u                    /* the host's own sector (0xFC000 is a boot firmware's: Felucca's) */
 #define APP_FL_KEEP_LO 0xE7000u                 /* stock's VM with the radio's factory trims (0xE8000) and BTIF: */
 #define APP_FL_KEEP_HI 0xEA000u                 /* never written, whatever else the area may take */
+#endif
 #define APP_BOOT_HOOK hb_boot_hook
 #define APP_SYSEX hb_sysex
 #define APP_MIDI_OUT ble_out                    /* BLE-MIDI (src/ble/hx.h): out from the audio ISR, in from TIMER5 */
@@ -49,10 +60,12 @@ static void ble_out(uint32_t pkt);
 static void ble_poll(void);
 static void hb_boot_hook(uint32_t p3);
 static void hb_boot_now(void);
+#if !BOARD_SMK37                                /* (the SMK-37's keys have two contacts: their velocity is the scan's) */
 static void hb_analog(uint32_t col, uint32_t rowbit, uint32_t v, uint32_t driven);
 static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #define FM1_INPUT_ANALOG(col, rowbit, v, driven) hb_analog(col, rowbit, v, driven)
 #define FM1_INPUT_DRIVE(col, rowbit) hb_analog_drive(col, rowbit)
+#endif
 #include "platform.c"
 #include "fm1_uart.h"
 #include "hb_module.h"
@@ -63,6 +76,25 @@ static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #define C_BAD RGB(255, 90, 70)
 #define KEY0 53u                                /* key 0 = F3 */
 
+#if BOARD_SMK37
+#define HB_TABLE_AT 0x18000u                    /* flash offset of the image's slot table (XIP 0x02014000) */
+#define HB_AREA_LO  0x19000u                    /* the image's modules, packed by tools/build.py */
+#define HB_AREA_HI  FL_APP_HI                   /* (the end of what an update writes: 0x70000) */
+#define DT_A        0xB8000u                    /* the deployed table, two copies (deploys, below) */
+#define DT_B        0xB9000u
+#define DP_LO       0x70000u                    /* the deployed modules, in the plain window: two areas around */
+#define DP_HI       0xB8000u                    /* the table, the update's staging and the calibration */
+#define DP2_LO      0xC2000u
+#define DP2_HI      0xE2000u
+#define BANK_LO     0xE2000u                    /* the modules' banks, 8 KiB each, 9 as on the FM-1 */
+#define BANK_HI     0xF4000u
+#define DP_TOP      DP2_HI                      /* the deployed modules' end (the PC limit) */
+static const uint32_t DP_AREA[2][2] = {{DP_LO, DP_HI}, {DP2_LO, DP2_HI}};
+static uint32_t dp_area(uint32_t off)           /* the deploy area flash offset off is in (0, 1), 2: neither */
+{
+    return off >= DP_LO && off < DP_HI ? 0u : off >= DP2_LO && off < DP2_HI ? 1u : 2u;
+}
+#else
 #define HB_TABLE_AT 0x34000u                    /* flash offset of the image's slot table (XIP 0x02030000) */
 #define HB_AREA_LO  0x35000u                    /* the image's modules, packed by tools/build.py */
 #define HB_AREA_HI  0x93000u                    /* (the end of what an update writes) */
@@ -72,6 +104,8 @@ static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #define DP_HI       0xE0000u
 #define BANK_LO     0xEA000u                    /* the modules' banks, 8 KiB each (Felucca's USR area) */
 #define BANK_HI     0xFC000u
+#define DP_TOP      DP_HI
+#endif
 #define FL_OF(xip)  ((uint32_t)(xip) - FM1_XIP(0u))             /* XIP address -> flash offset */
 #define BLOCK_TICKS (HALF_FRAMES * 1000000u / FS * FM1_TICKS_PER_US)   /* one block's time: 139 296 */
 
@@ -316,7 +350,12 @@ static void scan_slots(void)
         if (dt.s[i].magic == BOOT_MAGIC)
             add_boot(&dt.s[i]);
         else
+#if BOARD_SMK37
+            add_slot(&dt.s[i], K_DEPLOYED, DP_AREA[dp_area(FL_OF(dt.s[i].at)) & 1u][0],
+                     DP_AREA[dp_area(FL_OF(dt.s[i].at)) & 1u][1]);   /* (in neither: the check fails) */
+#else
             add_slot(&dt.s[i], K_DEPLOYED, DP_LO, DP_HI);
+#endif
 }
 
 /* ---- settings: the host's record and one per module, in one sector; flushed when nothing plays */
@@ -438,6 +477,35 @@ static void ble_start(uint32_t failed)          /* HX's first code: only once BL
     fm1_irq_on();
 }
 
+#if BOARD_SMK37
+/* the SMK-37: the stock VM's region (ble/ble_vm.h) is where its deployed modules, their table, the settings and an
+ * update's staging go, so the radio's trims are copied out of it at boot, before anything here writes it: HX takes
+ * the copy when the VM is gone. ble_vm.c's reader, the host's own (HX's is HX's) */
+#undef BLE_API
+#define BLE_API static
+#include "ble/ble_vm.c"
+static int ble_vm_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n) { (void)ctx; return ble_flash_read(off, dst, n); }
+static void ble_capture(void)                   /* after the settings, before any flash write */
+{
+    struct ble_vm_info info;
+    struct ble_rf_trims t;
+    uint8_t *copy = ble_rec + 4 + 8;            /* (HX_KEPT: [0..7] the address, [8..107] the trims copy) */
+    if (rec_load(BLE_KEY, ble_rec, sizeof ble_rec))
+        memset(ble_rec, 0, sizeof ble_rec);
+    if (!ble_vm_scan(ble_vm_rd, 0, &info, &t, 0, 0)) {
+        hb_log_u32(ble_rf_copy_ok(copy) ? "BLE: no stock VM, the trims copy kept" : "BLE: no radio trims (stock's VM)",
+                   info.area);
+        return;
+    }
+    if (ble_rf_copy_ok(copy) && ble_eq(copy + 1, (const uint8_t *)&t, BLE_RF_TRIMS_SIZE))
+        return;
+    ble_rf_copy_make(copy, &t, info.area);
+    rec_save(BLE_KEY, ble_rec, sizeof ble_rec);
+    store_flush();                              /* (now: a deploy may write over the VM next) */
+    hb_log_u32("BLE: the radio's trims kept, from", info.area);
+}
+#endif
+
 static void ble_boot(uint32_t safe)             /* after the settings, the module table and the boot guard */
 {
     const hx_api_t *h = (const hx_api_t *)HX_XIP;
@@ -489,6 +557,30 @@ static void ble_stop(void)                      /* before the image area is writ
  * The host's settings are CS-1's defaults at DRIVE 2; a module may set its own while it runs. */
 #define SENSE_DRIVE 2u
 static uint32_t sense_mask;                     /* the keys on the analog rows (PA7 / PA8): 0..19 */
+#if BOARD_SMK37
+/* the SMK-37: every key lands with a velocity (its two contacts, the scan's); sense.c's queue carries them, so a
+ * module sees them as the FM-1's sensed keys (KEY_DOWN with the velocity), with no pressure */
+static void sense_cfg_set(uint32_t on, uint32_t drive, uint32_t curve, uint32_t ceil) { (void)on; (void)drive; (void)curve; (void)ceil; }
+static void sense_defaults(void) {}
+static uint32_t h_sense_keys(void) { return sense_mask; }
+static void smk_sense_keys(uint32_t down, uint32_t up)   /* the main loop: the keys pressed / let go since */
+{
+    uint32_t k;
+    for (k = 0; k < 27u; k++) {
+        if (up >> k & 1u) {
+            sn_key[k].st = SN_OPEN;
+            sn_push(EV_OFF, (uint8_t)k, 0, 0);
+        }
+        if (down >> k & 1u) {
+            sn_key[k].st = SN_DOWN;
+            sn_key[k].v = 0;                    /* (no pressure: sense_pressure reads 0, key_sense no driven reading) */
+            sn_key[k].d = sn_key[k].dn = 0;
+            sn_key[k].vel = (uint8_t)smk_key_vel(k);
+            sn_push(EV_ON, (uint8_t)k, sn_key[k].vel, 0);
+        }
+    }
+}
+#else
 static void hb_analog(uint32_t col, uint32_t rowbit, uint32_t v, uint32_t driven)   /* (the scan's ISR) */
 {
     int id = FM1_KEYMAP[rowbit][col];
@@ -514,6 +606,7 @@ static void sense_cfg_set(uint32_t on, uint32_t drive, uint32_t curve, uint32_t 
 }
 static void sense_defaults(void) { sense_cfg_set(1, SENSE_DRIVE, 70, 1000); }
 static uint32_t h_sense_keys(void) { return fm1_an.con ? sense_mask : 0; }
+#endif
 static int h_key_sense(uint32_t k, hb_key_sense_t *o)
 {
     if (k >= 27u || !(h_sense_keys() >> k & 1u))
@@ -560,6 +653,13 @@ static void h_cv_blit(int32_t x, int32_t y)
     if (x >= 0 && y >= 0 && x + (int32_t)cv_w <= 240 && y + (int32_t)cv_h <= 240)
         cv_blit((uint32_t)x, (uint32_t)y);
 }
+#if BOARD_SMK37
+static void h_led(uint32_t id, uint32_t on)   /* the buttons' LEDs (the SMK's keys have none); the glow: off */
+{
+    if (id < 14u)
+        fm1_led_key(id, on == 1u);
+}
+#else
 static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (hal/fm1_input.h's fm1_led_dim) */
 {
     uint32_t p, r;
@@ -575,6 +675,7 @@ static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (h
                     fm1_led_dim[p] &= (uint8_t)~(1u << r);
             }
 }
+#endif
 static uint32_t h_rand(void) { return rng(); }
 static void h_midi_send(uint32_t st_, uint32_t d1, uint32_t d2) { midi_send(st_, d1, d2); }
 static uint32_t h_master(void) { return (uint32_t)master_q12; }
@@ -804,7 +905,9 @@ static void hb_early_init(void)
     uint32_t i;
     for (i = 0; i < DIN_RING; i++)
         din_ring[i] = 0xFFu;
+#if !BOARD_SMK37                                /* (the SMK-37 has no MIDI in: PH8 is a row of its key matrix) */
     fm1_uart1_midi_init(din_ring, DIN_RING);
+#endif
 }
 
 static struct { uint8_t st, n, d[2]; } din;      /* the parser: running status, data bytes so far */
@@ -914,6 +1017,21 @@ static void draw_picker(uint32_t sel)
 }
 
 /* the list lights SEL (the button that loads a module, or switches BLUETOOTH); the LEDs as they were after it */
+#if BOARD_SMK37
+static void sel_led(uint32_t on)
+{
+    static uint8_t lit, led[SMK_NLED];
+    if (on == lit)
+        return;
+    if (on) {
+        memcpy(led, fm1_led, sizeof led);
+        h_led(BTN_SEL, 1);
+    } else {
+        memcpy(fm1_led, led, sizeof led);
+    }
+    lit = (uint8_t)on;
+}
+#else
 static void sel_led(uint32_t on)
 {
     static uint8_t lit, led[FM1_NCOL], dim[FM1_NCOL];
@@ -929,6 +1047,7 @@ static void sel_led(uint32_t on)
     }
     lit = (uint8_t)on;
 }
+#endif
 
 static uint32_t find_key(uint32_t k)
 {
@@ -1017,6 +1136,45 @@ static uint32_t dt_write(const hb_slot_t *e, uint32_t n)   /* into the other cop
     hb_log_u32("deploy: table", t.seq);
     return dt_at == to && dt.seq == t.seq ? D_OK : D_VERIFY;
 }
+#if BOARD_SMK37
+static uint32_t dt_find(uint32_t key)          /* the table's entry of that name, HB_SLOTS: none */
+{
+    uint32_t i;
+    for (i = 0; i < dt.n; i++) {
+        const hb_slot_t *e = &dt.s[i];
+        if (dp_area(FL_OF(e->at)) < 2u && name_key(((const hb_file_t *)e->at)->name) == key)
+            return i;
+    }
+    return HB_SLOTS;
+}
+static uint32_t dp_room(uint32_t at)            /* the free bytes from at (4 KiB aligned) to the next module */
+{
+    uint32_t i, end = DP_AREA[dp_area(at) & 1u][1];
+    for (i = 0; i < dt.n; i++) {
+        uint32_t lo = FL_OF(dt.s[i].at), hi = lo + ((dt.s[i].size + 0xFFFu) & ~0xFFFu);
+        if (at >= lo && at < hi)
+            return 0;
+        if (lo >= at && lo < end)
+            end = lo;
+    }
+    return end - at;
+}
+static uint32_t dp_place(uint32_t need, uint32_t *largest, uint32_t *total)   /* first fit; 0: none */
+{
+    uint32_t i, at = 0, r;
+    *largest = *total = 0;
+    for (i = 0; i < dt.n + 2u; i++) {           /* the gaps start at an area's start or where a module ends */
+        uint32_t s0 = i < dt.n ? FL_OF(dt.s[i].at) + ((dt.s[i].size + 0xFFFu) & ~0xFFFu) : DP_AREA[i - dt.n][0];
+        if (dp_area(s0) >= 2u || !(r = dp_room(s0)))
+            continue;
+        if (r > *largest) *largest = r;
+        *total += r;
+        if (r >= need && (!at || s0 < at))
+            at = s0;
+    }
+    return at;
+}
+#else
 static uint32_t dt_find(uint32_t key)          /* the table's entry of that name, HB_SLOTS: none */
 {
     uint32_t i;
@@ -1054,6 +1212,7 @@ static uint32_t dp_place(uint32_t need, uint32_t *largest, uint32_t *total)   /*
     }
     return at;
 }
+#endif
 
 static void rx_draw(const char *what, uint16_t col)
 {
@@ -1137,7 +1296,11 @@ static uint32_t d_commit(uint32_t *key)
     sl.at = FM1_XIP(at);
     sl.size = total;
     sl.crc = f->crc;
+#if BOARD_SMK37
+    if (fl_verify_xip(at, RX_BUF, total) || check_module(&sl, DP_AREA[dp_area(at) & 1u][0], DP_AREA[dp_area(at) & 1u][1]) != M_OK)
+#else
     if (fl_verify_xip(at, RX_BUF, total) || check_module(&sl, DP_LO, DP_HI) != M_OK)
+#endif
         return D_VERIFY;
     for (i = n = 0; i < dt.n; i++)              /* the new one in the old one's place, else at the end */
         e[n++] = i == old ? sl : dt.s[i];
@@ -1316,7 +1479,7 @@ static void h_wdt_feed(void) { fm1_wdt_feed(); }
 #define PC_RAM_HI (HB_MOD_RT + HB_MOD_RT_SIZE - 1u)
 static void hb_pc_limits(uint32_t ram_hi)
 {
-    fm1_guard_pc(0, FM1_XIP(DP_HI) - 1u, (uint32_t)(uintptr_t)_rt_start, ram_hi);
+    fm1_guard_pc(0, FM1_XIP(DP_TOP) - 1u, (uint32_t)(uintptr_t)_rt_start, ram_hi);
 }
 
 static uint32_t pr_run(uint32_t id, const uint8_t *arg, uint32_t argn)
@@ -1704,7 +1867,7 @@ static void hb_boot_hook(uint32_t p3)
         GO[0] = GO_MAGIC;
         GO[1] = 0;
     }
-    flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;
+    flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());
     if (!flash_ok)
         return;
     fl_plain_window_init();                     /* (the table and the settings are plain) */
@@ -1772,6 +1935,112 @@ static void play_note(uint32_t ch, uint32_t key, uint32_t vel)
     if (m) m->note(ch, key, vel);
 }
 
+#if BOARD_SMK37
+/* ---- the SMK-37's extras, as MIDI to the module and out over USB (as the keys' notes): the 10 outer keys extend
+ * the keyboard (the notes below F3 and above G5, with the octave), the 16 pads play notes 36..51 on channel 10
+ * (the bottom row 36..43, the top row 44..51, left to right) with their velocity, the faders send CC 70..73, the
+ * mod wheel CC 1 and the pitch wheel the bend, on channel 1. The wheels calibrate themselves as the reference
+ * port's do (its smk_wheel.h, not taught): the pitch wheel's first reading is its centre, which follows a slow
+ * drift while it rests, and its ends widen to what it reaches; the mod wheel's bottom and top likewise. */
+#define SMK_PAD_NOTE(p) ((p) < 8u ? 44u + (p) : 36u + (p) - 8u)
+static uint8_t smk_outer[SMK_NKEY], smk_fad[4], smk_mod, smk_live;
+static int32_t smk_bend;
+static struct { int32_t pc, plo, phi; uint32_t drift_ms; } smk_pw;
+static struct { int32_t lo, hi; } smk_mw;
+
+static void smk_send(const hb_module_t *m, uint32_t st_, uint32_t d1, uint32_t d2)
+{
+    if (m && m->midi) {
+        m->midi(st_, d1, d2);
+    } else if ((st_ & 0xF0u) == 0x90u || (st_ & 0xF0u) == 0x80u) {
+        play_note(st_ & 15u, d1, (st_ & 0xF0u) == 0x90u ? d2 : 0u);
+    } else if ((st_ & 0xF0u) == 0xB0u && m && m->cc) {
+        m->cc(st_ & 15u, d1, d2);
+    }
+    midi_send(st_, d1, d2);
+}
+static int32_t smk_pitch(int32_t p, uint32_t now)   /* the pitch wheel's reading -> the bend, -8192..8191 */
+{
+    int32_t d, b, up, dn;
+    if (!smk_pw.pc) {
+        smk_pw.pc = p ? p : 1;
+        smk_pw.plo = p - 80;
+        smk_pw.phi = p + 80;
+        smk_pw.drift_ms = now;
+    }
+    if (p < smk_pw.plo) smk_pw.plo = p;
+    if (p > smk_pw.phi) smk_pw.phi = p;
+    d = p - smk_pw.pc;
+    if (d > -12 && d < 12) {                    /* resting: no bend, the centre follows a slow drift */
+        if (now - smk_pw.drift_ms >= 250u) {
+            smk_pw.pc += d > 0 ? 1 : d < 0 ? -1 : 0;
+            smk_pw.drift_ms = now;
+        }
+        return 0;
+    }
+    smk_pw.drift_ms = now;
+    up = smk_pw.phi - smk_pw.pc - 12;
+    dn = smk_pw.pc - smk_pw.plo - 12;
+    b = d > 0 ? (d - 12) * 8191 / (up > 1 ? up : 1) : (d + 12) * 8192 / (dn > 1 ? dn : 1);
+    return b < -8192 ? -8192 : b > 8191 ? 8191 : b;
+}
+static uint32_t smk_modval(int32_t v)          /* the mod wheel's reading (up reads lower) -> 0..127 */
+{
+    int32_t span, r;
+    if (!smk_mw.hi) {
+        smk_mw.lo = v < 485 ? v : 485;
+        smk_mw.hi = v > 615 ? v : 615;
+    }
+    if (v < smk_mw.lo) smk_mw.lo = v;
+    if (v > smk_mw.hi) smk_mw.hi = v;
+    span = smk_mw.hi - smk_mw.lo - 12;
+    r = smk_mw.hi - v <= 12 ? 0 : (smk_mw.hi - v - 12) * 127 / (span > 1 ? span : 1);
+    return r < 0 ? 0u : r > 127 ? 127u : (uint32_t)r;
+}
+static void smk_extras(const hb_module_t *m, uint32_t base)
+{
+    int32_t x, b;
+    uint32_t i, v;
+    while ((x = smk_ext_take()) >= 0) {
+        uint32_t code = (uint32_t)x >> 8, vel = (uint32_t)x & 0x7Fu;
+        if (code >= SMK_EXT_PAD) {              /* a pad */
+            uint32_t p = code - SMK_EXT_PAD;
+            smk_send(m, vel ? 0x99u : 0x89u, SMK_PAD_NOTE(p), vel);
+            padled_set(p, (uint8_t)(180u * vel / 127u), (uint8_t)(140u * vel / 127u), (uint8_t)(255u * vel / 127u));
+        } else if (code < SMK_NKEY) {           /* an outer key: the note it started stops */
+            if (vel) {
+                smk_outer[code] = (uint8_t)(base + code - SMK_KEY_F3);
+                smk_send(m, 0x90u, smk_outer[code], vel);
+            } else if (smk_outer[code]) {
+                smk_send(m, 0x80u, smk_outer[code], 0);
+                smk_outer[code] = 0;
+            }
+        }
+    }
+    padled_flush();
+    if (!fm1_in.wheel[0] || fm1_ms < 400u)      /* (the readings settle first) */
+        return;
+    if (!smk_live) {                            /* the faders as they are at power-on: nothing sent for them */
+        smk_live = 1;
+        for (i = 0; i < 4u; i++) smk_fad[i] = fm1_in.fader[i];
+        smk_mod = (uint8_t)smk_modval(fm1_in.wheel[1]);
+    }
+    for (i = 0; i < 4u; i++)
+        if ((v = fm1_in.fader[i]) != smk_fad[i]) {
+            smk_fad[i] = (uint8_t)v;
+            smk_send(m, 0xB0u, 70u + i, v);
+        }
+    if ((v = smk_modval(fm1_in.wheel[1])) != smk_mod) {
+        smk_mod = (uint8_t)v;
+        smk_send(m, 0xB0u, 1u, v);
+    }
+    if ((b = smk_pitch(fm1_in.wheel[0], fm1_ms)) != smk_bend) {
+        smk_bend = b;
+        smk_send(m, 0xE0u, (uint32_t)(b + 8192) & 0x7Fu, (uint32_t)(b + 8192) >> 7);
+    }
+}
+#endif
+
 static void app_main(void)
 {
     uint32_t prev = 0, k, full = 1, picker = 0, sel = 0, t_top = 0, held_any = 0, t_notes = 0, safe = 0;
@@ -1804,10 +2073,20 @@ static void app_main(void)
 
     store_load();
     if (st.oct < -2 || st.oct > 2) st.oct = 0;
+#if BOARD_SMK37
+    ble_capture();                              /* (the stock VM's region: before anything writes it) */
+    sense_mask = (1u << 27) - 1u;               /* (every key: its velocity is the scan's) */
+    {
+        static uint8_t trim[SMK_TRIM_SIZE];     /* the unit's own key and pad curves (read only) */
+        if (flash_ok && !st_read(SMK_TRIM_FLASH, trim, sizeof trim))
+            hb_log(smk_trim_load(trim) ? "SMK-37: the factory key curves" : "SMK-37: no factory key curves, the defaults");
+    }
+#else
     for (k = 0; k < FM1_NCOL; k++) {            /* the keys on the analog rows */
         if (FM1_KEYMAP[3][k] >= 14) sense_mask |= 1u << (FM1_KEYMAP[3][k] - 14);
         if (FM1_KEYMAP[4][k] >= 14) sense_mask |= 1u << (FM1_KEYMAP[4][k] - 14);
     }
+#endif
     sense_init(sense_mask);
     sense_defaults();
     fl_plain_window_init();                     /* flash 0x93000 up reads as stored: the deployed modules */
@@ -1850,6 +2129,10 @@ static void app_main(void)
         down = keys & ~prev;
         up = prev & ~keys;
         prev = keys;
+#if BOARD_SMK37
+        smk_sense_keys(down, up);               /* (as the FM-1's sensed keys, with the velocity) */
+        smk_extras(m, base);
+#endif
         sensed = h_sense_keys();
         for (k = 0; k < 27u; k++) {
             if (sensed >> k & 1u) {             /* a sensed key plays from its landing (below) */

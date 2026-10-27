@@ -35,8 +35,20 @@
 #define BLE_VM_EMU_A 0x093000u           /* the emulator's area A (§14.1) */
 #define BLE_VM_EMU_B 0x095000u           /* the emulator's area B */
 #define BLE_VM_EMU_SIZE 0x2000u          /* the emulator's areas: 8 KiB each */
+#if BOARD_SMK37
+/* The SMK-37: its VM region (stock v016's region table: 0x09D000, 0x23000 long, BTIF after it). Where in it stock keeps
+ * its VM on a unit is not measured: stock v016 in fm1-emu writes it at the region's start (as V15 there writes 0x093000),
+ * the FM-1 measured had it in the last sector before BTIF (0x0E8000), genkigenki's kit saw stock data at 0x0B0000. So
+ * every sector of the region is a candidate, from the top down, each running to the region's end (the log ends at its
+ * first failing record), and the first whose set is complete is the one. A copy's mark: 0xC0 + the candidate. */
+#define BLE_VM_REGION_LO 0x09D000u
+#define BLE_VM_REGION_HI 0x0C0000u
+#define BLE_VM_NCAND ((BLE_VM_REGION_HI - BLE_VM_REGION_LO) / 0x1000u)
+#define BLE_VM_MAXAREA (BLE_VM_REGION_HI - BLE_VM_REGION_LO)
+#else
 #define BLE_VM_NCAND 4u
 #define BLE_VM_MAXAREA 0x2000u           /* the largest candidate */
+#endif
 #define BLE_VM_MAXREC 0x1000u            /* (a 12-bit length) */
 
 /* reads n bytes of flash at offset off into dst -> 0 ok */
@@ -74,7 +86,7 @@ BLE_API int ble_vm_scan(ble_vm_read_fn rd, void *ctx, struct ble_vm_info *info, 
                         ble_vm_visit_fn visit, void *vctx);
 
 /* ---- the copy kept in Optimist's own store. Its first byte names the area it was taken from: 0xAA 0x093000,
- * 0xAB 0x095000 (as before), 0xAC 0x0E8000, 0xAD 0x0E7000 (the candidates' marks) */
+ * 0xAB 0x095000 (as before), 0xAC 0x0E8000, 0xAD 0x0E7000 (the candidates' marks; the SMK-37's: 0xC0 + i) */
 enum { BLE_RF_COPY_SIZE = 100, BLE_RF_COPY_MARK = 0xB1 };
 /* the area a copy's mark names (0: not a mark) */
 BLE_API uint32_t ble_rf_copy_area(uint8_t mark);
