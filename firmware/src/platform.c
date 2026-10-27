@@ -37,11 +37,17 @@ enum { ENC_SELECT = 0, ENC_ALGORITHM = 1, ENC_KNOB1 = 2, ENC_KNOB2 = 3, ENC_KNOB
 #include "fm1_sys.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
+#if BOARD_SMK37
+#include "smk_input.h"                          /* the SMK-37's panel, as an FM-1 with extras (fm1_adc.h's too) */
+#else
 #include "fm1_input.h"
+#endif
 #include "fm1_timer.h"
 #include "fm1_lcd_hw.h"
 #include "fm1_audio.h"
+#if !BOARD_SMK37
 #include "fm1_adc.h"
+#endif
 #include "bootguard.h"
 
 #ifndef APP_NAME
@@ -108,7 +114,11 @@ static int st_read(uint32_t off, void *dst, uint32_t n)
 }
 
 static uint8_t recovery_active;
+#if BOARD_SMK37
+#define OTA_IDENTITY (recovery_active ? SMK_MODEL "_000" : FELUCCA_ID)
+#else
 #define OTA_IDENTITY (recovery_active ? "FM-1_000" : FELUCCA_ID)
+#endif
 #include "ota.c"
 static void recovery_poll(void);
 static uint32_t ota_now_ms(void) { return fm1_ms; }
@@ -310,7 +320,11 @@ static void platform_poll(void)
     }
     if (fm1_ms >= 30000u && bootguard.pending)
         bootguard_clear(&bootguard);            /* 30 s up: this firmware boots */
+#if BOARD_SMK37
+    a = fm1_adc_read(FM1_ADC_MASTER);           /* (K1, an endless knob, as the pot) */
+#else
     a = fm1_an.con ? (fm1_an.master_ok ? (int32_t)fm1_an.master : -1) : fm1_adc_read(FM1_ADC_MASTER);
+#endif
     if (a >= 0) {                               /* (with the keys sensed, the scan converts the pot too) */
         uint32_t k10;
         knob_avg += (a * 16 - knob_avg) / 8;
@@ -376,7 +390,7 @@ void fm1_cstart(void)
     fm1_boot.p3_rst = (uint8_t)p3;
     if (boot_mode == BOOT_RECOVERY || recovery_key())
         recovery_main();                        /* OCT- at power-on: the USB rescue */
-    flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;
+    flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());
     ota_boot_cleanup();
     lcd_init();
     lcd_fill(0, 0, 240, 240, C_BLACK);

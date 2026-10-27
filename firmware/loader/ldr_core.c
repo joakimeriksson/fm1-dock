@@ -29,9 +29,17 @@
  *   ldr_progress(done, total)
  * plus the ota.c hooks (frames, time, idle). */
 #define LDR_APP_LO 0x4000u
+#if BOARD_SMK37
+/* SMK-37: the app below the deployed modules; records only in the stock VM, so ldr_records_drop can never
+ * erase BTIF / USRTRIM (0xC0000..0xC1FFF, the key calibration) or anything above (fm1_flash_map.h) */
+#define LDR_APP_HI FL_APP_HI
+#define LDR_REC_LO FL_REC_LO
+#define LDR_REC_HI FL_REC_HI
+#else
 #define LDR_APP_HI 0x93000u
 #define LDR_REC_LO 0x93000u                     /* update records live above the app ... */
 #define LDR_REC_HI 0xFC000u                     /* ... and below Felucca's globals */
+#endif
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n);
 static int ldr_erase(uint32_t off);

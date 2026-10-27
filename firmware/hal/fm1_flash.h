@@ -35,6 +35,16 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #define T4_CNT          REG32(0x10804u)            /* TIMER4, 24 MHz free-running */
 
 #define FL_XIP(off)     FM1_XIP(off)              /* fm1_xip.h */
+#include "fm1_cc.h"                             /* BOARD_SMK37 */
+#if BOARD_SMK37
+#include "fm1_flash_map.h"                      /* the SMK-37's map: FL_IN, FL_JEDEC_OK, FL_PROTECTED, ... */
+#ifndef FL_RANGE_OK
+#define FL_RANGE_OK(off, n) 0                   /* (the app and the loader say where they may write) */
+#endif
+#define FL_GUARD(off, n) (FL_RANGE_OK(off, n) && !FL_PROTECTED(off, n))
+#else
+#define FL_PLAIN_LO     0x00093000u                /* the plain XIP window: from the FM-1's VM */
+#define FL_JEDEC_OK(id) ((id) == 0x856014u)
 #define FL_DATA_LO      0x00097000u                /* Felucca main store */
 #define FL_DATA_HI      0x000E0000u
 #define FL_GLOB_LO      0x000FC000u                /* Felucca superblock / globals */
@@ -52,6 +62,8 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #ifndef FL_RANGE_OK
 #define FL_RANGE_OK(off, n) (FL_STORE_OK(off, n) || FL_IN(off, n, FL_OTA_LO, FL_OTA_HI))
 #endif
+#define FL_GUARD(off, n) FL_RANGE_OK(off, n)
+#endif /* BOARD_SMK37 */
 
 typedef struct { uint32_t sfc_con, spi_con; } fl_saved_t;
 
@@ -166,7 +178,7 @@ static RAMFN uint32_t fl_status_ram(void)                /* SR1 | SR2 << 8 */
 static RAMFN int fl_erase4k_ram(uint32_t off, uint32_t *took_us)
 {
     fl_saved_t s; int rc;
-    if (!FL_RANGE_OK(off, 0x1000u) || (off & 0xFFFu))
+    if (!FL_GUARD(off, 0x1000u) || (off & 0xFFFu))
         return -1;
     if (fl_enter(&s)) return -2;
     fl_wren();
@@ -183,7 +195,7 @@ static RAMFN int fl_erase4k_ram(uint32_t off, uint32_t *took_us)
 static RAMFN int fl_prog_ram(uint32_t off, const uint8_t *src, uint32_t n, uint32_t *took_us)
 {
     fl_saved_t s; int rc; uint32_t i;
-    if (!FL_RANGE_OK(off, n) ||
+    if (!FL_GUARD(off, n) ||
         n == 0 || n > 256u || ((off & 0xFFu) + n) > 256u) return -1;    /* one page, no wrap */
     if (fl_enter(&s)) return -2;
     fl_wren();
@@ -217,21 +229,51 @@ static RAMFN int fl_read_ram(uint32_t off, uint8_t *dst, uint32_t n)   /* 0x0B f
 static void fl_plain_window_init(void)
 {
     SFCENC_CON &= (uint8_t)~2u;
-    SFCENC_UNENC_L = FL_XIP(0x93000u);            /* 0x0208F000 */
+    SFCENC_UNENC_L = FL_XIP(FL_PLAIN_LO);         /* FM-1 0x0208F000 (0x93000); SMK-37 0x02068000 (0x6C000) */
     SFCENC_UNENC_H = 0x07FFFFFFu;
     SFCENC_CON |= 2u;
     __asm__ volatile("cli" ::: "memory");
-    fl_inval(0x93000u, 0x100000u - 0x93000u);     /* drop any decrypted lines */
+    fl_inval(FL_PLAIN_LO, 0x100000u - FL_PLAIN_LO);   /* drop any decrypted lines */
     __asm__ volatile("csync\n\tsti" ::: "memory");
 }
 
 static inline uint32_t irq_save(void) { __asm__ volatile("cli" ::: "memory"); return 0; }
 static inline void irq_restore(uint32_t f) { (void)f; __asm__ volatile("csync\n\tsti" ::: "memory"); }
 
+#if BOARD_SMK37
+/* the stock firmware's mapping marker ("usrdata" at 0xEAFF8, fm1_flash_map.h): there while USRFLASH still holds its
+ * key / knob mapping, which it then takes unchecked. Any erase in USRFLASH first erases the marker's sector, so a
+ * return to the stock firmware rebuilds its factory mapping (once: later erases find no marker). */
+static int fl_stock_marked(void)
+{
+    static uint8_t m[8];
+    uint32_t f = irq_save(), i, ok;
+    int rc = FL_FAR(fl_read_ram)(FL_STOCKTAG + 0xFF8u, m, 8u);
+    irq_restore(f);
+    for (i = 0, ok = !rc; i < 7u; i++)
+        ok &= m[i] == (uint8_t)"usrdata"[i];
+    return (int)ok;
+}
+#endif
+
 static int fl_erase4k(uint32_t off, uint32_t *took_us)
 {
+#if BOARD_SMK37
+    uint32_t f;
+    int rc;
+    if (off != FL_STOCKTAG && FL_IN(off, 0x1000u, FL_USRFLASH_LO, FL_USRFLASH_HI) && fl_stock_marked()) {
+        f = irq_save();
+        rc = FL_FAR(fl_erase4k_ram)(FL_STOCKTAG, took_us);
+        irq_restore(f);
+        if (rc)
+            return rc;
+    }
+    f = irq_save();
+    rc = FL_FAR(fl_erase4k_ram)(off, took_us);
+#else
     uint32_t f = irq_save();
     int rc = FL_FAR(fl_erase4k_ram)(off, took_us);
+#endif
     irq_restore(f);
     return rc;
 }

@@ -2,6 +2,10 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM-1 LCD wiring: SPI1 on PC9 CLK, PC10 DO, PC7 CS,
  * PC8 D/C; backlight PA2, active low. The panel protocol is src/lcd.c.
+ * SMK-37 (BOARD_SMK37): SPI1 group A (IOMAP_CON1 bit 4 = 0): PB6 CLK, PB7 DO; PC8 CS, PB5 D/C; no
+ * backlight control (always on). Group B's PC10 carries the 16 RGB pad LEDs (WS2812 class):
+ * fm1_padled_send() takes SPI1 over for one frame while the LCD's CS is high, as the stock firmware
+ * does (fm1-to-smk37 docs/01 3, 4; the reference port's hal/fm1_lcd_hw.h).
  *
  *   fm1_lcd_hw_init()          pins, backlight on, SPI1 master at BAUD 4
  *   fm1_lcd_baud(b)            SPI1 clock = lsb / (b + 1)
@@ -24,6 +28,87 @@
 #define FM1_LCD_SPI_CNT (*(volatile uint32_t *)0x11D10u)
 #define FM1_LCD_PA_OUT (*(volatile uint32_t *)0x50000u)
 #define FM1_LCD_PA_DIR (*(volatile uint32_t *)0x50008u)
+#if BOARD_SMK37
+#define FM1_LCD_PB_OUT (*(volatile uint32_t *)0x50040u)
+#define FM1_LCD_PB_DIR (*(volatile uint32_t *)0x50048u)
+#define FM1_LCD_GROUP_B 0x10u             /* IOMAP_CON1 bit 4: SPI1 on PC8 / PC9 / PC10 */
+#define FM1_LCD_CS (1u << 8)              /* PC8 */
+#define FM1_LCD_DC (1u << 5)              /* PB5 */
+#define FM1_LCD_CLK (1u << 6)             /* PB6 */
+#define FM1_LCD_DO (1u << 7)              /* PB7 */
+#define FM1_PADLED_DO (1u << 10)          /* PC10 */
+#define FM1_PADLED_BAUD 8u                /* lsb / 9 = 6.67 MHz: one SPI byte per LED bit */
+
+static uint32_t fm1_lcd_timeouts;
+static uint8_t fm1_lcd_cur_baud = 4u;
+
+FM1_INLINE void fm1_lcd_hw_init(void)
+{
+    FM1_LCD_IOMAP_CON1 &= ~FM1_LCD_GROUP_B;
+    FM1_LCD_PC_OUT |= FM1_LCD_CS;
+    FM1_LCD_PC_DIR &= ~FM1_LCD_CS;
+    FM1_LCD_PB_OUT &= ~(FM1_LCD_DC | FM1_LCD_CLK | FM1_LCD_DO);
+    FM1_LCD_PB_DIR &= ~(FM1_LCD_DC | FM1_LCD_CLK | FM1_LCD_DO);
+    FM1_LCD_PC_OUT &= ~FM1_PADLED_DO;     /* the LED line idles low (its latch) */
+    FM1_LCD_PC_DIR &= ~FM1_PADLED_DO;
+    FM1_LCD_SPI_CON = 0x4021u;
+    FM1_LCD_SPI_BAUD = 4u;
+    fm1_lcd_cur_baud = 4u;
+}
+
+FM1_INLINE void fm1_lcd_baud(uint32_t b)
+{
+    FM1_LCD_SPI_BAUD = b;
+    fm1_lcd_cur_baud = (uint8_t)b;
+}
+
+static void fm1_lcd_wait(void)
+{
+    uint32_t n;
+    for (n = 0; n < 4000000u && !(FM1_LCD_SPI_CON & 0x8000u); n++)
+        ;
+    if (n == 4000000u)
+        fm1_lcd_timeouts++;
+    FM1_LCD_SPI_CON |= 0x4000u;
+}
+
+FM1_INLINE void fm1_lcd_deselect(void) { FM1_LCD_PC_OUT |= FM1_LCD_CS; }
+
+FM1_INLINE void fm1_lcd_send_cmd(uint8_t c)
+{
+    FM1_LCD_PB_OUT &= ~FM1_LCD_DC;
+    FM1_LCD_PC_OUT &= ~FM1_LCD_CS;
+    FM1_LCD_SPI_CON |= 0x4000u;
+    FM1_LCD_SPI_BUF = c;
+}
+
+FM1_INLINE void fm1_lcd_send_data(const void *p, uint32_t n)
+{
+    FM1_LCD_PB_OUT |= FM1_LCD_DC;
+    FM1_LCD_PC_OUT &= ~FM1_LCD_CS;
+    FM1_LCD_SPI_CON |= 0x4000u;
+    FM1_LCD_SPI_ADR = (uint32_t)(uintptr_t)p;
+    FM1_LCD_SPI_CNT = n;
+}
+
+/* the pad LEDs: with the LCD deselected and idle, SPI1 to PC10 at BAUD 8 and n bytes by DMA (then
+ * fm1_lcd_wait, then fm1_padled_done: SPI1 back on the LCD's pins at its baud) */
+FM1_INLINE void fm1_padled_send(const void *p, uint32_t n)
+{
+    FM1_LCD_PC_OUT |= FM1_LCD_CS;         /* the panel ignores the bus */
+    FM1_LCD_SPI_BAUD = FM1_PADLED_BAUD;
+    FM1_LCD_IOMAP_CON1 |= FM1_LCD_GROUP_B;
+    FM1_LCD_SPI_CON |= 0x4000u;
+    FM1_LCD_SPI_ADR = (uint32_t)(uintptr_t)p;
+    FM1_LCD_SPI_CNT = n;
+}
+
+FM1_INLINE void fm1_padled_done(void)
+{
+    FM1_LCD_IOMAP_CON1 &= ~FM1_LCD_GROUP_B;
+    FM1_LCD_SPI_BAUD = fm1_lcd_cur_baud;
+}
+#else
 #define FM1_LCD_BL (1u << 2)
 #define FM1_LCD_CS (1u << 7)
 #define FM1_LCD_DC (1u << 8)
@@ -74,3 +159,4 @@ FM1_INLINE void fm1_lcd_send_data(const void *p, uint32_t n)
     FM1_LCD_SPI_ADR = (uint32_t)(uintptr_t)p;
     FM1_LCD_SPI_CNT = n;
 }
+#endif
