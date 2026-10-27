@@ -43,6 +43,8 @@ pip3 install mido python-rtmidi
 python3 tools/fm1_install.py fm1-dock-0.6.fwsc  # asks before it writes, restarts into fm1-dock
 ```
 
+**M-Vave SMK-37** (Pro, Elite, MKE-P37, Starrykey 37 Play): see [SMK-37 instructions](SMK37.md).
+
 Back to any other firmware, or to the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing a new fm1-dock keeps your
 deployed modules, settings and presets. Installing firmware is at your own risk.
