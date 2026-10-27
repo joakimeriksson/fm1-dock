@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # The release, built and signed on GitHub by the Firmware Hub's shared workflow (zvenson/fm1-build): a tag vX.Y
-# builds fm1-dock-X.Y.fwsc, attests it and publishes it as the release of that tag (the hub's "Built from source on
-# GitHub"). A pull request builds without a release, to show that it still builds there.
+# builds fm1-dock-X.Y.fwsc and the SMK-37's packages (fm1-dock-X.Y-smk37.fwsc for the SMK-37 Pro and the Starrykey 37
+# Play, -smk37-elite, -smk37-mke), attests them and publishes them as the release of that tag (the hub's "Built from
+# source on GitHub"). A pull request builds without a release, to show that it still builds there. The FM-1's build
+# comes last: the boards share the build's intermediate files.
 # Do not replace the .fwsc on a release by hand: the hub compares it with the attested one. (The .syms may be added.)
 name: release
 on:
@@ -17,5 +19,7 @@ jobs:
       attestations: write    # the attestation
     with:
       build: |
-        if [ "$GITHUB_REF_TYPE" = tag ]; then ./build.sh --release "${GITHUB_REF_NAME#v}"; else ./build.sh; fi
+        if [ "$GITHUB_REF_TYPE" = tag ]; then set -- --release "${GITHUB_REF_NAME#v}"; else set --; fi
+        for m in pro elite mke; do ./build.sh --board smk37 --model "$m" "$@"; done
+        ./build.sh "$@"
       packages: build/fm1-dock*.fwsc
