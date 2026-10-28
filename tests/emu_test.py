@@ -41,9 +41,9 @@ def pick(name):
     return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
 
 
-def run(case, keys, ms, binp=APP):
+def run(case, keys, ms, binp=APP, extra=()):
     r = subprocess.run([sys.executable, str(SRC / "tools" / "dock.py"), "emu", "--bin", str(binp), "--ms", str(ms),
-                        "--keys", keys, "--out", str(OUT / case)], capture_output=True, text=True)
+                        "--keys", keys, "--out", str(OUT / case), *extra], capture_output=True, text=True)
     if r.returncode:
         raise SystemExit(f"{case}: {r.stderr or r.stdout}")
     w = wave.open(str(OUT / case / "audio.wav"))
@@ -142,8 +142,14 @@ def main():
         keys = pick("CS-1") + "".join(f",1800:{k},3200:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26))
         s, log = run("cs1", keys, 4000)
         worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
-        check("cs1", "cs1: CS-1" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log and worst < 90,
-              f"CS-1 plays eight voices on core 0; worst {worst} % of a block")
+        check("cs1", "cs1: CS-1" in log and "cpu1: 2 cores" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log
+              and worst < 50, f"CS-1 plays eight voices, half of them on the second core; core 0's worst {worst} % of a block")
+        # a unit whose second core misreads RAM (fm1-emu's model of the affected FM-1s): the screening in the
+        # first audio blocks finds it, and CS-1 renders all eight voices on core 0
+        s, log = run("cs1_flaky", keys, 4000, extra=("--flaky-core1", "1e-6", "--seed", "2"))
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("cs1_flaky", "cpu1: misread RAM, 1 core" in log and "cs1: CS-1" in log and peak(s, 1.7, 3.0) > 1000
+              and " 0 overruns" in log and worst < 90, f"a faulty second core: one core, CS-1 plays on; worst {worst} %")
 
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter

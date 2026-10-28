@@ -43,7 +43,7 @@ then on hardware.
 | Host <-> module | tables only: the module's descriptor, the host's service table passed to `init` | no link-time dependency on the host build; the ABI version is checked |
 | Hot code | an optional `.ram_text` in the module, copied to RAM on load | inner loops away from XIP cache misses |
 | Audio | `app_audio` calls `module->render` | Dinghy's timing unchanged |
-| Cores | core 0 only in v1 | some units' core 1 misreads RAM (fm1-emu `--flaky-core1`) |
+| Cores | core 0 for the host; core 1 lent to the module's render, one job at a time (`c1_run` / `c1_wait`, `src/cpu1.c`, X0X's HAL) | some units' core 1 misreads RAM (fm1-emu `--flaky-core1`): screened in the first audio blocks, checked around each job, held at the first misread |
 | Commit of a deploy | the slot-table entry is written last; no valid entry = no module | a cut at any moment leaves a bootable host |
 | Debug | a log ring and crash record in NOINIT, sent as SysEx | survives the reset; fm1-emu reads it directly |
 
@@ -196,8 +196,9 @@ nothing on hardware):
     ranges, each change checked): its C64 screen, the step sequencer, the FX page; reSID 0.16
     only (one chip, as FM-1 SID), the own model gone; 15 % of a block. Not here: the PSID player.
   - CS-1: CS-1's own app (cs1.c unchanged but for its platform include, `cs1_platform.h`): its
-    pages, sounds, user presets (in the bank), MIDI learn and clock; 8 voices on core 0, worst
-    61 % of a block; the keys' velocity and pressure from the host's sensing. Not here: the second core.
+    pages, sounds, user presets (in the bank), MIDI learn and clock; 8 voices, the odd ones and the
+    reverb on the second core (core 0's worst 38 % of a block in fm1-emu; 61 % on one core, where a
+    unit whose core 1 misreads falls back); the keys' velocity and pressure from the host's sensing.
   - SCINTILLA: joakimeriksson/scintilla-fm1's app and engine (the Elka Synthex of synthex-web, in
     integers), taken by `modules/scintilla/take.py` (its app_main split into app_init / app_loop,
     the first sound loaded while the audio is muted, the DIN jack the host's): 80 presets, its

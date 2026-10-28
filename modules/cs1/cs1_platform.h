@@ -9,7 +9,7 @@
  * The KEYS pages' SENSE, DRIVE, CURVE and LIGHT go to the host's sensing while CS-1 runs. What a
  * module cannot have is stubbed and says so:
  *   - the sensing's capture of the last press, its per-key calibration storage, the top row's probe;
- *   - the second core (audio_worker): none, every voice renders on core 0;
+ *   - (the second core, audio_worker, is the host's: hb_host_t.c1_run / c1_wait, when it has one);
  *   - the updater drawing over the screen (platform_screen_take), the TRS ring's drop count. */
 #ifndef CS1_PLATFORM_H
 #define CS1_PLATFORM_H
@@ -54,11 +54,32 @@ static int bank_load(void *p, uint32_t n) { return H->bank_load(p, n); }
 static int bank_save(const void *p, uint32_t n) { return H->bank_save(p, n); }
 static uint32_t midi_in_drops(void) { return 0; }
 
-/* ---- the second core: none */
+/* ---- the second core: the host's (hb_host_t.c1_run / c1_wait), when it has one and it passed its checks.
+ * CS-1 hands it the odd voices and the reverb (cs1_voice.h voices_block); without it, all on core 0 */
 typedef void (*audio_worker_fn)(void *);
 static struct { uint32_t last_job_ticks; } audio_worker;
-static int audio_worker_submit(audio_worker_fn fn, void *ctx) { (void)fn; (void)ctx; return 0; }
-static void audio_worker_join(void) {}
+static audio_worker_fn aw_fn;
+static void *aw_ctx;
+static void aw_job(uint32_t arg)                /* on core 1 (or here, after a timeout) */
+{
+    uint32_t t0 = H->ticks();
+    (void)arg;
+    aw_fn(aw_ctx);
+    audio_worker.last_job_ticks = H->ticks() - t0;
+}
+static int audio_worker_submit(audio_worker_fn fn, void *ctx)
+{
+    if (!HB_HOST_HAS(H, c1_wait))
+        return 0;
+    aw_fn = fn;
+    aw_ctx = ctx;
+    return H->c1_run(aw_job, 0);
+}
+static void audio_worker_join(void)
+{
+    if (H->c1_wait() != 0)
+        aw_job(0);                              /* core 1 did not finish in time (it is held now): here, once */
+}
 
 /* ---- the keys' sensing: the host's (see the top) */
 enum { EV_ON = 1, EV_OFF = 2 };
@@ -69,7 +90,7 @@ static struct { uint8_t st; uint16_t d, dland; } sn_key[27];
 static struct { uint8_t drive; uint16_t d_curve, d_ceil; } sn_cfg;   /* (cs1.c sets them, then keys_sense_set) */
 static sense_ev_t cs1_ev[16];
 static uint8_t cs1_ev_r, cs1_ev_w;
-static int cs1_has_sense(void) { return H->size >= sizeof(hb_host_t); }   /* (an older host: no sensing) */
+static int cs1_has_sense(void) { return HB_HOST_HAS(H, sense_set); }   /* (an older host: no sensing) */
 static uint32_t cs1_sensed(void) { return cs1_has_sense() ? H->sense_keys() : 0; }
 static void sense_init(uint32_t mask) { (void)mask; }
 static uint32_t keys_analog_mask(void) { return cs1_sensed(); }

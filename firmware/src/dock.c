@@ -120,9 +120,11 @@ typedef struct {
     uint32_t active;                            /* 1 + the module running, 0: none */
     struct { uint32_t module, last, worst, blocks, overruns; } stats;   /* render ticks per block */
     uint8_t strikes[HB_SLOTS + 1];
+    struct { uint32_t magic, state, last, worst; } c1;   /* the second core (cpu1.c): a job's ticks, C1_MAGIC */
 } hb_nv_t;
 hb_nv_t hb_nv __attribute__((section(".noinit")));
 #define CRASH_MAGIC 0x48535243u                 /* "CRSH" */
+#define C1_MAGIC 0x31555043u                    /* "CPU1" */
 /* the last probe's run (probes, below): it outlives the probe's crash or hang */
 #define PR_MAGIC 0x52504248u                    /* "HBPR" */
 enum { PR_NONE, PR_RUNNING, PR_DONE, PR_CRASHED, PR_HUNG };
@@ -796,21 +798,37 @@ static uint32_t h_bank_free(void)              /* banks a save could still take:
     return k;
 }
 
+/* the second core (cpu1.c), for the module's render only: a job is never out while the main loop runs
+ * (flash writes, a module switch) */
+static volatile uint8_t in_render;
+static uint8_t cpu1_said;                       /* the second core's state as last logged */
+static int h_c1_run(void (*fn)(uint32_t), uint32_t arg) { return in_render && cpu1_run(fn, arg); }
+static int h_c1_wait(void) { return in_render ? cpu1_wait() : 0; }
+
 static const hb_host_t HOST = {
     HB_ABI, sizeof(hb_host_t), h_ms, h_ticks, hb_log, hb_log_u32,
     h_fill, h_text, h_cv_begin, cv_rect, cv_line, h_cv_pixel, h_cv_text, h_cv_blit,
     h_led, h_rand, mod_load, mod_save, h_midi_send, h_master, h_blit, h_text_w, h_bank_load, h_bank_save,
-    h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free,
+    h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free, h_c1_run, h_c1_wait,
 };
 
 /* ---- the sound: the module renders, the host measures */
 static void app_audio(int32_t *out, uint32_t n)
 {
     const hb_module_t *m = hb_active;
+    cpu1_screen_begin();                        /* the second core's screening, beside the render */
     if (m) {
         uint32_t t0 = fm1_ticks(), dt;
+        in_render = 1;
         m->render(out, n);
+        in_render = 0;
+        if (cpu1_busy())
+            (void)cpu1_wait();                  /* a job the module left out: over before the main loop runs */
         dt = fm1_ticks() - t0;
+        hb_nv.c1.magic = C1_MAGIC;
+        hb_nv.c1.state = cpu1_state;
+        hb_nv.c1.last = cpu1_job_ticks;
+        hb_nv.c1.worst = cpu1_job_worst;
         hb_nv.stats.last = dt;
         if (dt > hb_nv.stats.worst) hb_nv.stats.worst = dt;
         if (dt <= BLOCK_TICKS)
@@ -820,6 +838,7 @@ static void app_audio(int32_t *out, uint32_t n)
             hb_slow = 1;
         }
     }
+    cpu1_screen_end();                          /* (not the module's time) */
     hb_nv.stats.blocks++;
     hb_blocks++;
 }
@@ -1598,7 +1617,7 @@ static uint32_t deploy_frame(void)
 {
     uint32_t usb_src = df_usb_n != 0, n = usb_src ? df_usb_len[df_usb_r % DF_USB_Q] : df_din_n, len, cmd, seq, i, k, ch = 0;
     const uint8_t *p = usb_src ? df_usb[df_usb_r % DF_USB_Q] : df_din;
-    uint8_t r[48];
+    uint8_t r[60];
     uint32_t rn = 1;
     char name[24];
     memset(r, 0, sizeof r);
@@ -1625,7 +1644,9 @@ static uint32_t deploy_frame(void)
         wr32(r + 20, hb_nv.crash.magic == CRASH_MAGIC ? hb_nv.crash.pc : 0); wr32(r + 24, hb_nv.crash.module);
         wr32(r + 28, hb_nv.stats.worst); wr32(r + 32, hb_nv.stats.overruns); wr32(r + 36, hb_nv.log_w);
         wr32(r + 40, BLOCK_TICKS);
-        rn = 44;
+        r[44] = cpu1_state; r[45] = (uint8_t)(cpu1_timeouts > 255u ? 255u : cpu1_timeouts);   /* the second core */
+        wr32(r + 48, cpu1_job_ticks); wr32(r + 52, cpu1_job_worst); wr32(r + 56, cpu1_stack_free());
+        rn = 60;
         break;
     }
     case D_LIST:                                /* one reply per module */
@@ -2080,6 +2101,9 @@ static void app_main(void)
     }
     hb_nv.active = 0;
     hb_log_u32("fm1-dock " APP_VER " boot, reset", fm1_boot.p3_rst);
+    cpu1_said = cpu1_state == CPU1_NOSTART || cpu1_state == CPU1_FAILED ? cpu1_state : CPU1_SCREENING;
+    hb_log(cpu1_said == CPU1_SCREENING ? "cpu1: started" : cpu1_said == CPU1_NOSTART   /* (the screening may */
+           ? "cpu1: did not start, 1 core" : "cpu1: failed its self-test, 1 core");    /* have ended already) */
     if (hb_nv.crash.magic == CRASH_MAGIC)
         hb_log_u32("last crash pc", hb_nv.crash.pc);
 
@@ -2131,6 +2155,12 @@ static void app_main(void)
         uint8_t s, d1, d2;
         const hb_module_t *m;
         platform_poll();
+        if (cpu1_said != cpu1_state && cpu1_said == CPU1_SCREENING) {   /* the screening's verdict, once */
+            hb_log_u32(cpu1_state == CPU1_OK ? "cpu1: 2 cores, screened in us" : cpu1_state == CPU1_MISREAD
+                       ? "cpu1: misread RAM, 1 core; screened us" : "cpu1: late in its screening, 1 core; us",
+                       cpu1_screen_ticks / 24u);
+            cpu1_said = cpu1_state;
+        }
         if (fm1_ms < 600u && (fm1_in.buttons >> BTN_OCT_DOWN & 1u))
             rescue_late();                      /* (OCT- held from power-on) */
         m = hb_active;

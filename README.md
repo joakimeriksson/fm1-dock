@@ -124,7 +124,8 @@ The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `pla
 ## Credits
 
 fm1-dock, FM-1 SID and Scintilla: Joakim Eriksson. OberVave: zvenson. CS-1: twochannels. AMB-1 and FoMni: Charles Vestal.
-reSID: Dag Lem.
+reSID: Dag Lem. The second core: Charles Vestal's X0X, after Kerem Kilic's Melodee, by way of SLOOP
+(Andre Rezemini).
 fm1-dock stands on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), on the platform of
 [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton Instruments) as [SLOOP](https://github.com/isod89/sloop-fm1)
 (isod89) carries it. The keys' force sensing comes from Velo, by way of CS-1.

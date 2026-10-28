@@ -203,12 +203,20 @@ def status(d):
     return STATUS[s] if s < len(STATUS) else f"status {s}"
 
 
+CPU1 = ("off", "did not start", "failed its self-test", "2 cores", "held after a misread", "being screened")
+
+
 def hello(p):
     d = p.ask(HELLO)
     proto, abi, n, cur, rx = d[1], d[2], d[3], d[4], d[5]
     big, total, max_file, crash_pc, crash_mod, worst, over, log_w, block = struct.unpack_from("<9I", d, 8)
-    return dict(proto=proto, abi=abi, n=n, cur=cur, receiving=rx, largest=big, free=total, max_file=max_file,
-                crash_pc=crash_pc, crash_module=crash_mod, worst=worst, overruns=over, log_w=log_w, block=block)
+    h = dict(proto=proto, abi=abi, n=n, cur=cur, receiving=rx, largest=big, free=total, max_file=max_file,
+             crash_pc=crash_pc, crash_module=crash_mod, worst=worst, overruns=over, log_w=log_w, block=block)
+    if len(d) >= 60:                            # the second core (firmware/src/cpu1.c): its state, a job's time
+        h.update(cpu1=CPU1[d[44]] if d[44] < len(CPU1) else d[44], cpu1_timeouts=d[45],
+                 cpu1_job=struct.unpack_from("<I", d, 48)[0], cpu1_worst=struct.unpack_from("<I", d, 52)[0],
+                 cpu1_stack_free=struct.unpack_from("<I", d, 56)[0])
+    return h
 
 
 def modules(p):

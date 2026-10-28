@@ -11,6 +11,7 @@
  *   screen              240 x 240, lcd_fill, draw_text_box with FONT_S (16 px) / FONT_L (32 px) (gfx.c)
  *   settings            one 4 KiB flash sector with a CRC (settings_load / settings_save)
  *   crash screen        the PC of a fault, then a reboot
+ *   the second core     started at power-on, proved, then lent to the app (cpu1.c: cpu1_run / cpu1_wait)
  *
  * The app (dinghy.c) includes this file first and supplies:
  *   static void app_audio(int32_t *out, uint32_t n)   audio ISR: n stereo frames, L R L R, Q15 (+-32767), out is zero
@@ -64,6 +65,7 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 static volatile uint32_t fm1_ms;                /* milliseconds since power-on (TIMER5) */
 
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
+#include "cpu1.c"
 #include "libc.c"
 #include "lcd.c"
 #ifndef CV_MAX
@@ -365,8 +367,11 @@ void fm1_cstart(void)
 {
     extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
     extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
+    extern uint32_t _c1_start[], _c1_end[], _c1_load[];
     uint32_t *s, *d, p3, boot_mode;
     fm1_time_init();
+    fm1_supplies_stock();                       /* VDC14 1.60 V, SYSVDD 1.38 V, as M-VAVE's firmware: both cores read
+                                                 * the flash and SRAM right on every unit (fm1_sys.h, SLOOP 2.7) */
     fm1_reset_reason();
     p3 = fm1_boot.p3_rst;
     fm1_wdt_arm(0x0D);
@@ -380,6 +385,7 @@ void fm1_cstart(void)
     for (d = _pool_start; d < _pool_end; d++) *d = 0;
     for (s = _data_load, d = _data_start; d < _data_end; s++, d++) *d = *s;
     for (s = _rt_load, d = _rt_start; d < _rt_end; s++, d++) *d = *s;
+    for (s = _c1_load, d = _c1_start; d < _c1_end; s++, d++) *d = *s;   /* the second core's loop (fm1_cpu1.h) */
 #ifdef APP_BOOT_HOOK
     if (boot_mode == BOOT_NORMAL)
         APP_BOOT_HOOK(p3);                      /* the app may hand the FM-1 to another firmware here, before
@@ -396,6 +402,8 @@ void fm1_cstart(void)
     lcd_fill(0, 0, 240, 240, C_BLACK);
     fm1_input_init();
     fm1_adc_init();
+    cpu1_boot();                                /* the second core: before the audio and the timers (X0X: started
+                                                 * later it never reaches its entry); if it does not answer, one core */
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);   /* (abuf is zero: .bss) */
 #ifdef APP_EARLY_INIT
     APP_EARLY_INIT();                           /* the app's own peripherals, before the timer runs */
