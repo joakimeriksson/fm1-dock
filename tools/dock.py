@@ -113,10 +113,11 @@ def emu(a):
                 flash.append(["--flash", str(f)])
         else:
             flash = [[], []]
-        usb, usb_env = [], {}
-        if a.usb:                               # (both runs on the cable; the first records)
+        usb, usb_env, shot_env = [], {}, {}
+        if a.usb:                               # (both runs record: the first's sound is kept, the second's RAM)
             usb = ["--usb"]
             usb_env = {"FM1_USB_WAV": str(Path(wd) / "usb.raw"), "FM1_USB_RATE": str(a.usb)}
+            shot_env = dict(usb_env, FM1_USB_WAV=str(Path(wd) / "usb_shot.raw"))
         r = subprocess.run([live(), *fw, "--bench", str(a.ms), *flash[0], *usb], cwd=wd, capture_output=True, text=True,
                            env=dict(env, FM1_BENCH_WAV=str(raw), **usb_env))
         if r.returncode:
@@ -130,15 +131,17 @@ def emu(a):
             w.writeframes(pcm)
         if a.usb:
             got = Path(wd) / "usb.raw"
-            if not got.exists():
+            m = re.search(r"^usb audio: .* at (\d+) Hz", r.stdout, re.M)
+            if not got.exists() or not m:
                 raise SystemExit("fm1-live does not record USB audio (FM1_USB_WAV): an older fm1-emu")
+            print(m.group(0).split(" -> ")[0])
             with wave.open(str(out / "usb.wav"), "wb") as w:
                 w.setnchannels(2)
                 w.setsampwidth(2)
-                w.setframerate(a.usb)
+                w.setframerate(int(m.group(1)))   # (the rate it streamed at: the device's, if not the one asked for)
                 w.writeframes(got.read_bytes())
         r = subprocess.run([live(), *fw, "--shot", str(a.ms), *flash[1], *usb], cwd=wd, capture_output=True, text=True,
-                           env=dict(env, FM1_DUMPRAM=str(out / "ram.bin")))
+                           env=dict(env, FM1_DUMPRAM=str(out / "ram.bin"), **shot_env))
         if r.returncode:
             sys.stderr.write(r.stdout + r.stderr)
             raise SystemExit("fm1-live --shot failed")

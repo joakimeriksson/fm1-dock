@@ -64,27 +64,29 @@ static struct {
 /* USB audio input. The I2S clock is not locked to USB (about 44,117.6 Hz against the host's 44,100):
  * the endpoint is asynchronous, so each 1 ms packet carries what the ring holds, 44 or 45 frames
  * (the 44.1 pattern) and one more or one fewer while the ring's fill drifts out of its band.
- * The render writes HALF_FRAMES (128) frames every 2.9 ms; the fill measured when a render starts is
- * the low point of that saw tooth, and is kept in UA_LO..UA_HI. A frame waits in the ring for that fill
- * plus its place in the render: 80..256 frames, ~3.8 ms on average (256-frame halves and a 96..160
- * band: ~5.8 ms). Measured under load (65 % CPU): a 64..112 band started renders at
- * 48..119 with no glitch; one render was once seen 29 frames under the floor: a packet (46) must
- * still be in hand then.
+ * A render writes HALF_FRAMES frames; the fill measured when a render starts is the low point of that
+ * saw tooth, and is kept in UA_LO..UA_HI. (Felucca, with 128-frame renders every 2.9 ms: an 80..128
+ * band; measured under load (65 % CPU), a 64..112 band started renders at 48..119 with no glitch, and one
+ * render was once seen 29 frames under the floor: a packet (46) must still be in hand then.)
  * fm1-dock: its renders are 256 frames (5.8 ms), and a module's may take most of that block, all of it
  * before the render's frames reach the ring: the band must hold what the host takes meanwhile, up to a
- * whole block and a packet (256 + 46). With Felucca's 80..128 a render longer than ~1 ms ran the ring
- * dry (CS-1 in fm1-emu, recorded over USB: 104 repeats in 4 s on one core, 53 on two). 304..352 in a
- * ring of 1024: no repeat for any render that keeps up (no overrun); a frame waits ~10 ms. */
+ * whole block and a packet (6 packets of <= 45 in 5.8 ms: 270). With Felucca's 80..128 a render longer
+ * than ~1 ms ran the ring dry (CS-1 in fm1-emu, recorded over USB: 104 repeats in 4 s on one core, 53
+ * on two). 320..368 in a ring of 1024: with the fill in its band, no repeat for a render that ends
+ * within its block, and 50 frames to spare for one that starts below the floor (the band is steered a
+ * frame a packet). A frame waits for the fill plus its place in the render: ~10.5 ms on average. After
+ * a pause of the host's under 20 ms (no stall yet) the ring can fill up: it drains a frame a packet,
+ * up to ~0.65 s of extra delay (~0.25 s with 512). */
 #define UA_N 1024u               /* ring, frames (16-bit L | R << 16); a power of two */
-#define UA_PRIME 328u            /* silence ahead of the first rendered frame */
-#define UA_LO 304u               /* a render may take the whole block: keep it and a packet in hand */
-#define UA_HI 352u
+#define UA_PRIME 344u            /* silence ahead of the first rendered frame */
+#define UA_LO 320u               /* a render may take the whole block: keep it and a packet in hand */
+#define UA_HI 368u
 #define UAC_RATE 44100u
 #if FELUCCA_UAC_48K
-/* 48 kHz: the same times in 48 kHz frames (x 160 / 147); a render of HALF_FRAMES gives 139..140 frames */
-#define UA_PRIME48 357u
-#define UA_LO48 331u
-#define UA_HI48 383u
+/* 48 kHz: the same times in 48 kHz frames (x 160 / 147); a render of HALF_FRAMES (256) gives 278..279 */
+#define UA_PRIME48 374u
+#define UA_LO48 348u
+#define UA_HI48 400u
 #define UA_REND48 ((HALF_FRAMES * 160u + 146u) / 147u)
 #define UA_MAXF 49u              /* frames in the largest packet: 48 + 1 */
 _Static_assert(UA_HI48 + UA_REND48 + UA_MAXF < UA_N, "the ring holds the band, a render and a packet (48 kHz)");

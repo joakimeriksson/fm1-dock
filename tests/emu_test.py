@@ -178,6 +178,11 @@ def main():
         d = w.readframes(w.getnframes())
         return w.getframerate(), struct.unpack(f"<{len(d) // 2}h", d)
 
+    def uac_glitches(case):
+        # the firmware's own counts (usb.c `uac`: underruns, overruns, missed at +36) from the run's RAM
+        m = re.search(r"^([0-9a-f]{8}) .*\suac$", (SRC / "build" / "fm1-dock.syms").read_text(), re.M)
+        return struct.unpack_from("<3I", (OUT / case / "ram.bin").read_bytes(), int(m.group(1), 16) - 0x01C00000 + 36)
+
     def usb_same(s, u):
         # the share of USB frames, from its first sound on, that are the speaker's at one lag
         spk = list(zip(s[0::2], s[1::2]))
@@ -204,11 +209,15 @@ def main():
             s, log = run(case, pick(name) + chord, 6000, extra=("--usb",))
             rate, u = usb_frames(case)
             same, how = usb_same(s, u)
-            check(case, rate == 44100 and same == 1.0, f"{name}: USB audio is the speaker's, {same * 100:.2f} % ({how})")
+            g = uac_glitches(case)
+            check(case, rate == 44100 and same == 1.0 and g == (0, 0, 0),
+                  f"{name}: USB audio is the speaker's, {same * 100:.2f} % ({how}); ring underruns, overruns, missed {g}")
         s, log = run("usb_48k", pick(names[0]) + chord, 6000, extra=("--usb", "48000"))
-        rate, u = usb_frames("usb_48k")
+        rate, u = usb_frames("usb_48k")         # (the rate fm1-live streamed at)
         frames = len(u) // 2                    # (the stream starts once the computer has configured it, ~0.35 s)
-        check("usb_48k", rate == 48000 and 48 * 5400 < frames <= 48 * 6000, f"a 48 kHz computer: {frames} frames in 6 s")
+        g = uac_glitches("usb_48k")
+        check("usb_48k", rate == 48000 and 48 * 5400 < frames <= 48 * 6000 and g == (0, 0, 0),
+              f"a 48 kHz computer: {rate} Hz, {frames} frames in 6 s; ring underruns, overruns, missed {g}")
 
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")
     return 1 if failures else 0
