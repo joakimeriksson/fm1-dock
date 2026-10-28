@@ -217,7 +217,11 @@ needs the source: a shim of the firmware's platform API on `modules/lib/hb_fm1.h
   FuMi, MIN-1, DUB-1 and Fart Machine.
 - **AMB-1** (679 installs, fm1-base, MPL-2.0): about 281 KiB of buffers against 272 KiB of module
   RAM (an int16 reverb, a shorter tape, or more RAM); then Mutable Dreams on the same shim.
-- **FM-106** (Dinghy, a single-core build): measure its load on one core first.
+- **FM-106** (Dinghy, GPL-3.0; 6 voices, 3 + 3 on two cores): done, `modules/fm106` (take.py, its web
+  build's app_init / app_frame split; its audio worker on `c1_run`). 100 KB of code, 102 KB of RAM. In
+  fm1-emu, a six-note chord over the 128 factory presets: core 0's worst median 30 %, on one core 53 %
+  (max 60 %: it fits on one core too; FM-106's own two timers counted the wait for core 1 twice). USB audio
+  is the host's. Not here: its SysEx librarian, the battery reading.
 - Not as modules: the Felucca-family whole firmwares (SLOOP, Felucca, JIANT, GHOULBOX, Skiff,
   ChoralRoot, Melodee, Tonitor: 430-570 KiB, both cores, their own USB audio and flash layouts);
   closed or unlicensed ones (April OS, SLOOP ALG, the stock firmware).

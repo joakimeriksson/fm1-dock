@@ -151,6 +151,19 @@ def main():
         check("cs1_flaky", "cpu1: misread RAM, 1 core" in log and "cs1: CS-1" in log and peak(s, 1.7, 3.0) > 1000
               and " 0 overruns" in log and worst < 90, f"a faulty second core: one core, CS-1 plays on; worst {worst} %")
 
+    if "FM-106" in names:
+        # a six-note chord on preset 38 (A57, among the heaviest of the 128 on one core: bank select and program
+        # change into the DIN jack); voices 3..5 on the second core, then on a unit whose core 1 misreads, all on core 0
+        keys = pick("FM-106") + ",1400:mb00000,1450:mc026" + "".join(f",1800:{k},3200:{k}^" for k in (14, 18, 21, 25, 28, 32))
+        s, log = run("fm106", keys, 3600)
+        last = float(log.split("render: last ")[1].split("(")[1].split(" %")[0])
+        check("fm106", "fm106: FM-106" in log and "cpu1: 2 cores" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log
+              and last < 45, f"FM-106 plays six voices, three on the second core; core 0 {last} % of a block at the end")
+        s1, log = run("fm106_flaky", keys, 3600, extra=("--flaky-core1", "1e-6", "--seed", "2"))
+        last = float(log.split("render: last ")[1].split("(")[1].split(" %")[0])
+        check("fm106_flaky", "cpu1: misread RAM, 1 core" in log and " 0 overruns" in log and s1 == s and last < 80,
+              f"a faulty second core: all six voices on core 0 ({last} %), the same sound")
+
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
     s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
