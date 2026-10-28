@@ -69,17 +69,22 @@ static struct {
  * plus its place in the render: 80..256 frames, ~3.8 ms on average (256-frame halves and a 96..160
  * band: ~5.8 ms). Measured under load (65 % CPU): a 64..112 band started renders at
  * 48..119 with no glitch; one render was once seen 29 frames under the floor: a packet (46) must
- * still be in hand then. */
-#define UA_N 512u                /* ring, frames (16-bit L | R << 16); a power of two */
-#define UA_PRIME 104u            /* silence ahead of the first rendered frame */
-#define UA_LO 80u                /* a render may start late: keep a packet and more in hand */
-#define UA_HI 128u
+ * still be in hand then.
+ * fm1-dock: its renders are 256 frames (5.8 ms), and a module's may take most of that block, all of it
+ * before the render's frames reach the ring: the band must hold what the host takes meanwhile, up to a
+ * whole block and a packet (256 + 46). With Felucca's 80..128 a render longer than ~1 ms ran the ring
+ * dry (CS-1 in fm1-emu, recorded over USB: 104 repeats in 4 s on one core, 53 on two). 304..352 in a
+ * ring of 1024: no repeat for any render that keeps up (no overrun); a frame waits ~10 ms. */
+#define UA_N 1024u               /* ring, frames (16-bit L | R << 16); a power of two */
+#define UA_PRIME 328u            /* silence ahead of the first rendered frame */
+#define UA_LO 304u               /* a render may take the whole block: keep it and a packet in hand */
+#define UA_HI 352u
 #define UAC_RATE 44100u
 #if FELUCCA_UAC_48K
 /* 48 kHz: the same times in 48 kHz frames (x 160 / 147); a render of HALF_FRAMES gives 139..140 frames */
-#define UA_PRIME48 113u
-#define UA_LO48 87u
-#define UA_HI48 139u
+#define UA_PRIME48 357u
+#define UA_LO48 331u
+#define UA_HI48 383u
 #define UA_REND48 ((HALF_FRAMES * 160u + 146u) / 147u)
 #define UA_MAXF 49u              /* frames in the largest packet: 48 + 1 */
 _Static_assert(UA_HI48 + UA_REND48 + UA_MAXF < UA_N, "the ring holds the band, a render and a packet (48 kHz)");

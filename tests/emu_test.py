@@ -41,9 +41,9 @@ def pick(name):
     return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
 
 
-def run(case, keys, ms, binp=APP):
+def run(case, keys, ms, binp=APP, extra=()):
     r = subprocess.run([sys.executable, str(SRC / "tools" / "dock.py"), "emu", "--bin", str(binp), "--ms", str(ms),
-                        "--keys", keys, "--out", str(OUT / case)], capture_output=True, text=True)
+                        "--keys", keys, "--out", str(OUT / case), *extra], capture_output=True, text=True)
     if r.returncode:
         raise SystemExit(f"{case}: {r.stderr or r.stdout}")
     w = wave.open(str(OUT / case / "audio.wav"))
@@ -169,6 +169,46 @@ def main():
     s, log = run("din_midi", "1000:m903c64,1500:m803c00,1700:m9045,1800:m40", 2500)
     check("din_midi", peak(s, 0.9, 1.2) > 1000 and peak(s, 1.4, 1.5) < peak(s, 0.9, 1.2) and peak(s, 1.7, 2.0) > 1000,
           "the DIN jack plays notes (and running status split across bytes)")
+
+    # USB audio: the computer records what the speaker plays, for every module, sample for sample (fm1-live's
+    # FM1_USB_WAV; the speaker's capture is the DAC's value >> 8, the USB sample >> 1). A render that ran the
+    # ring dry would repeat frames and shift what follows.
+    def usb_frames(case):
+        w = wave.open(str(OUT / case / "usb.wav"))
+        d = w.readframes(w.getnframes())
+        return w.getframerate(), struct.unpack(f"<{len(d) // 2}h", d)
+
+    def usb_same(s, u):
+        # the share of USB frames, from its first sound on, that are the speaker's at one lag
+        spk = list(zip(s[0::2], s[1::2]))
+        usb = [(a >> 1, b >> 1) for a, b in zip(u[0::2], u[1::2])]
+        st = next((i for i, (a, _) in enumerate(usb) if abs(a) > 200), None)
+        if st is None:
+            return 0.0, "no sound"
+        key = usb[st:st + 64]
+        lag = next((j - st for j in range(len(spk) - 64) if spk[j] == key[0] and spk[j:j + 64] == key), None)
+        if lag is None:
+            return 0.0, "not found in the speaker's"
+        pairs = [(usb[k], spk[k + lag]) for k in range(st, len(usb)) if 0 <= k + lag < len(spk)]
+        return sum(a == b for a, b in pairs) / max(1, len(pairs)), f"{len(pairs)} frames at one offset"
+
+    probe = subprocess.run([str(Path(os.environ.get("FM1_LIVE", Path.home() / "work/fm1-emu/target/release/fm1-live"))),
+                            "--help"], capture_output=True, text=True)
+    if "FM1_USB_WAV" not in probe.stdout + probe.stderr:
+        print("  skip usb_audio: this fm1-live does not record USB audio (FM1_USB_WAV)")
+    else:
+        # (the chord at 4 s: OberVave takes ~2.4 s to start after the picker)
+        chord = "".join(f",4000:{k},5200:{k}^" for k in (14, 18, 21, 25, 28, 32))
+        for name in names:
+            case = "usb_" + re.sub(r"[^a-z0-9]+", "", name.lower())
+            s, log = run(case, pick(name) + chord, 6000, extra=("--usb",))
+            rate, u = usb_frames(case)
+            same, how = usb_same(s, u)
+            check(case, rate == 44100 and same == 1.0, f"{name}: USB audio is the speaker's, {same * 100:.2f} % ({how})")
+        s, log = run("usb_48k", pick(names[0]) + chord, 6000, extra=("--usb", "48000"))
+        rate, u = usb_frames("usb_48k")
+        frames = len(u) // 2                    # (the stream starts once the computer has configured it, ~0.35 s)
+        check("usb_48k", rate == 48000 and 48 * 5400 < frames <= 48 * 6000, f"a 48 kHz computer: {frames} frames in 6 s")
 
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")
     return 1 if failures else 0
