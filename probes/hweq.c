@@ -76,10 +76,19 @@ static int32_t run(hb_probe_ctx_t *c)
     uint32_t ib = inm ? 4u : 2u, ob = outm ? 4u : 2u;
     if (!ch) ch = 1;
     if (!och) och = ch;
+    if (!nsec) nsec = 1;
+    if (!n) n = 1;
     if (nslots > 64u) nslots = 64u;
     if (!given || given > nslots) given = nslots;
     if (given > 8u) given = 8u;
+    /* (the EQ reads nsec x och slots: 20 in its RAM, the rest at flt; and writes their state back) */
+    if (nsec * och > 20u + 64u) {
+        p_text(c, "error", "sections x out channels over what flt holds");
+        return -1;
+    }
+    /* (n bounded by both buffers: the input it reads and the output it writes) */
     if (n * ch * ib > BUF * 4u) n = BUF * 4u / (ch * ib);
+    if (n * och * ob > BUF * 4u) n = BUF * 4u / (och * ob);
 
     /* the input, in its layout: sample s of channel k at (block) k * n + s, (interleaved) s * ch + k */
     for (i = 0; i < n * ch; i++) {
@@ -125,6 +134,8 @@ static int32_t run(hb_probe_ctx_t *c)
     t1 = p_ticks();
     EQ[0] |= 1u << 30;
     EQ[0] &= ~1u;
+    if (polls >= POLLS)
+        EQ[0] = 0;                              /* (stuck: stop it, so it does not go on writing) */
     p_irq_on();
 
     p_hex(c, "con0", con0);

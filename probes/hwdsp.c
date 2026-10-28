@@ -73,6 +73,8 @@ static void job(hb_probe_ctx_t *c, uint32_t vector)
     t1 = p_ticks();
     con = FFT_CON;
     FFT_CON |= 1u << 6;
+    if (n >= POLLS)
+        FFT_CON = 0;                            /* (stuck: stop it, so it does not go on writing) */
     p_irq_on();
     p_hex(c, "con_done", done);
     p_hex(c, "con", con);
@@ -94,7 +96,12 @@ static int32_t run(hb_probe_ctx_t *c)
     uint32_t op = p_arg32(c, 0, 0);
     regs(c);
     if (op == 1) {                              /* FFT */
-        uint32_t con = p_arg32(c, 1, 0);
+        uint32_t con = p_arg32(c, 1, 0), nfft = (con >> 16) & 0xFFFu;
+        /* (complex: 2N words in and out; real: N + 2: within the buffers) */
+        if ((con & 2u) ? nfft + 2u > WORDS + 8u : 2u * nfft > WORDS + 8u) {
+            p_text(c, "error", "N over the buffers");
+            return -1;
+        }
         fill(xb, p_arg32(c, 2, 0), (int32_t)p_arg32(c, 3, 0), p_arg32(c, 4, 0));
         fill(zb, 0, 0, 0);
         desc[0] = con;
@@ -104,6 +111,19 @@ static int32_t run(hb_probe_ctx_t *c)
         job(c, 0);
         out(c, (con & 1u) ? xb : zb, p_arg32(c, 5, 0), p_arg32(c, 6, 0));
     } else if (op == 2) {                       /* vector */
+        uint32_t con = p_arg32(c, 1, 0), c0 = p_arg32(c, 2, 0), c1 = p_arg32(c, 3, 0);
+        uint32_t nlen = c0 & 0xFFFu, nloop = (c0 >> 12) & 0xFFFu, k, ok = 1;
+        if (!nloop) nloop = 1;
+        /* (each of x, y, z: the last loop's start (increments in bytes) plus nlen elements, two a
+         * complex one, at its width, within its buffer) */
+        for (k = 0; k < 3u; k++) {
+            uint32_t w = (con >> (6u + 2u * k)) & 3u, inc = (c1 >> (10u * k)) & 0x3FFu;
+            if ((nloop - 1u) * inc + 2u * nlen * (1u << w) > 4u * (WORDS + 8u)) ok = 0;
+        }
+        if (!ok) {
+            p_text(c, "error", "nlen / nloop / increments over the buffers");
+            return -1;
+        }
         fill(xb, p_arg32(c, 6, 0), (int32_t)p_arg32(c, 7, 0), p_arg32(c, 8, 0));
         fill(yb, p_arg32(c, 9, 0), (int32_t)p_arg32(c, 10, 0), p_arg32(c, 11, 0));
         fill(zb, p_arg32(c, 12, 0), (int32_t)p_arg32(c, 13, 0), p_arg32(c, 14, 0));
