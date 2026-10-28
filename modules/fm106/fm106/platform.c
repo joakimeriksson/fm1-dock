@@ -125,13 +125,18 @@ static int fm106_put(uint32_t idx, const void *p, uint32_t n)   /* n bytes in ba
     }
     return 0;
 }
+/* the first n bytes of what fm106_put saved from idx on: a bank is loaded whole (the host gives one only
+ * whole, into the module's RAM), so through this buffer: FM-106 reads its presets' header first, onto
+ * its stack */
+static uint8_t fm106_bank_buf[HB_BANK_MAX];
 static int fm106_get(uint32_t idx, void *p, uint32_t n)
 {
     uint8_t *b = p;
     if (!HB_HOST_HAS(H, bank_free)) return -1;
     while (n) {
         uint32_t k = n < HB_BANK_MAX ? n : HB_BANK_MAX;
-        if (H->bank_load_n(idx++, b, k) != (int)k) return -1;
+        if (H->bank_load_n(idx++, fm106_bank_buf, HB_BANK_MAX) < (int)k) return -1;
+        memcpy(b, fm106_bank_buf, k);
         b += k; n -= k;
     }
     return 0;

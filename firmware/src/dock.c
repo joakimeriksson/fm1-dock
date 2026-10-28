@@ -2101,7 +2101,7 @@ static void app_main(void)
     }
     hb_nv.active = 0;
     hb_log_u32("fm1-dock " APP_VER " boot, reset", fm1_boot.p3_rst);
-    cpu1_said = cpu1_state == CPU1_NOSTART || cpu1_state == CPU1_FAILED ? cpu1_state : CPU1_SCREENING;
+    cpu1_said = cpu1_state == CPU1_NOSTART || (cpu1_state == CPU1_FAILED && cpu1_late == 1) ? cpu1_state : CPU1_SCREENING;
     hb_log(cpu1_said == CPU1_SCREENING ? "cpu1: started" : cpu1_said == CPU1_NOSTART   /* (the screening may */
            ? "cpu1: did not start, 1 core" : "cpu1: failed its self-test, 1 core");    /* have ended already) */
     if (hb_nv.crash.magic == CRASH_MAGIC)
@@ -2155,10 +2155,14 @@ static void app_main(void)
         uint8_t s, d1, d2;
         const hb_module_t *m;
         platform_poll();
-        if (cpu1_said != cpu1_state && cpu1_said == CPU1_SCREENING) {   /* the screening's verdict, once */
-            hb_log_u32(cpu1_state == CPU1_OK ? "cpu1: 2 cores, screened in us" : cpu1_state == CPU1_MISREAD
-                       ? "cpu1: misread RAM, 1 core; screened us" : "cpu1: late in its screening, 1 core; us",
-                       cpu1_screen_ticks / 24u);
+        if (cpu1_said != cpu1_state) {          /* the second core's changes, each once */
+            if (cpu1_said == CPU1_SCREENING)
+                hb_log_u32(cpu1_state == CPU1_OK ? "cpu1: 2 cores, screened in us" : cpu1_state == CPU1_MISREAD
+                           ? "cpu1: misread RAM, 1 core; screened us" : "cpu1: late in its screening, 1 core; us",
+                           cpu1_screen_ticks / 24u);
+            else
+                hb_log_u32(cpu1_state == CPU1_MISREAD ? "cpu1: misread around a job, 1 core; timeouts"
+                           : "cpu1: a job ran late, 1 core; timeouts", cpu1_timeouts);
             cpu1_said = cpu1_state;
         }
         if (fm1_ms < 600u && (fm1_in.buttons >> BTN_OCT_DOWN & 1u))

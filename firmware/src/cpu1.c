@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Andre Rezemini (the SLOOP dualcore branch, github.com/andrerezemini/sloop-lab): after its
- * cpu1.c, cut down for fm1-dock (no menu switch, no render split of its own; the misread check is fm1-dock's) */
+ * cpu1.c, cut down for fm1-dock (no menu switch, no render split of its own)
+ * Copyright (C) 2026 Joakim Eriksson: the screening, the checks around a job, the parked job */
 /* The second core of the AC7911: started at power-on (platform.c fm1_cstart), proved with a self-test job,
  * screened for misreads in the first audio blocks, then lent to the module that runs (hb_host_t.c1_run /
  * c1_wait, dock.c), one job at a time, from its render only.
@@ -15,7 +16,10 @@
  * each of the first 128 audio blocks (~0.75 s, beside the render: the boot does not wait for it; the module
  * has one core until then), and a unit that misreads once keeps one core. Around each job it reads the
  * kilobyte again: once a word comes back otherwise, it is held and the module runs on one core from the next
- * block. */
+ * block. These checks are statistical: a misread elsewhere goes unseen, and a block's results are kept.
+ * Its idle loop (fm1_c1_main) runs a job when the job word differs from its done word, so a misread of
+ * either one runs the job again: between jobs the job is a no-op in RAM (cpu1_park), so such a run
+ * touches nothing and fetches nothing from the flash (a flash write, a module switch). */
 #include "fm1_cpu1.h"
 
 enum { CPU1_OFF, CPU1_NOSTART, CPU1_FAILED, CPU1_OK, CPU1_MISREAD, CPU1_SCREENING };   /* not started / did not
@@ -37,6 +41,17 @@ static uint32_t cpu1_screen_ticks;               /* core 1's time in the screeni
 static uint32_t cpu1_screened;                   /* slices done */
 static uint8_t cpu1_pending;                     /* a job handed over and not yet waited for (core 0's) */
 static uint8_t cpu1_screen_out;                  /* a slice handed over (core 0's) */
+static uint8_t cpu1_late;                        /* CPU1_FAILED: 1 the self-test, 2 the screening, 3 a job */
+
+static void __attribute__((section(".c1_text"), used)) cpu1_idle(uint32_t arg)   /* the job between jobs */
+{
+    (void)arg;
+}
+
+static void cpu1_park(void)                      /* after a job: core 1's job word points at the no-op */
+{
+    fm1_c1_fn = cpu1_idle;
+}
 
 static uint32_t cpu1_lcg(uint32_t x)             /* 64 steps of an LCG: the self-test's work */
 {
@@ -94,9 +109,11 @@ static void cpu1_boot(void)
     cpu1_test_out = 0;
     if (!fm1_cpu1_run(cpu1_selftest, 20261028u) || fm1_cpu1_wait() != 0 || cpu1_test_out != cpu1_lcg(20261028u)) {
         fm1_cpu1_hold();                         /* answered, but wrong or late: one core from here on */
+        cpu1_late = 1;
         cpu1_state = CPU1_FAILED;
         return;
     }
+    cpu1_park();
     cpu1_state = CPU1_SCREENING;
 }
 
@@ -117,9 +134,11 @@ static void cpu1_screen_end(void)
     cpu1_screen_out = 0;
     if (fm1_cpu1_wait() != 0) {
         cpu1_timeouts++;
+        cpu1_late = 2;
         cpu1_state = CPU1_FAILED;
         return;
     }
+    cpu1_park();
     cpu1_screen_ticks += cpu1_job_ticks;
     cpu1_job_ticks = 0;                          /* (a module's job, for the stats) */
     if (cpu1_test_out) {
@@ -133,7 +152,7 @@ static void cpu1_screen_end(void)
 /* the module's calls (dock.c h_c1_run / h_c1_wait): 1 = core 1 took the job */
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg)
 {
-    if (cpu1_state != CPU1_OK || !fn)
+    if (cpu1_state != CPU1_OK || !fn || cpu1_pending)   /* (one job at a time) */
         return 0;
     cpu1_fn = fn;
     cpu1_arg = arg;
@@ -144,12 +163,16 @@ static int cpu1_run(void (*fn)(uint32_t), uint32_t arg)
 /* 0 = the job is done; -1 = core 1 did not finish it in time and is held from now on: the caller runs it */
 static int cpu1_wait(void)
 {
+    if (!cpu1_pending)                           /* (none out: nothing to wait for) */
+        return 0;
     cpu1_pending = 0;
     if (fm1_cpu1_wait() != 0) {
         cpu1_timeouts++;
+        cpu1_late = 3;
         cpu1_state = CPU1_FAILED;
         return -1;
     }
+    cpu1_park();
     if (cpu1_job_ticks > cpu1_job_worst)
         cpu1_job_worst = cpu1_job_ticks;
     if (cpu1_misreads && cpu1_state == CPU1_OK) {

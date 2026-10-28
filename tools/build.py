@@ -295,8 +295,14 @@ def check(img, syms, dis, rt):
     else:
         notes.append(f".ram_text: {len([ln for ln in rt.splitlines() if LINE.match(ln)])} insns, no calls")
     mc1 = [re.search(r"^([0-9a-f]+) .*\s" + n + r"$", syms, re.M) for n in ("_c1_start", "_c1_end")]
-    if all(mc1):
-        notes.append(f".c1_text: {int(mc1[1].group(1), 16) - int(mc1[0].group(1), 16)} B, the second core's loop in RAM")
+    c1 = re.search(r"Disassembly of section \.c1_text:\n(.*?)(?=\nDisassembly of section|\Z)", dis, re.S)
+    c1_calls = [ln.strip() for ln in (c1.group(1).splitlines() if c1 else [])
+                if re.search(r"\bcall\b", ln) and not re.search(r"\bcall r\d+\b", ln)]
+    if c1_calls:                    # its idle loop and no-op run while the flash may be off: the job only by pointer
+        errors.append(f".c1_text calls by address: {c1_calls[:3]}")
+    elif all(mc1):
+        notes.append(f".c1_text: {int(mc1[1].group(1), 16) - int(mc1[0].group(1), 16)} B, the second core's loop "
+                     "in RAM, calls only by pointer")
     for ln in dis.splitlines():     # nothing may call or load an address in the chip ROM
         mm = LINE.match(ln)
         if not mm:

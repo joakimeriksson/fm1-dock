@@ -203,7 +203,8 @@ def status(d):
     return STATUS[s] if s < len(STATUS) else f"status {s}"
 
 
-CPU1 = ("off", "did not start", "failed its self-test", "2 cores", "held after a misread", "being screened")
+CPU1 = ("off", "did not start", "failed: wrong or late (self-test, screening or a job)", "2 cores", "held after a misread",
+        "being screened")
 
 
 def hello(p):

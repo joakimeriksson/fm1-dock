@@ -156,13 +156,23 @@ def main():
         # change into the DIN jack); voices 3..5 on the second core, then on a unit whose core 1 misreads, all on core 0
         keys = pick("FM-106") + ",1400:mb00000,1450:mc026" + "".join(f",1800:{k},3200:{k}^" for k in (14, 18, 21, 25, 28, 32))
         s, log = run("fm106", keys, 3600)
-        last = float(log.split("render: last ")[1].split("(")[1].split(" %")[0])
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
         check("fm106", "fm106: FM-106" in log and "cpu1: 2 cores" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log
-              and last < 45, f"FM-106 plays six voices, three on the second core; core 0 {last} % of a block at the end")
+              and worst < 45, f"FM-106 plays six voices, three on the second core; core 0's worst {worst} % of a block")
         s1, log = run("fm106_flaky", keys, 3600, extra=("--flaky-core1", "1e-6", "--seed", "2"))
-        last = float(log.split("render: last ")[1].split("(")[1].split(" %")[0])
-        check("fm106_flaky", "cpu1: misread RAM, 1 core" in log and " 0 overruns" in log and s1 == s and last < 80,
-              f"a faulty second core: all six voices on core 0 ({last} %), the same sound")
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("fm106_flaky", "cpu1: misread RAM, 1 core" in log and " 0 overruns" in log and s1 == s and worst < 80,
+              f"a faulty second core: all six voices on core 0 (worst {worst} %), the same sound")
+        # a user preset across a power-off: SAVE (a short press) stores the sound in user slot 1 as "*A11 Brass"
+        # (its banks), the host keeps the module and FM-106 its patch (records); the next power-on loads them
+        flash = OUT / "fm106_flash.bin"
+        flash.unlink(missing_ok=True)
+        fw = ("--fwsc", str(SRC / "build" / "fm1-dock.fwsc"), "--flash", str(flash))
+        run("fm106_save", pick("FM-106") + ",2400:9,2500:9^", 6000, extra=fw)
+        _, log = run("fm106_saved", "", 3000, extra=fw)
+        ram = (OUT / "fm106_saved" / "ram.bin").read_bytes()
+        check("fm106_presets", "fm106: FM-106" in log and b"*A11 Brass" in ram,
+              "FM-106's user preset is there after a power-off (its banks loaded back)")
 
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter

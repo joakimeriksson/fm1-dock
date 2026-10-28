@@ -129,7 +129,8 @@ typedef struct hb_host {
     /* the second core (a module checks size first), from render() only: c1_run hands it fn(arg), one job at a
      * time, and returns 1 when it took it, 0 when there is none (not started, still being screened in the
      * first ~0.75 s, failed its checks, or a job is out): then the module does the work itself. c1_wait waits for the job: 0 done; -1 it did not end in
-     * time: core 1 is held from then on and the module does the work itself. Between the two the module
+     * time: core 1 is held from then on and the module does the work itself (so a job must stand being
+     * run again from the start, from where core 1 left its state). Between the two the module
      * must not touch what the job reads or writes; render() waits before it returns (the host waits for
      * a job left out). fn runs on core 1 from the module's flash or .ram_text, on a 2.8 KiB stack, with
      * the same rules as render(), and no host call but ticks() */

@@ -345,6 +345,7 @@ static void fm1_fault(const fm1_crash_t *c)
 {
     char b[12];
     uint32_t i, t0, v[3] = {c->vec, c->pc, c->rets};
+    fm1_cpu1_hold();                            /* the second core first: it may be in the module that crashed */
     fm1_audio_stop();
 #ifdef APP_FAULT_HOOK
     APP_FAULT_HOOK(c);
