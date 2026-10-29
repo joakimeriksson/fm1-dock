@@ -62,19 +62,28 @@ static uint32_t env_inc(int32_t dist_q30, int32_t t_q16)       /* dist / (max(t,
 
 static int32_t q16_to_q30(int32_t v) { return v >= SC_ONE16 ? SC_ONE30 : v <= 0 ? 0 : v << 14; }
 
+#define ENV_FLOOR 107374                                       /* 1e-4 in Q30: the release ends here */
+static int32_t rel_mul(int32_t r_q16)                          /* e^(-ln10 / (max(r, 1e-4) fs)), Q30 */
+{
+    uint32_t n_q8 = sc_samples_q8(r_q16 < 7 ? 7 : r_q16);      /* r fs, Q8 */
+    n_q8 = (uint32_t)(((uint64_t)n_q8 * 28462u) >> 16);        /* / ln10 (0.4343 in Q16) */
+    return sc_exp_neg_inv(n_q8);
+}
+
 void sc_prep(sc_prep_t *p, const sc_layer_t *L, const sc_perf_t *jp)
 {
     const int32_t *m = L->mm;
     p->L = L;
-    /* Adsr: attack 1/(a fs), decay (1 - s)/(d fs); release is set at note-off from its level */
+    /* Adsr: attack 1/(a fs), decay (1 - s)/(d fs); release exponential, a factor 10 per r seconds
+     * (VoiceCore: level *= exp(-ln10 / (max(r, 1e-4) fs)) until 1e-4), so e^(-1/N) with N = r fs / ln10 */
     p->fs = q16_to_q30(L->env_f.s);
     p->as = q16_to_q30(L->env_a.s);
     p->fa_inc = env_inc(SC_ONE30, L->env_f.a);
     p->fd_inc = env_inc(SC_ONE30 - p->fs, L->env_f.d);
     p->aa_inc = env_inc(SC_ONE30, L->env_a.a);
     p->ad_inc = env_inc(SC_ONE30 - p->as, L->env_a.d);
-    p->fr_q8 = sc_samples_q8(L->env_f.r < 7 ? 7 : L->env_f.r);
-    p->ar_q8 = sc_samples_q8(L->env_a.r < 7 ? 7 : L->env_a.r);
+    p->fr_mul = rel_mul(L->env_f.r);
+    p->ar_mul = rel_mul(L->env_a.r);
 
     /* Lfo: dt = rate / fs; the delay ramp reaches 1 after `delay` seconds */
     for (int k = 0; k < 2; k++) {
@@ -86,7 +95,9 @@ void sc_prep(sc_prep_t *p, const sc_layer_t *L, const sc_perf_t *jp)
     }
 
     p->semi1 = L->o1_oct * (12 << 16);
-    p->semi2 = L->o2_oct * (12 << 16) + sc_mul(L->o2_detune, 655, 16);   /* cents / 100 (655 = 0.01 Q16) */
+    /* cents / 100: 0.01 in Q32. (655/65536 was 0.055 % low: with a transpose folded into the
+     * detune as 1200 cents, as the ROM presets do, that put OSC2 0.66 cents flat.) */
+    p->semi2 = L->o2_oct * (12 << 16) + (int32_t)(((int64_t)L->o2_detune * 42949673LL) >> 32);
 
     /* the stick, as VoiceCore's joyPitch: up bends pitch when held left, LFO2 into pitch held left */
     int32_t left = SC_ONE16 - jp->joy_x;                                 /* 1 - joyX */
@@ -158,7 +169,7 @@ void sc_prep(sc_prep_t *p, const sc_layer_t *L, const sc_perf_t *jp)
 
 /* ---- building blocks ------------------------------------------------------------------------ */
 
-/* Adsr.step: linear segments */
+/* Adsr.step: linear attack and decay, exponential release */
 static inline int32_t env_step(sc_env_t *e, uint32_t a_inc, uint32_t d_inc, int32_t s)
 {
     switch (e->stage) {
@@ -173,18 +184,18 @@ static inline int32_t env_step(sc_env_t *e, uint32_t a_inc, uint32_t d_inc, int3
     case ENV_SUSTAIN:
         return s;
     case ENV_RELEASE:
-        e->level -= (int32_t)e->rel_inc;
-        if (e->level <= 0) { e->level = 0; e->stage = ENV_IDLE; }
+        e->level = sc_mul(e->level, e->rel_mul, 30);
+        if (e->level <= ENV_FLOOR) { e->level = 0; e->stage = ENV_IDLE; }
         return e->level;
     default:
         return 0;
     }
 }
 
-static void env_off(sc_env_t *e, uint32_t r_q8)
+static void env_off(sc_env_t *e, int32_t mul)
 {
     if (e->stage == ENV_IDLE) return;
-    e->rel_inc = sc_udiv64((uint64_t)(uint32_t)e->level << 8, r_q8);
+    e->rel_mul = mul;
     e->stage = ENV_RELEASE;
 }
 
@@ -214,8 +225,8 @@ static void env_run(sc_env_t *e, uint32_t ai, uint32_t di, int32_t s, int32_t *o
             break;
         case ENV_RELEASE:
             while (i < m) {
-                lv -= (int32_t)e->rel_inc;
-                if (lv <= 0) { out[i++] = lv = 0; e->stage = ENV_IDLE; break; }
+                lv = sc_mul(lv, e->rel_mul, 30);
+                if (lv <= ENV_FLOOR) { out[i++] = lv = 0; e->stage = ENV_IDLE; break; }
                 out[i++] = lv;
             }
             break;
@@ -227,7 +238,8 @@ static void env_run(sc_env_t *e, uint32_t ai, uint32_t di, int32_t s, int32_t *o
     e->level = lv;
 }
 
-/* the same m steps without their values: each linear segment in one jump */
+/* the same m steps without their values: each linear segment in one jump; the release, whose
+ * per-sample rounding the jump could not reproduce, step by step (one multiply each) */
 static void env_skip(sc_env_t *e, uint32_t ai, uint32_t di, int32_t s, uint32_t m)
 {
     while (m) {
@@ -236,7 +248,13 @@ static void env_skip(sc_env_t *e, uint32_t ai, uint32_t di, int32_t s, uint32_t 
         switch (e->stage) {
         case ENV_ATTACK:  step = ai; to = (uint32_t)(SC_ONE30 - lv); break;
         case ENV_DECAY:   step = di; to = (uint32_t)(lv - s); break;
-        case ENV_RELEASE: step = e->rel_inc; to = (uint32_t)lv; break;
+        case ENV_RELEASE:
+            while (m--) {
+                lv = sc_mul(lv, e->rel_mul, 30);
+                if (lv <= ENV_FLOOR) { lv = 0; e->stage = ENV_IDLE; break; }
+            }
+            e->level = lv;
+            return;
         default:          return;               /* sustain and idle do not move */
         }
         uint32_t j = step ? (to + step - 1) / step : 0xFFFFFFFFu;
@@ -248,8 +266,7 @@ static void env_skip(sc_env_t *e, uint32_t ai, uint32_t di, int32_t s, uint32_t 
         }
         m -= j;
         if (e->stage == ENV_ATTACK) { e->level = SC_ONE30; e->stage = ENV_DECAY; }
-        else if (e->stage == ENV_DECAY) { e->level = s; e->stage = ENV_SUSTAIN; }
-        else { e->level = 0; e->stage = ENV_IDLE; }
+        else { e->level = s; e->stage = ENV_SUSTAIN; }
     }
 }
 
@@ -268,6 +285,7 @@ static inline int32_t lfo_step(sc_lfo_t *l, uint32_t inc, int shape, uint32_t dl
     case SC_LFO_SQRU: raw = ph < 0x80000000u ? SC_ONE20 : -SC_ONE20; break;
     case SC_LFO_SH:   raw = l->sh; break;
     case SC_LFO_RND:  raw = l->sh + (int32_t)(((int64_t)(l->sh_next - l->sh) * (ph >> 2)) >> 30); break;
+    case SC_LFO_RAMPDN: raw = SC_ONE20 - (int32_t)(ph >> 11); break;        /* falling ramp */
     default:          raw = (int32_t)(ph >> 11) - SC_ONE20; break;           /* ramp */
     }
     l->smooth += (raw - l->smooth) >> 1;
@@ -439,8 +457,8 @@ void sc_voice_note_on(sc_voice_t *v, const sc_prep_t *p, int32_t note, int32_t v
 
 void sc_voice_note_off(sc_voice_t *v, const sc_prep_t *p)
 {
-    env_off(&v->env1, p->fr_q8);
-    env_off(&v->env2, p->ar_q8);
+    env_off(&v->env1, p->fr_mul);
+    env_off(&v->env2, p->ar_mul);
 }
 
 /* VoiceCore.updateCoeffs */

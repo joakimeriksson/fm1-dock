@@ -204,6 +204,7 @@ static void drain(sc_synth_t *s)
         case SC_EV_ALL_OFF:  sc_all_off(s); break;
         case SC_EV_BEND:     sc_pitch_bend(s, e->val); break;
         case SC_EV_PATCH:    sc_reprep(s); break;
+        case SC_EV_PERF:     for (int k = 0; k < 2; k++) sc_prep(&s->layer[k].prep, &s->patch.layer[k], &s->perf); break;
         }
         s->q_r++;
     }

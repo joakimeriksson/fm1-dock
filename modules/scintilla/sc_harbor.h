@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* What Dinghy's platform.c (gfx.c, libc.c) gives Scintilla's scintilla.c, on the fm1-dock host: the
  * panel, the time and MIDI (modules/lib/hb_fm1.h), the screen calls (the host's canvas and font,
- * as CS-1's cs1_platform.h), the settings record, the block. platform_poll: nothing (the host's
- * main loop polls; the audio runs in its interrupt). The DIN jack is the host's: its MIDI comes
- * through midi(). */
-#ifndef SC_PLATFORM_H
-#define SC_PLATFORM_H
+ * as CS-1's cs1_platform.h), the settings record, the block. scintilla.c includes it, built with
+ * -DHB_MODULE (by this name: it was fm1-harbor's). platform_poll: nothing (the host's main loop polls;
+ * the audio runs in its interrupt). The DIN jack is the host's: its MIDI comes through midi(). */
+#ifndef SC_HARBOR_H
+#define SC_HARBOR_H
 #include <stdint.h>
 #include "hb_fm1.h"
 
