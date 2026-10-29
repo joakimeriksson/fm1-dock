@@ -20,16 +20,16 @@ WebMIDI), the emulator in the browser, the module interface and the protocol.
 
 <p align="center"><img src="docs/media/screens.png" width="816" alt="The picker, FM-1 SID, CS-1, Scintilla's laser harp, OberVave and the sine, as fm1-emu draws them"></p>
 
-| | by | |
-| --- | --- | --- |
-| **CS-1** | twochannels | A CS-80-style synthesizer: two layers, its tone bars, effects, user presets, velocity and aftertouch from the keys. |
-| **Scintilla** | Joakim Eriksson | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. |
-| **OberVave** | zvenson | A 4-track analog poly with arpeggiator, sequencer and effects. |
-| **FM-106** | PatttF | The Roland Juno-106: six voices, the 128 factory presets, its BBD chorus, arpeggiator and sequencer; three of its voices on the FM-1's second core. [The original](https://github.com/PatttF/fm-106), its app and DSP unchanged (`modules/fm106/take.py`). Not in the package: added with `tools/dock.py deploy`. |
-| **FM-1 SID** | Joakim Eriksson | C64 music: a cycle-exact 6510, reSID and an own SID model; GoatTracker 2 songs and their editor: [write your first chiptune](https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step) on the FM-1. Not in the package: added with one click on [the page](https://joakimeriksson.github.io/fm1-dock/#install), or `tools/dock.py deploy`. |
-| **AMB-1** | Charles Vestal | A generative ambient machine after *Music for Airports*: it plays itself. [The original](https://charlesvestal.github.io/fm1-amb/), its code unchanged (`modules/amb`). Not in the package: added with one click on the page. |
-| **FoMni** | Charles Vestal | A chord harp after the Omnichord: chords on the black keys, strummed on the white ones. [The original](https://charlesvestal.github.io/fm1-fomni/), its code unchanged (`modules/fomni`). Not in the package: added with one click. |
-| **SINE** | built in | Dinghy's 4-voice sine: the fallback when a module fails, and the smallest module to copy. |
+| | by | voices | |
+| --- | --- | --- | --- |
+| **CS-1** | twochannels | 8, each two channels (I and II) | A CS-80-style synthesizer: two layers, its tone bars, effects, user presets, velocity and aftertouch from the keys. |
+| **Scintilla** | Joakim Eriksson | 8 (the patch's own polyphony, at most 8) | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. |
+| **OberVave** | zvenson | 8, shared by the four tracks | A 4-track analog poly with arpeggiator, sequencer and effects. |
+| **FM-106** | PatttF | 6, three on the second core | The Roland Juno-106: six voices, the 128 factory presets, its BBD chorus, arpeggiator and sequencer; three of its voices on the FM-1's second core. [The original](https://github.com/PatttF/fm-106), its app and DSP unchanged (`modules/fm106/take.py`). Not in the package: added with `tools/dock.py deploy`. |
+| **FM-1 SID** | Joakim Eriksson | 3, the SID's | C64 music: a cycle-exact 6510, reSID and an own SID model; GoatTracker 2 songs and their editor: [write your first chiptune](https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step) on the FM-1. Not in the package: added with one click on [the page](https://joakimeriksson.github.io/fm1-dock/#install), or `tools/dock.py deploy`. |
+| **AMB-1** | Charles Vestal | 4 pad voices, 6 bells, a bass, 3 drums | A generative ambient machine after *Music for Airports*: it plays itself. [The original](https://charlesvestal.github.io/fm1-amb/), its code unchanged (`modules/amb`). Not in the package: added with one click on the page. |
+| **FoMni** | Charles Vestal | 16 harp strings, a 3-note chord, a bass | A chord harp after the Omnichord: chords on the black keys, strummed on the white ones. [The original](https://charlesvestal.github.io/fm1-fomni/), its code unchanged (`modules/fomni`). Not in the package: added with one click. |
+| **SINE** | built in | 4 | Dinghy's 4-voice sine: the fallback when a module fails, and the smallest module to copy. |
 
 ## Install
 
