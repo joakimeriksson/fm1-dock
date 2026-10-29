@@ -3,13 +3,14 @@
 """fm1-dock on the computer.
 
   tools/dock.py emu [--bin build/fm1-dock_xip.bin | --fwsc build/fm1-dock.fwsc] [--ms 3000] [--keys SCRIPT]
-                      [--deploy MOD.dock [--at MS]] [--flash FLASH.bin] [--out DIR]
+                      [--deploy MOD.dock [--at MS]] [--flash FLASH.bin] [--usb [HZ]] [--out DIR]
                       [--flaky-core1 RATE [--seed N]]  (a unit whose second core misreads RAM)
       runs the firmware in fm1-emu's fm1-live (headless, JIT): DIR/audio.wav, DIR/panel.png
       (the screen at the end), DIR/ram.bin and DIR/log.txt (the host's log, crash record, stats).
       --fwsc boots the package as the FM-1 would (the flash past the image readable: deploys need
       it); --deploy sends a module into the DIN jack at MS (default 1000); --flash: the flash chip
-      from the file if it is there, back to it at the end (the next run boots from it)
+      from the file if it is there, back to it at the end (the next run boots from it); --usb: a USB
+      cable to a computer that records the FM-1's USB audio (at HZ, default 44100) into DIR/usb.wav
   tools/dock.py log RAM.bin       the host's NOINIT state from a RAM dump (from 0x01C00000)
 
 On an FM-1 (USB-MIDI; python-rtmidi: uv run --with python-rtmidi tools/dock.py ...):
@@ -120,8 +121,13 @@ def emu(a):
                 flash.append(["--flash", str(f)])
         else:
             flash = [[], []]
-        r = subprocess.run([live(), *fw, "--bench", str(a.ms), *flash[0]], cwd=wd, capture_output=True, text=True,
-                           env=dict(env, FM1_BENCH_WAV=str(raw)))
+        usb, usb_env, shot_env = [], {}, {}
+        if a.usb:                               # (both runs record: the first's sound is kept, the second's RAM)
+            usb = ["--usb"]
+            usb_env = {"FM1_USB_WAV": str(Path(wd) / "usb.raw"), "FM1_USB_RATE": str(a.usb)}
+            shot_env = dict(usb_env, FM1_USB_WAV=str(Path(wd) / "usb_shot.raw"))
+        r = subprocess.run([live(), *fw, "--bench", str(a.ms), *flash[0], *usb], cwd=wd, capture_output=True, text=True,
+                           env=dict(env, FM1_BENCH_WAV=str(raw), **usb_env))
         if r.returncode:
             sys.stderr.write(r.stdout + r.stderr)
             raise SystemExit("fm1-live --bench failed")
@@ -131,8 +137,19 @@ def emu(a):
             w.setsampwidth(2)
             w.setframerate(44100)
             w.writeframes(pcm)
-        r = subprocess.run([live(), *fw, "--shot", str(a.ms), *flash[1]], cwd=wd, capture_output=True, text=True,
-                           env=dict(env, FM1_DUMPRAM=str(out / "ram.bin")))
+        if a.usb:
+            got = Path(wd) / "usb.raw"
+            m = re.search(r"^usb audio: .* at (\d+) Hz", r.stdout, re.M)
+            if not got.exists() or not m:
+                raise SystemExit("fm1-live does not record USB audio (FM1_USB_WAV): an older fm1-emu")
+            print(m.group(0).split(" -> ")[0])
+            with wave.open(str(out / "usb.wav"), "wb") as w:
+                w.setnchannels(2)
+                w.setsampwidth(2)
+                w.setframerate(int(m.group(1)))   # (the rate it streamed at: the device's, if not the one asked for)
+                w.writeframes(got.read_bytes())
+        r = subprocess.run([live(), *fw, "--shot", str(a.ms), *flash[1], *usb], cwd=wd, capture_output=True, text=True,
+                           env=dict(env, FM1_DUMPRAM=str(out / "ram.bin"), **shot_env))
         if r.returncode:
             sys.stderr.write(r.stdout + r.stderr)
             raise SystemExit("fm1-live --shot failed")
@@ -237,6 +254,8 @@ def main():
     e.add_argument("--deploy")
     e.add_argument("--at", type=int, default=1000)
     e.add_argument("--flash")
+    e.add_argument("--usb", type=int, nargs="?", const=44100, metavar="HZ",
+                   help="a USB cable to a computer that records the USB audio (HZ: 44100 or 48000) into OUT/usb.wav")
     e.add_argument("--flaky-core1", type=float, help="fm1-live's faulty second core: its RAM reads wrong at this rate")
     e.add_argument("--seed", type=int, default=1, help="--flaky-core1's random seed")
     e.add_argument("--out", default=str(SRC / "build" / "emu"))
