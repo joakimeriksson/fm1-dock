@@ -252,29 +252,43 @@ void fm1_timer5_irq(void)
 }
 extern void isr_timer5(void);
 
-/* ---- the sound: ALNK0 I2S, two halves; the app renders, the MASTER knob scales, Q15 -> 24 bit (-6 dBFS ceiling) */
+/* ---- the sound: ALNK0 I2S, two halves; the app renders, the MASTER knob scales (and the app's level: fm1-dock's
+ * MIDI CC 7), Q15 -> 24 bit (-6 dBFS ceiling). A change of the two is spread over the block, a step per frame: a
+ * controller's jump (CC 7 127 -> 0) does not click. */
 static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
 static volatile int32_t master_q12 = 2048;
+static volatile int32_t app_vol_q12 = 4096;     /* the app's level on the knob's, Q12 (4096: as the knob alone) */
 static void app_audio(int32_t *out, uint32_t n);
 static void app_main(void);
 
+#if HALF_FRAMES != 256u
+#error "the gain's ramp steps 1/256 of the change a frame"
+#endif
 void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) */
 {
+    static int32_t gain_was = 2048;             /* the last block's gain, Q12 */
     uint8_t p;
     in_audio = 1;
     p = fm1_audio_pending();
     fm1_audio_ack_aux(p);
     if (p & FM1_AUDIO_HALF) {
         int32_t *o = &abuf[fm1_audio_free_half() * HALF_WORDS];
+        int32_t gain = (master_q12 * app_vol_q12) >> 12, gq = gain_was << 8, dg = gain - gain_was;   /* gq: Q20 */
         uint32_t i, b;
         for (i = 0; i < HALF_WORDS; i++)
             o[i] = 0;
         uac_render_start();
         app_audio(o, HALF_FRAMES);
-        for (i = 0; i < HALF_WORDS; i++) {
-            int32_t v = (o[i] * master_q12) >> 12;
+        for (i = 0; i < HALF_WORDS; i += 2u) {  /* (the gain unchanged: as o * gain >> 12, bit for bit) */
+            int32_t g, v;
+            gq += dg;
+            g = gq >> 8;
+            v = (o[i] * g) >> 12;
             o[i] = v > 32767 ? 32767 : v < -32767 ? -32767 : v;
+            v = (o[i + 1u] * g) >> 12;
+            o[i + 1u] = v > 32767 ? 32767 : v < -32767 ? -32767 : v;
         }
+        gain_was = gain;
         for (b = 0; b < HALF_FRAMES; b += 32u)
             uac_tap(o + 2u * b, 32u);           /* the computer records what the speaker plays */
         for (i = 0; i < HALF_WORDS; i++)

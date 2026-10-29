@@ -55,7 +55,9 @@ deployed modules, settings and presets. Installing firmware is at your own risk.
 | --- | --- |
 | **HOME** | the picker (a module that owns the whole panel: hold HOME alone for 1.5 s) |
 | **SELECT / PRESETS** | move in the picker; **PLAY**, **SEL** or **HOME** load the module |
-| **BLUETOOTH** (the picker's last line) | BLE-MIDI OFF / ON with **SEL** (off by default); a computer, phone or controller connects to `FM1-DOCK xxxx` without pairing, notes go both ways |
+| **OPTIONS** (past the picker's last module) | **SEL** changes the option, **HOME** goes back |
+| **CC7 VOLUME** (OPTIONS) | ON: MIDI CC 7 on any channel sets the level of whatever module plays, on top of MASTER (127 = as the knob alone, (v/127)² as the MIDI spec has it; back to 127 at every start). OFF by default: CC 7 goes to the module, as before (CS-1 and OberVave have their own) |
+| **BLUETOOTH** (OPTIONS, the last line) | BLE-MIDI OFF / ON with **SEL** (off by default); a computer, phone or controller connects to `FM1-DOCK xxxx` without pairing, notes go both ways |
 | **OCT+ at power-on** | safe start: the sine only (and the radio not started) |
 | **OCT− at power-on** | the USB rescue: no sound, only the updater |
 
