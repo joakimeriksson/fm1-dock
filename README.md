@@ -57,7 +57,11 @@ deployed modules, settings and presets. Installing firmware is at your own risk.
 | **HOME** | the picker (a module that owns the whole panel: hold HOME alone for 1.5 s) |
 | **SELECT / PRESETS** | move in the picker; **PLAY**, **SEL** or **HOME** load the module |
 | **OPTIONS** (past the picker's last module) | **SEL** changes the option, **HOME** goes back |
-| **CC7 VOLUME** (OPTIONS) | ON: MIDI CC 7 on any channel sets the level of whatever module plays, on top of MASTER (127 = as the knob alone, (v/127)² as the MIDI spec has it; back to 127 at every start). OFF by default: CC 7 goes to the module, as before (CS-1 and OberVave have their own) |
+| **CC7 VOLUME** (OPTIONS) | ON: MIDI CC 7 (on any channel, or MIDI CH's) sets the level of whatever module plays, on top of MASTER (127 = as the knob alone, (v/127)² as the MIDI spec has it; back to 127 at every start). OFF by default: CC 7 goes to the module, as before (CS-1 and OberVave have their own) |
+| **MASTER CC7** (OPTIONS) | ON: turning MASTER sends CC 7 (its value 0..127) on the keys' channel, over USB and BLE-MIDI; nothing for where it is at power-on, and the knob's noise sends nothing. With CC7 VOLUME also ON, a computer that echoes CC 7 back sets the level twice |
+| **MIDI CH** (OPTIONS) | ALL (the default): every channel reaches the module. 1..16 (**SEL** steps, a knob turns either way): only that channel, which the module hears as channel 1, and the keys send on it. Modules that use channels of their own (OberVave's tracks) want ALL |
+| **LOCAL** (OPTIONS) | OFF: the keys only send MIDI (on the keys' channel), the module gets none of them, so a computer playing it back gives no double notes; in CS-1, OberVave and FM-106 too (their keys are the host's then). ON by default |
+| **MIDI THRU** (OPTIONS) | ON: what comes in on the TRS MIDI jack (notes, CCs, ...; not clock or SysEx) goes on to USB-MIDI and BLE-MIDI as it came, and the module plays it too. OFF by default |
 | **BLUETOOTH** (OPTIONS, the last line) | BLE-MIDI OFF / ON with **SEL** (off by default); a computer, phone or controller connects to `FM1-DOCK xxxx` without pairing, notes go both ways |
 | **OCT+ at power-on** | safe start: the sine only (and the radio not started) |
 | **OCT− at power-on** | the USB rescue: no sound, only the updater |

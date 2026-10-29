@@ -41,6 +41,39 @@ def pick(name):
     return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
 
 
+O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_THRU = range(5)    # the OPTIONS lines (dock.c), past the list's modules
+
+
+def options(sets, at=700, cur=0, hold=False):
+    """the key script that opens the picker (module `cur` playing; hold: one with the panel, HOME held 1.5 s),
+    goes down to each OPTIONS line o of sets [(o, n)], in order, presses SEL n times there, then HOME; and
+    the time it ends at"""
+    up = at + (1600 if hold else 50)
+    n_mods, t = 1 + len(slots()), up + 150
+    sel, out = cur, [f"{at}:8", f"{up}:8^"]
+    for o, n in sets:
+        out.append(f"{t}:e6:{n_mods + o - sel}")
+        sel, t = n_mods + o, t + 100
+        for _ in range(n):
+            out += [f"{t}:3", f"{t + 50}:3^"]
+            t += 100
+    out += [f"{t}:8", f"{t + 50}:8^"]
+    return ",".join(out), t + 50
+
+
+def sym(name):
+    m = re.search(rf"^([0-9a-f]{{8}}) .*\s{name}$", (SRC / "build" / "fm1-dock.syms").read_text(), re.M)
+    return int(m.group(1), 16) - 0x01C00000
+
+
+def midi_out(case):
+    """what the FM-1 sent over USB-MIDI in the run (usb.c's ring, the last 64): [(status, data 1, data 2)]"""
+    ram = (OUT / case / "ram.bin").read_bytes()
+    (w,) = struct.unpack_from("<I", ram, sym("mo_w"))
+    q = struct.unpack_from("<64I", ram, sym("midi_out_q"))
+    return [(q[i % 64] >> 8 & 0xFF, q[i % 64] >> 16 & 0xFF, q[i % 64] >> 24) for i in range(max(0, w - 64), w)]
+
+
 def run(case, keys, ms, binp=APP, extra=()):
     r = subprocess.run([sys.executable, str(SRC / "tools" / "dock.py"), "emu", "--bin", str(binp), "--ms", str(ms),
                         "--keys", keys, "--out", str(OUT / case), *extra], capture_output=True, text=True)
@@ -247,6 +280,40 @@ def main():
         g = uac_glitches("usb_48k")
         check("usb_48k", rate == 48000 and 48 * 5400 < frames <= 48 * 6000 and g == (0, 0, 0),
               f"a 48 kHz computer: {rate} Hz, {frames} frames in 6 s; ring underruns, overruns, missed {g}")
+
+    # the host's MIDI OPTIONS, with a computer on USB (what the FM-1 sends: usb.c's ring in the run's RAM)
+    if "FM1_USB_WAV" in probe.stdout + probe.stderr:
+        keys, t = options([(O_LOCAL, 1)])       # LOCAL OFF: the keys send, the sine plays nothing
+        s, log = run("local_off", keys + f",{t + 300}:14,{t + 700}:14^", t + 1200, extra=("--usb",))
+        out, t0 = midi_out("local_off"), (t + 300) / 1000
+        check("local_off", peak(s, t0 - 0.1, t0 + 0.6) == 0 and any(st == 0x90 and v for st, _, v in out) and
+              any(st == 0x80 for st, _, _ in out), f"LOCAL OFF: a key sends its note on and off, the sine stays silent ({out})")
+        if "CS-1" in names:                     # (a module that plays its own keys: the host takes them)
+            cur = 1 + names.index("CS-1")
+            keys, t = options([(O_LOCAL, 1)], at=1700, cur=cur, hold=True)
+            s, log = run("local_off_panel", pick("CS-1") + "," + keys + f",{t + 300}:14,{t + 700}:14^", t + 1200,
+                         extra=("--usb",))
+            out, t0 = midi_out("local_off_panel"), (t + 300) / 1000
+            check("local_off_panel", peak(s, t0 - 0.1, t0 + 0.6) < 50 and any(st == 0x90 and v for st, _, v in out),
+                  f"LOCAL OFF in CS-1: its key goes out as a note, CS-1 plays nothing (peak {peak(s, t0 - 0.1, t0 + 0.6)})")
+
+        keys, t = options([(O_CH, 2)])          # MIDI CH 2: channel 1 is not heard, 2 is; the keys send on 2
+        s, log = run("midi_ch", keys + f",{t + 300}:m903c64,{t + 600}:m803c00,{t + 900}:m913c64,{t + 1200}:m813c00,"
+                     f"{t + 1500}:14,{t + 1700}:14^", t + 2000, extra=("--usb",))
+        out, t0 = midi_out("midi_ch"), (t + 300) / 1000
+        check("midi_ch", peak(s, t0 - 0.1, t0 + 0.3) == 0 and peak(s, t0 + 0.6, t0 + 0.9) > 1000 and
+              any(st == 0x91 for st, _, _ in out) and not any(st == 0x90 for st, _, _ in out),
+              f"MIDI CH 2: a channel 1 note is not heard, a channel 2 one plays; the key sends on channel 2 ({out})")
+
+        res = {}
+        for case, n in (("midi_thru", 1), ("midi_nothru", 0)):   # MIDI THRU: the DIN jack's note goes on to USB
+            keys, t = options([(O_THRU, n)])    # (and plays); left OFF: it plays, nothing goes out
+            s, log = run(case, keys + f",{t + 300}:m903c64,{t + 600}:m803c00", t + 1000, extra=("--usb",))
+            res[case] = midi_out(case), peak(s, (t + 300) / 1000, (t + 600) / 1000)
+        (out, p1), (out2, p2) = res["midi_thru"], res["midi_nothru"]
+        check("midi_thru", (0x90, 0x3C, 0x64) in out and (0x80, 0x3C, 0) in out and (0x90, 0x3C, 0x64) not in out2 and
+              p1 > 1000 and p2 > 1000, f"MIDI THRU: the DIN jack's note on and off go out on USB ({out}), and play; "
+              f"OFF: not sent ({out2})")
 
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")
     return 1 if failures else 0

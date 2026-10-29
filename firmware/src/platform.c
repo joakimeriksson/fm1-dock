@@ -259,6 +259,7 @@ extern void isr_timer5(void);
  * controller's jump (CC 7 127 -> 0) does not click. */
 static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
 static volatile int32_t master_q12 = 2048;
+static uint32_t master_k10 = 0xFFFFu;           /* the pot as read, 0..1023 (0xFFFF: not yet) */
 static volatile int32_t app_vol_q12 = 4096;     /* the app's level on the knob's, Q12 (4096: as the knob alone) */
 static void app_audio(int32_t *out, uint32_t n);
 static void app_main(void);
@@ -346,6 +347,7 @@ static void platform_poll(void)
         knob_avg += (a * 16 - knob_avg) / 8;
         k10 = (uint32_t)(knob_avg / 16);
         master_q12 = (int32_t)((k10 * k10) >> 8);
+        master_k10 = k10;
     }
 }
 
