@@ -15,9 +15,11 @@
  *              the other buttons and the encoders go to its ui().
  *   settings   one flash sector: the host's (the module, the octave, the options) and a record per module;
  *              each module's bank (8 KiB, by its name) for its user presets.
- *   options    past the last module the list turns to OPTIONS: CC7 VOLUME (MIDI CC 7 on any channel sets
- *              the level of whatever module plays, on top of MASTER; OFF by default, CC 7 goes to the module
- *              as before) and BLUETOOTH (BLE-MIDI).
+ *   options    past the last module the list turns to OPTIONS: CC7 VOLUME (MIDI CC 7 sets the level of
+ *              whatever module plays, on top of MASTER; OFF by default, CC 7 goes to the module as before),
+ *              MASTER CC7 (the MASTER knob sends CC 7), MIDI CH (ALL, or the one channel the module hears,
+ *              as channel 1, and the keys send on), LOCAL (OFF: the keys only send MIDI), MIDI THRU (the
+ *              DIN jack's messages on to USB and BLE-MIDI) and BLUETOOTH (BLE-MIDI). All off by default.
  *   deploys    a module sent over SysEx (tools/dock.py deploy) goes into flash of its own, never
  *              the host's: received whole and checked first, the table written last (see below).
  *   keys       the bottom two rows' force is sensed (Velo's sense.c, by way of CS-1, in the key
@@ -375,6 +377,11 @@ typedef struct {
     st_rec_t rec[ST_RECS];
 } st_t;
 #define OPT_CC7 1u                              /* CC7 VOLUME: the host takes MIDI CC 7 as the level (cc7_set) */
+#define OPT_MASTER_CC7 2u                       /* MASTER CC7: the MASTER knob sends CC 7 (master_cc7) */
+#define OPT_THRU 4u                             /* MIDI THRU: the DIN jack's channel messages on to USB and BLE */
+#define OPT_LOCAL_OFF 8u                        /* LOCAL OFF: the keys send MIDI only, the module gets none of them */
+#define OPT_CH_SHIFT 8u                         /* MIDI CH in bits 8..12: 0 ALL, else the channel 1..16 */
+#define OPT_CH_MASK (31u << OPT_CH_SHIFT)
 static st_t st;
 static uint32_t st_dirty, st_changed;
 
@@ -410,6 +417,29 @@ static void cc7_set(uint32_t v)
 {
     cc7 = v;
     app_vol_q12 = (int32_t)((v * v * 4096u + 8064u) / 16129u);   /* 127: 4096 */
+}
+
+/* MIDI CH: 0 ALL, else the channel 1..16 */
+static uint32_t opt_ch(void)
+{
+    uint32_t c = (st.spare[1] & OPT_CH_MASK) >> OPT_CH_SHIFT;
+    return c > 16u ? 0 : c;
+}
+
+/* MASTER CC7: the MASTER knob as CC 7 on the keys' channel when it moves, not for where it is at power-on.
+ * A value is 8 of the pot's 1024 steps; it changes 4 past its edges, so the knob's noise sends nothing. */
+static uint32_t mcc7 = 128u;                    /* the value sent last; 128: none, the knob's place is taken next */
+static void master_cc7(uint32_t ch)
+{
+    uint32_t k = master_k10;
+    if (k > 1023u || fm1_ms < 500u)             /* (the readings settle first) */
+        return;
+    if (mcc7 > 127u) {
+        mcc7 = k >> 3;
+    } else if (k + 4u < mcc7 * 8u || k > mcc7 * 8u + 11u) {
+        mcc7 = k >> 3;
+        midi_send(0xB0u | ch, 7u, mcc7);
+    }
 }
 
 #define BLE_KEY 0x454C4248u                     /* "HBLE": BLE-MIDI's record (ble_rec), never a module's key */
@@ -1023,31 +1053,54 @@ static void draw_top(int32_t oct)
     cv_blit(0, 0);
 }
 
-/* the list, then OPTIONS (past the last module): CC7 VOLUME, then BLUETOOTH (the last line, as it was) */
-#define N_OPTS (1u + hx_built)
+/* the list, then OPTIONS (past the last module): the host's, then BLUETOOTH (the last line, as it was) */
+enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_THRU };
+#if BOARD_SMK37
+#define N_OPTS_HOST 4u                          /* (no DIN jack: no MIDI THRU) */
+#else
+#define N_OPTS_HOST 5u
+#endif
+#define N_OPTS (N_OPTS_HOST + hx_built)
+#define OPT_Y(i) (56u + (i) * 25u)
 static const char *const BLE_ST[] = {"OFF", "NO CAL", "HELD", "ON", "LINKED", "READY"};
+static char *put_u(char *p, uint32_t v)         /* v (0..999) in decimal; the end */
+{
+    if (v >= 100u) *p++ = (char)('0' + v / 100u);
+    if (v >= 10u) *p++ = (char)('0' + v / 10u % 10u);
+    *p++ = (char)('0' + v % 10u);
+    *p = 0;
+    return p;
+}
 static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
 {
-    cv_begin(240, 28, on_it ? RGB(40, 30, 60) : C_BLACK);
-    if (o == 0) {                               /* CC7 VOLUME: OFF, ON, ON 64 (a level under 127: what it is now) */
-        char v[8] = "ON";
-        uint32_t on = st.spare[1] & OPT_CC7;
-        if (on && cc7 < 127u) {
-            uint32_t n = 3;
-            v[2] = ' ';
-            if (cc7 >= 100u) v[n++] = '1';
-            if (cc7 >= 10u) v[n++] = (char)('0' + cc7 / 10u % 10u);
-            v[n++] = (char)('0' + cc7 % 10u);
-            v[n] = 0;
-        }
-        cv_text(12, 6, &FONT_S, "CC7 VOLUME", on_it ? C_ACC : C_WHITE);
-        cv_text(150, 6, &FONT_S, on ? v : "OFF", on ? C_ACC : C_OFF);
-    } else {                                    /* BLUETOOTH and HX's state */
+    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "MIDI THRU"};
+    char v[8] = "OFF";
+    uint32_t lit = 0, opt = st.spare[1];
+    uint16_t col;
+    cv_begin(240, 24, on_it ? RGB(40, 30, 60) : C_BLACK);
+    if (o >= N_OPTS_HOST) {                     /* BLUETOOTH and HX's state */
         uint32_t b = ble_state();
-        cv_text(12, 6, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
-        cv_text(150, 6, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
+        cv_text(12, 4, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
+        cv_text(150, 4, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
                 b == HX_S_MISSING || b == HX_S_NOCAL || b == HX_S_HELD ? C_BAD : b >= HX_S_LINK ? C_ACC : C_OFF);
+        cv_blit(0, y);
+        return;
     }
+    switch (o) {                                /* (lit: not as it is by default) */
+    case O_CC7:                                 /* OFF, ON, ON 64 (a level under 127: what it is now) */
+        if ((lit = opt & OPT_CC7) != 0) {
+            v[0] = 'O', v[1] = 'N', v[2] = 0;
+            if (cc7 < 127u) { v[2] = ' '; put_u(v + 3, cc7); }
+        }
+        break;
+    case O_MASTER_CC7: if ((lit = opt & OPT_MASTER_CC7) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
+    case O_CH: if ((lit = opt_ch()) != 0) put_u(v, opt_ch()); else v[0] = 'A', v[1] = 'L', v[2] = 'L'; break;
+    case O_LOCAL: if (!(lit = opt & OPT_LOCAL_OFF)) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
+    default: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
+    }
+    col = lit ? C_ACC : C_OFF;
+    cv_text(12, 4, &FONT_S, NAME[o], on_it ? C_ACC : C_WHITE);
+    cv_text(150, 4, &FONT_S, v, col);
     cv_blit(0, y);
 }
 
@@ -1058,7 +1111,7 @@ static void draw_picker(uint32_t sel)
     if (sel >= n_mods) {                        /* OPTIONS */
         draw_text_box(0, 30, 240, &FONT_S, "OPTIONS", C_OFF, 1);
         for (i = 0; i < N_OPTS; i++)
-            draw_opt_line(i, 56 + i * 30u, sel == n_mods + i);
+            draw_opt_line(i, OPT_Y(i), sel == n_mods + i);
 #if BOARD_SMK37
         draw_text_box(0, 212, 240, &FONT_S, "SCALE: CHANGE    PATCH: BACK", C_OFF, 1);
 #else
@@ -2192,6 +2245,7 @@ static void app_main(void)
 
     for (;;) {
         uint32_t keys, down, up, rel, b, e, base = (uint32_t)(KEY0 + 12 * st.oct), panel, screen, sensed;
+        uint32_t local, kpanel, och, from;
         uint8_t s, d1, d2;
         const hb_module_t *m;
         platform_poll();
@@ -2210,6 +2264,9 @@ static void app_main(void)
         m = hb_active;
         panel = m && (m->flags & HB_F_PANEL) && m->ui;
         screen = m && (m->flags & HB_F_SCREEN);
+        local = !(st.spare[1] & OPT_LOCAL_OFF);
+        kpanel = panel && local;                /* the module plays its keys (LOCAL OFF: the host sends them) */
+        och = opt_ch() ? opt_ch() - 1u : 0;     /* the channel the keys send on (MIDI CH; ALL: 1) */
 
         keys = fm1_in.notes;                    /* bit k: key k (0 = F3 .. 26 = G5) */
         down = keys & ~prev;
@@ -2222,17 +2279,24 @@ static void app_main(void)
         sensed = h_sense_keys();
         for (k = 0; k < 27u; k++) {
             if (sensed >> k & 1u) {             /* a sensed key plays from its landing (below) */
-                if (!panel)
+                if (!kpanel)
                     fm1_led_key(KEY_LED(k), keys >> k & 1u);
                 continue;
             }
-            if (panel) {                        /* the module plays its keys */
+            if (kpanel) {                       /* the module plays its keys */
                 if (down >> k & 1u) m->ui(HB_EV_KEY_DOWN | k, 0);
                 if (up >> k & 1u) m->ui(HB_EV_KEY_UP | k, 0);
                 continue;
             }
-            if (down >> k & 1u) { held[k] = (uint8_t)(base + k); play_note(0, held[k], 100); midi_send(0x90, held[k], 100); }
-            if (up >> k & 1u) { play_note(0, held[k], 0); midi_send(0x80, held[k], 0); }   /* a key stops the note it started */
+            if (down >> k & 1u) {
+                held[k] = (uint8_t)(base + k);
+                if (local) play_note(0, held[k], 100);
+                midi_send(0x90u | och, held[k], 100);
+            }
+            if (up >> k & 1u) {                 /* a key stops the note it started */
+                if (local) play_note(0, held[k], 0);
+                midi_send(0x80u | och, held[k], 0);
+            }
             fm1_led_key(KEY_LED(k), keys >> k & 1u);
         }
         while (sense_take(&se)) {               /* the sensed keys: landed (with a velocity), lifted */
@@ -2243,27 +2307,32 @@ static void app_main(void)
                 uint32_t v = se.vel ? se.vel : 1u;
                 sheld |= 1u << k;
                 press_sent[k] = 0;
-                if (panel) {
+                if (kpanel) {
                     m->ui(HB_EV_KEY_DOWN | k, (int32_t)v);
                 } else {
                     held[k] = (uint8_t)(base + k);
-                    play_note(0, held[k], v);
-                    midi_send(0x90, held[k], v);
+                    if (local) play_note(0, held[k], v);
+                    midi_send(0x90u | och, held[k], v);
                 }
             } else if (se.type == EV_OFF && sheld >> k & 1u) {
                 sheld &= ~(1u << k);
-                if (panel) {
+                if (kpanel) {
                     m->ui(HB_EV_KEY_UP | k, 0);
                 } else {
-                    play_note(0, held[k], 0);
-                    midi_send(0x80, held[k], 0);
+                    if (local) play_note(0, held[k], 0);
+                    midi_send(0x80u | och, held[k], 0);
                 }
             }
         }
         for (k = 0; k < 27u; k++)               /* sensing switched off with keys held: let them go */
             if (sheld >> k & ~sensed >> k & 1u) {
                 sheld &= ~(1u << k);
-                if (panel) m->ui(HB_EV_KEY_UP | k, 0); else { play_note(0, held[k], 0); midi_send(0x80, held[k], 0); }
+                if (kpanel) {
+                    m->ui(HB_EV_KEY_UP | k, 0);
+                } else {
+                    if (local) play_note(0, held[k], 0);
+                    midi_send(0x80u | och, held[k], 0);
+                }
             }
         if (sheld && fm1_ms - t_press >= 10u) {  /* their pressure, ~100 times a second */
             t_press = fm1_ms;
@@ -2272,20 +2341,32 @@ static void app_main(void)
                 if (!(sheld >> k & 1u) || (pr = sense_pressure(k)) == press_sent[k])
                     continue;
                 press_sent[k] = (uint8_t)pr;
-                if (panel) {
+                if (kpanel) {
                     m->ui(HB_EV_KEY_PRESSURE | k, (int32_t)pr);
                 } else {
-                    if (m && m->midi) m->midi(0xA0, held[k], pr);
-                    midi_send(0xA0, held[k], pr);
+                    if (local && m && m->midi) m->midi(0xA0, held[k], pr);
+                    midi_send(0xA0u | och, held[k], pr);
                 }
             }
         }
         held_any = keys != 0;
         if (down)
             home_alone = 0;
+        if (st.spare[1] & OPT_MASTER_CC7)
+            master_cc7(och);
+        else
+            mcc7 = 128u;                        /* (switched on: from where the knob is then) */
 
-        while (midi_get(&s, &d1, &d2) || din_get(&s, &d1, &d2)) {   /* USB-MIDI and the DIN jack */
-            uint32_t ch = s & 15u;
+        while ((from = midi_get(&s, &d1, &d2) ? 1u : din_get(&s, &d1, &d2) ? 2u : 0) != 0) {   /* USB / BLE-MIDI, the DIN jack */
+            uint32_t ch;
+            if (from == 2u && (st.spare[1] & OPT_THRU))
+                midi_send(s, d1, d2);           /* MIDI THRU: on to USB and BLE as it came */
+            if (opt_ch() && s < 0xF0u) {        /* MIDI CH: that channel only, to the module as channel 1 */
+                if ((s & 15u) != opt_ch() - 1u)
+                    continue;
+                s &= 0xF0u;
+            }
+            ch = s & 15u;
             if ((s & 0xE0u) == 0x80u) t_notes = fm1_ms;
             if ((s & 0xF0u) == 0xB0u && d1 == 7u && (st.spare[1] & OPT_CC7)) { cc7_set(d2); continue; }   /* CC7 VOLUME: the host's */
             if (m && m->midi) { m->midi(s, d1, d2); continue; }
@@ -2325,9 +2406,9 @@ static void app_main(void)
             if (b & (1u << BTN_OCT_UP) && st.oct < 2) { st.oct++; store_touch(); }
         }
         if (picker) {
-            int32_t mv = fm1_enc_take(ENC_SELECT) + fm1_enc_take(ENC_PRESETS);
+            int32_t mv = fm1_enc_take(ENC_SELECT) + fm1_enc_take(ENC_PRESETS), turn = 0;
             for (e = 1; e < 6u; e++)
-                fm1_enc_take(e);                /* (the module's knobs do nothing meanwhile) */
+                turn += fm1_enc_take(e);        /* (the module's knobs: MIDI CH's value, else nothing meanwhile) */
             if (mv) {
                 int32_t ns = (int32_t)sel + mv;
                 sel = ns < 0 ? 0 : ns > (int32_t)(n_mods + N_OPTS - 1u) ? n_mods + N_OPTS - 1u : (uint32_t)ns;   /* (then OPTIONS) */
@@ -2339,14 +2420,38 @@ static void app_main(void)
                 if (sel >= n_mods)
                     draw_picker(sel);
             }
-            if (sel >= n_mods && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {   /* an option changed; OPTIONS stays */
-                if (sel == n_mods) {
+            if (sel >= n_mods && ((b & (1u << BTN_SEL | 1u << BTN_PLAY)) || (turn && sel == n_mods + O_CH))) {
+                uint32_t o = sel - n_mods;      /* an option changed; OPTIONS stays */
+                if (o == O_LOCAL || o == O_CH)  /* the keys held: let go as they were played */
+                    for (k = 0; k < 27u; k++)
+                        if ((prev | sheld) >> k & 1u) {
+                            if (kpanel) {
+                                m->ui(HB_EV_KEY_UP | k, 0);
+                            } else {
+                                if (local) play_note(0, held[k], 0);
+                                midi_send(0x80u | och, held[k], 0);
+                            }
+                        }
+                if (o == O_LOCAL || o == O_CH)
+                    sheld = 0;
+                if (o == O_CC7) {
                     st.spare[1] ^= OPT_CC7;     /* CC7 VOLUME ON / OFF (OFF: the level as the knob alone again) */
                     cc7_set(127u);
-                    store_touch();
-                } else {
-                    ble_set(ble_state() == HX_S_OFF);   /* BLUETOOTH ON / OFF */
+                } else if (o == O_MASTER_CC7) {
+                    st.spare[1] ^= OPT_MASTER_CC7;
+                } else if (o == O_CH) {         /* SEL: the next channel; a knob: either way (ALL, 1 .. 16) */
+                    int32_t c = (int32_t)opt_ch() + (turn ? turn : 1);
+                    c = ((c % 17) + 17) % 17;
+                    st.spare[1] = (st.spare[1] & ~OPT_CH_MASK) | (uint32_t)c << OPT_CH_SHIFT;
+                } else if (o == O_LOCAL) {
+                    st.spare[1] ^= OPT_LOCAL_OFF;
+                } else if (o < N_OPTS_HOST) {
+                    st.spare[1] ^= OPT_THRU;
                 }
+                if (o < N_OPTS_HOST)
+                    store_touch();
+                else
+                    ble_set(ble_state() == HX_S_OFF);   /* BLUETOOTH ON / OFF */
                 draw_picker(sel);
             } else if (b & (1u << BTN_HOME | 1u << BTN_SEL | 1u << BTN_PLAY)) {
                 if (sel >= n_mods)
