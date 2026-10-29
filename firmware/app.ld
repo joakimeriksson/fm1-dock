@@ -4,7 +4,8 @@
  * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120),
  * up to fm1-dock's slot table at 0x02030000 (flash 0x34000).
  * 0x01C00000..0x01C04000 holds .ram_text (code that must run while the flash
- * is busy: the flash driver); 0x01C04000..0x01C08000 is a module's .ram_text.
+ * is busy: the flash driver) and .c1_text (the second core's waiting loop,
+ * hal/fm1_cpu1.h); 0x01C04000..0x01C08000 is a module's .ram_text.
  * RAM  : .data/.bss (96 KiB)
  * POOL : big zero-initialised buffers (FX lines, canvases), section .pool, 64 KiB;
  *        0x01C30000..0x01C74000 is the module RAM (firmware/dock/hb_module.h)
@@ -29,8 +30,11 @@ SECTIONS
     _hx_data_load = LOADADDR(.hx_data);
     _hx_end = LOADADDR(.hx_data) + SIZEOF(.hx_data);
     .text : { KEEP(*(.text.crt0)) *(.text*) *(.rodata*) . = ALIGN(4); _etext = .; } > XIP
-    .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); _rt_end = .; } > RAMTEXT AT > XIP
+    .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); } > RAMTEXT AT > XIP
     _rt_load = LOADADDR(.ram_text);
+    .c1_text : { _c1_start = .; KEEP(*(.c1_text*)) . = ALIGN(4); _c1_end = .; } > RAMTEXT AT > XIP
+    _c1_load = LOADADDR(.c1_text);
+    _rt_end = _c1_end;                  /* the guard's RAM code window covers both (fm1_cpu1.h) */
     .data : { . = ALIGN(4); _data_start = .; *(.data*) *(.sdata*) . = ALIGN(4); _data_end = .; } > RAM AT > XIP
     _data_load = LOADADDR(.data);
     .bss (NOLOAD) : { _bss_start = .; *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); _bss_end = .; } > RAM

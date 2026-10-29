@@ -92,6 +92,31 @@ static void fm1_wdt_arm(uint8_t t)
 static void fm1_wdt_feed(void) { fm1_p33_or(FM1_P3_WDT_CON, 0x40); }
 static void fm1_wdt_stop(void) { fm1_p33_write(FM1_P3_WDT_CON, 0); }
 
+/* ------------------------------------------------------- VDC14, SYSVDD --- */
+/* SLOOP 2.7, from X0X 1.0.9 by Charles Vestal (GPL-3.0, fm1-x0x#21): VDC14 (P3_ANA_CON6 [2:0]) is 1.25 V + 50 mV a
+ * level; SYSVDD (P3_ANA_CON9 [3:0], the cores and the SRAM) 0.93 V + 30 mV a level. The boot loader leaves 3 (1.40 V)
+ * and 11 (1.26 V); M-VAVE's own firmware (V15) raises them to 7 (1.60 V) and 15 (1.38 V) as it starts, at the same
+ * 360 MHz. At the boot loader's, with both cores running, some units read the flash and the SRAM wrong. Up only, a
+ * level every 100 us, VDC14 first: SYSVDD is regulated from it (platform.c fm1_cstart, before anything else) */
+#define FM1_P3_ANA_CON6 0x06u
+#define FM1_P3_ANA_CON9 0x09u
+static uint32_t fm1_vdc14(void) { return fm1_p33_read(FM1_P3_ANA_CON6) & 7u; }
+static uint32_t fm1_sysvdd(void) { return fm1_p33_read(FM1_P3_ANA_CON9) & 15u; }
+static void fm1_supply_raise(uint32_t reg, uint32_t mask, uint32_t level)
+{
+    uint32_t v = fm1_p33_read(reg) & mask;
+    while (v < level && v < mask) {
+        v++;
+        fm1_p33_write(reg, (uint8_t)((fm1_p33_read(reg) & ~mask) | v));
+        fm1_delay_us(100);
+    }
+}
+static void fm1_supplies_stock(void)              /* M-VAVE's own: 1.60 V, then 1.38 V */
+{
+    fm1_supply_raise(FM1_P3_ANA_CON6, 7u, 7u);
+    fm1_supply_raise(FM1_P3_ANA_CON9, 15u, 15u);
+}
+
 /* ---------------------------------------------------- reset and reboot --- */
 static struct {
     uint8_t p3_rst;      /* bit0 power-on, 1 VDDIO low, 2 WDT, 3 VCM, 4 long press, 5 1.2 V, 6 soft (P33) */
@@ -109,6 +134,8 @@ static void fm1_reset_reason(void)
 static void fm1_reboot(void)
 {
     __asm__ volatile("cli");
+    *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held (fm1_cpu1.h) */
+    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;
     fm1_p33_or(FM1_P3_PR_PWR, 0x10);
     for (;;)
         ;
@@ -119,6 +146,8 @@ static void fm1_enter_uboot(void)
     static const char k[16] = "usb_update_mode";
     uint32_t i;
     __asm__ volatile("cli");
+    *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held first (fm1_cpu1.h): it */
+    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;         /* must not run old code while the loader writes */
     /* CPU0 write limits (fm1_guard.h) may cover the mailbox: drop them all */
     if (!(*(volatile uint32_t *)0x1EEE240u & 1u))
         *(volatile uint32_t *)0x1EEE240u = 0xE7u;
@@ -132,6 +161,8 @@ static void fm1_enter_uboot(void)
 
 FM1_INLINE void fm1_core_reset(void)
 {
+    *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held first (fm1_cpu1.h) */
+    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;
     FM1_PWR_CON |= 0x10u;
     for (;;)
         ;

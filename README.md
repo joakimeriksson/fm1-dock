@@ -25,6 +25,7 @@ WebMIDI), the emulator in the browser, the module interface and the protocol.
 | **CS-1** | twochannels | A CS-80-style synthesizer: two layers, its tone bars, effects, user presets, velocity and aftertouch from the keys. |
 | **Scintilla** | Joakim Eriksson | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. |
 | **OberVave** | zvenson | A 4-track analog poly with arpeggiator, sequencer and effects. |
+| **FM-106** | PatttF | The Roland Juno-106: six voices, the 128 factory presets, its BBD chorus, arpeggiator and sequencer; three of its voices on the FM-1's second core. [The original](https://github.com/PatttF/fm-106), its app and DSP unchanged (`modules/fm106/take.py`). Not in the package: added with `tools/dock.py deploy`. |
 | **FM-1 SID** | Joakim Eriksson | C64 music: a cycle-exact 6510, reSID and an own SID model; GoatTracker 2 songs and their editor: [write your first chiptune](https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step) on the FM-1. Not in the package: added with one click on [the page](https://joakimeriksson.github.io/fm1-dock/#install), or `tools/dock.py deploy`. |
 | **AMB-1** | Charles Vestal | A generative ambient machine after *Music for Airports*: it plays itself. [The original](https://charlesvestal.github.io/fm1-amb/), its code unchanged (`modules/amb`). Not in the package: added with one click on the page. |
 | **FoMni** | Charles Vestal | A chord harp after the Omnichord: chords on the black keys, strummed on the white ones. [The original](https://charlesvestal.github.io/fm1-fomni/), its code unchanged (`modules/fomni`). Not in the package: added with one click. |
@@ -126,7 +127,8 @@ The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `pla
 ## Credits
 
 fm1-dock, FM-1 SID and Scintilla: Joakim Eriksson. OberVave: zvenson. CS-1: twochannels. AMB-1 and FoMni: Charles Vestal.
-reSID: Dag Lem.
+FM-106: PatttF. reSID: Dag Lem. The second core: Charles Vestal's X0X, after Kerem Kilic's Melodee, by way of SLOOP
+(Andre Rezemini).
 fm1-dock stands on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), on the platform of
 [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton Instruments) as [SLOOP](https://github.com/isod89/sloop-fm1)
 (isod89) carries it. The keys' force sensing comes from Velo, by way of CS-1.

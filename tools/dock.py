@@ -4,6 +4,7 @@
 
   tools/dock.py emu [--bin build/fm1-dock_xip.bin | --fwsc build/fm1-dock.fwsc] [--ms 3000] [--keys SCRIPT]
                       [--deploy MOD.dock [--at MS]] [--flash FLASH.bin] [--out DIR]
+                      [--flaky-core1 RATE [--seed N]]  (a unit whose second core misreads RAM)
       runs the firmware in fm1-emu's fm1-live (headless, JIT): DIR/audio.wav, DIR/panel.png
       (the screen at the end), DIR/ram.bin and DIR/log.txt (the host's log, crash record, stats).
       --fwsc boots the package as the FM-1 would (the flash past the image readable: deploys need
@@ -85,6 +86,12 @@ def read_log(ram):
                f"worst {worst} ({100 * worst / block:.1f} %), {overruns} overruns, {blocks} blocks")
     s = [f"{i}:{n}" for i, n in enumerate(strikes) if n]
     out.append("strikes: " + (" ".join(s) if s else "none"))
+    c = q + 48 + (SLOTS + 1 + 3) // 4 * 4         # the second core (firmware/src/cpu1.c), after the strikes
+    c1magic, c1state, c1last, c1worst = struct.unpack_from("<4I", ram, c)
+    if c1magic == 0x31555043:
+        import hbdeploy
+        out.append(f"second core: {hbdeploy.CPU1[c1state] if c1state < len(hbdeploy.CPU1) else c1state}; a job: "
+                   f"last {c1last} ticks ({100 * c1last / block:.1f} %), worst {c1worst} ({100 * c1worst / block:.1f} %)")
     return "\n".join(out)
 
 
@@ -99,6 +106,7 @@ def emu(a):
         keys += entries
         print(f"deploy {a.deploy}: COMMIT in by {done:.0f} ms")
     env = dict(os.environ, FM1_BENCH_KEYS=",".join(keys))
+    fw += ["--flaky-core1", str(a.flaky_core1), "--seed", str(a.seed)] if a.flaky_core1 else []
     with tempfile.TemporaryDirectory() as wd:
         (Path(wd) / "work").mkdir()
         raw = Path(wd) / "audio.raw"
@@ -195,6 +203,10 @@ def device(a):
             print(f"{mark} {m['index']:2d} {m['name']:<16} {m['kind']:<9} {size}  {m['state']}")
         print(f"free for deploys: {h['free'] // 1024} KiB (largest gap {h['largest'] // 1024} KiB); "
               f"render worst {100 * h['worst'] / h['block']:.0f} % of a block, {h['overruns']} overruns")
+        if "cpu1" in h:
+            print(f"second core: {h['cpu1']}; a job's last {100 * h['cpu1_job'] / h['block']:.0f} %, worst "
+                  f"{100 * h['cpu1_worst'] / h['block']:.0f} % of a block; {h['cpu1_timeouts']} timeouts, "
+                  f"{h['cpu1_stack_free']} B of its stack never used")
         if h["crash_pc"]:
             print(f"last crash: pc {h['crash_pc']:#010x} in module {h['crash_module'] - 1 if h['crash_module'] else '-'}")
     elif a.cmd == "logs":
@@ -225,6 +237,8 @@ def main():
     e.add_argument("--deploy")
     e.add_argument("--at", type=int, default=1000)
     e.add_argument("--flash")
+    e.add_argument("--flaky-core1", type=float, help="fm1-live's faulty second core: its RAM reads wrong at this rate")
+    e.add_argument("--seed", type=int, default=1, help="--flaky-core1's random seed")
     e.add_argument("--out", default=str(SRC / "build" / "emu"))
     lg = sub.add_parser("log")
     lg.add_argument("ram")
