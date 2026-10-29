@@ -126,7 +126,19 @@ typedef struct hb_host {
     int (*bank_load_n)(uint32_t idx, void *p, uint32_t n);
     int (*bank_save_n)(uint32_t idx, const void *p, uint32_t n);
     uint32_t (*bank_free)(void);
+    /* the second core (a module checks size first), from render() only: c1_run hands it fn(arg), one job at a
+     * time, and returns 1 when it took it, 0 when there is none (not started, still being screened in the
+     * first ~0.75 s, failed its checks, or a job is out): then the module does the work itself. c1_wait waits for the job: 0 done; -1 it did not end in
+     * time: core 1 is held from then on and the module does the work itself (so a job must stand being
+     * run again from the start, from where core 1 left its state). Between the two the module
+     * must not touch what the job reads or writes; render() waits before it returns (the host waits for
+     * a job left out). fn runs on core 1 from the module's flash or .ram_text, on a 2.8 KiB stack, with
+     * the same rules as render(), and no host call but ticks() */
+    int (*c1_run)(void (*fn)(uint32_t), uint32_t arg);
+    int (*c1_wait)(void);
 } hb_host_t;
+/* the host has field f of hb_host_t (an older one ends before it) */
+#define HB_HOST_HAS(h, f) ((h)->size >= (uint32_t)(__builtin_offsetof(hb_host_t, f) + sizeof (h)->f))
 #define HB_BANK_MAX 8176u
 #define HB_BANK_IDX_MAX 255u
 

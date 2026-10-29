@@ -142,8 +142,37 @@ def main():
         keys = pick("CS-1") + "".join(f",1800:{k},3200:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26))
         s, log = run("cs1", keys, 4000)
         worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
-        check("cs1", "cs1: CS-1" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log and worst < 90,
-              f"CS-1 plays eight voices on core 0; worst {worst} % of a block")
+        check("cs1", "cs1: CS-1" in log and "cpu1: 2 cores" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log
+              and worst < 50, f"CS-1 plays eight voices, half of them on the second core; core 0's worst {worst} % of a block")
+        # a unit whose second core misreads RAM (fm1-emu's model of the affected FM-1s): the screening in the
+        # first audio blocks finds it, and CS-1 renders all eight voices on core 0
+        s, log = run("cs1_flaky", keys, 4000, extra=("--flaky-core1", "1e-6", "--seed", "2"))
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("cs1_flaky", "cpu1: misread RAM, 1 core" in log and "cs1: CS-1" in log and peak(s, 1.7, 3.0) > 1000
+              and " 0 overruns" in log and worst < 90, f"a faulty second core: one core, CS-1 plays on; worst {worst} %")
+
+    if "FM-106" in names:
+        # a six-note chord on preset 38 (A57, among the heaviest of the 128 on one core: bank select and program
+        # change into the DIN jack); voices 3..5 on the second core, then on a unit whose core 1 misreads, all on core 0
+        keys = pick("FM-106") + ",1400:mb00000,1450:mc026" + "".join(f",1800:{k},3200:{k}^" for k in (14, 18, 21, 25, 28, 32))
+        s, log = run("fm106", keys, 3600)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("fm106", "fm106: FM-106" in log and "cpu1: 2 cores" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log
+              and worst < 45, f"FM-106 plays six voices, three on the second core; core 0's worst {worst} % of a block")
+        s1, log = run("fm106_flaky", keys, 3600, extra=("--flaky-core1", "1e-6", "--seed", "2"))
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("fm106_flaky", "cpu1: misread RAM, 1 core" in log and " 0 overruns" in log and s1 == s and worst < 80,
+              f"a faulty second core: all six voices on core 0 (worst {worst} %), the same sound")
+        # a user preset across a power-off: SAVE (a short press) stores the sound in user slot 1 as "*A11 Brass"
+        # (its banks), the host keeps the module and FM-106 its patch (records); the next power-on loads them
+        flash = OUT / "fm106_flash.bin"
+        flash.unlink(missing_ok=True)
+        fw = ("--fwsc", str(SRC / "build" / "fm1-dock.fwsc"), "--flash", str(flash))
+        run("fm106_save", pick("FM-106") + ",2400:9,2500:9^", 6000, extra=fw)
+        _, log = run("fm106_saved", "", 3000, extra=fw)
+        ram = (OUT / "fm106_saved" / "ram.bin").read_bytes()
+        check("fm106_presets", "fm106: FM-106" in log and b"*A11 Brass" in ram,
+              "FM-106's user preset is there after a power-off (its banks loaded back)")
 
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter

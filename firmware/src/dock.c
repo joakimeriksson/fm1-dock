@@ -13,8 +13,11 @@
  *              reset): tools/dock.py log reads them from a RAM dump.
  *   playing    the keys (OCT- / OCT+ the octave), USB-MIDI and the DIN MIDI jack go to the module;
  *              the other buttons and the encoders go to its ui().
- *   settings   one flash sector: the host's (the module, the octave) and a record per module; each
- *              module's bank (8 KiB, by its name) for its user presets.
+ *   settings   one flash sector: the host's (the module, the octave, the options) and a record per module;
+ *              each module's bank (8 KiB, by its name) for its user presets.
+ *   options    past the last module the list turns to OPTIONS: CC7 VOLUME (MIDI CC 7 on any channel sets
+ *              the level of whatever module plays, on top of MASTER; OFF by default, CC 7 goes to the module
+ *              as before) and BLUETOOTH (BLE-MIDI).
  *   deploys    a module sent over SysEx (tools/dock.py deploy) goes into flash of its own, never
  *              the host's: received whole and checked first, the table written last (see below).
  *   keys       the bottom two rows' force is sensed (Velo's sense.c, by way of CS-1, in the key
@@ -120,9 +123,11 @@ typedef struct {
     uint32_t active;                            /* 1 + the module running, 0: none */
     struct { uint32_t module, last, worst, blocks, overruns; } stats;   /* render ticks per block */
     uint8_t strikes[HB_SLOTS + 1];
+    struct { uint32_t magic, state, last, worst; } c1;   /* the second core (cpu1.c): a job's ticks, C1_MAGIC */
 } hb_nv_t;
 hb_nv_t hb_nv __attribute__((section(".noinit")));
 #define CRASH_MAGIC 0x48535243u                 /* "CRSH" */
+#define C1_MAGIC 0x31555043u                    /* "CPU1" */
 /* the last probe's run (probes, below): it outlives the probe's crash or hang */
 #define PR_MAGIC 0x52504248u                    /* "HBPR" */
 enum { PR_NONE, PR_RUNNING, PR_DONE, PR_CRASHED, PR_HUNG };
@@ -366,9 +371,10 @@ typedef struct {
     uint32_t magic, len, crc;                   /* crc over what follows the header */
     uint32_t sel_key;                           /* the module to start */
     int32_t oct;
-    uint32_t spare[3];
+    uint32_t spare[3];                          /* [0]: a boot firmware's starts in a row (hb_boot_hook); [1]: OPT_* */
     st_rec_t rec[ST_RECS];
 } st_t;
+#define OPT_CC7 1u                              /* CC7 VOLUME: the host takes MIDI CC 7 as the level (cc7_set) */
 static st_t st;
 static uint32_t st_dirty, st_changed;
 
@@ -396,6 +402,15 @@ static void store_flush(void)
     hb_log("settings saved");
 }
 static void store_touch(void) { st_dirty = 1; st_changed = fm1_ms; }
+
+/* CC7 VOLUME: CC 7's value v as a level on top of MASTER, (v / 127)^2 (the MIDI spec's -40 log(127 / v) dB; the
+ * MASTER knob's curve is a square too). Not kept: every boot starts at 127, as the knob alone. */
+static uint32_t cc7 = 127u;
+static void cc7_set(uint32_t v)
+{
+    cc7 = v;
+    app_vol_q12 = (int32_t)((v * v * 4096u + 8064u) / 16129u);   /* 127: 4096 */
+}
 
 #define BLE_KEY 0x454C4248u                     /* "HBLE": BLE-MIDI's record (ble_rec), never a module's key */
 static int rec_load(uint32_t k, void *p, uint32_t n)
@@ -796,21 +811,37 @@ static uint32_t h_bank_free(void)              /* banks a save could still take:
     return k;
 }
 
+/* the second core (cpu1.c), for the module's render only: a job is never out while the main loop runs
+ * (flash writes, a module switch) */
+static volatile uint8_t in_render;
+static uint8_t cpu1_said;                       /* the second core's state as last logged */
+static int h_c1_run(void (*fn)(uint32_t), uint32_t arg) { return in_render && cpu1_run(fn, arg); }
+static int h_c1_wait(void) { return in_render ? cpu1_wait() : 0; }
+
 static const hb_host_t HOST = {
     HB_ABI, sizeof(hb_host_t), h_ms, h_ticks, hb_log, hb_log_u32,
     h_fill, h_text, h_cv_begin, cv_rect, cv_line, h_cv_pixel, h_cv_text, h_cv_blit,
     h_led, h_rand, mod_load, mod_save, h_midi_send, h_master, h_blit, h_text_w, h_bank_load, h_bank_save,
-    h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free,
+    h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free, h_c1_run, h_c1_wait,
 };
 
 /* ---- the sound: the module renders, the host measures */
 static void app_audio(int32_t *out, uint32_t n)
 {
     const hb_module_t *m = hb_active;
+    cpu1_screen_begin();                        /* the second core's screening, beside the render */
     if (m) {
         uint32_t t0 = fm1_ticks(), dt;
+        in_render = 1;
         m->render(out, n);
+        in_render = 0;
+        if (cpu1_busy())
+            (void)cpu1_wait();                  /* a job the module left out: over before the main loop runs */
         dt = fm1_ticks() - t0;
+        hb_nv.c1.magic = C1_MAGIC;
+        hb_nv.c1.state = cpu1_state;
+        hb_nv.c1.last = cpu1_job_ticks;
+        hb_nv.c1.worst = cpu1_job_worst;
         hb_nv.stats.last = dt;
         if (dt > hb_nv.stats.worst) hb_nv.stats.worst = dt;
         if (dt <= BLOCK_TICKS)
@@ -820,6 +851,7 @@ static void app_audio(int32_t *out, uint32_t n)
             hb_slow = 1;
         }
     }
+    cpu1_screen_end();                          /* (not the module's time) */
     hb_nv.stats.blocks++;
     hb_blocks++;
 }
@@ -991,15 +1023,31 @@ static void draw_top(int32_t oct)
     cv_blit(0, 0);
 }
 
-/* the list's last line, after the modules: BLUETOOTH and HX's state */
+/* the list, then OPTIONS (past the last module): CC7 VOLUME, then BLUETOOTH (the last line, as it was) */
+#define N_OPTS (1u + hx_built)
 static const char *const BLE_ST[] = {"OFF", "NO CAL", "HELD", "ON", "LINKED", "READY"};
-static void draw_ble_line(uint32_t y, uint32_t on_it)
+static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
 {
-    uint32_t b = ble_state();
     cv_begin(240, 28, on_it ? RGB(40, 30, 60) : C_BLACK);
-    cv_text(12, 6, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
-    cv_text(150, 6, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
-            b == HX_S_MISSING || b == HX_S_NOCAL || b == HX_S_HELD ? C_BAD : b >= HX_S_LINK ? C_ACC : C_OFF);
+    if (o == 0) {                               /* CC7 VOLUME: OFF, ON, ON 64 (a level under 127: what it is now) */
+        char v[8] = "ON";
+        uint32_t on = st.spare[1] & OPT_CC7;
+        if (on && cc7 < 127u) {
+            uint32_t n = 3;
+            v[2] = ' ';
+            if (cc7 >= 100u) v[n++] = '1';
+            if (cc7 >= 10u) v[n++] = (char)('0' + cc7 / 10u % 10u);
+            v[n++] = (char)('0' + cc7 % 10u);
+            v[n] = 0;
+        }
+        cv_text(12, 6, &FONT_S, "CC7 VOLUME", on_it ? C_ACC : C_WHITE);
+        cv_text(150, 6, &FONT_S, on ? v : "OFF", on ? C_ACC : C_OFF);
+    } else {                                    /* BLUETOOTH and HX's state */
+        uint32_t b = ble_state();
+        cv_text(12, 6, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
+        cv_text(150, 6, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
+                b == HX_S_MISSING || b == HX_S_NOCAL || b == HX_S_HELD ? C_BAD : b >= HX_S_LINK ? C_ACC : C_OFF);
+    }
     cv_blit(0, y);
 }
 
@@ -1007,9 +1055,20 @@ static void draw_picker(uint32_t sel)
 {
     uint32_t i, first = sel > 5u ? sel - 5u : 0;
     lcd_fill(0, HB_TOP, 240, 240 - HB_TOP, C_BLACK);
+    if (sel >= n_mods) {                        /* OPTIONS */
+        draw_text_box(0, 30, 240, &FONT_S, "OPTIONS", C_OFF, 1);
+        for (i = 0; i < N_OPTS; i++)
+            draw_opt_line(i, 56 + i * 30u, sel == n_mods + i);
+#if BOARD_SMK37
+        draw_text_box(0, 212, 240, &FONT_S, "SCALE: CHANGE    PATCH: BACK", C_OFF, 1);
+#else
+        draw_text_box(0, 212, 240, &FONT_S, "SEL: CHANGE    HOME: BACK", C_OFF, 1);
+#endif
+        return;
+    }
     draw_text_box(0, 30, 240, &FONT_S, "MODULES", C_OFF, 1);
-    if (hx_built && first + 6u > n_mods)
-        draw_ble_line(56 + (n_mods - first) * 30u, sel == n_mods);
+    if (first + 6u > n_mods)                    /* (room after the last module: where OPTIONS is) */
+        draw_text_box(0, 62 + (n_mods - first) * 30u, 240, &FONT_S, "OPTIONS >", C_OFF, 1);
     for (i = first; i < n_mods && i < first + 6u; i++) {
         hb_entry_t *e = &mods[i];
         char sz[12] = "BUILT IN";
@@ -1028,7 +1087,7 @@ static void draw_picker(uint32_t sel)
     }
 }
 
-/* the list lights SEL (the button that loads a module, or switches BLUETOOTH); the LEDs as they were after it */
+/* the list lights SEL (the button that loads a module, or changes an option); the LEDs as they were after it */
 #if BOARD_SMK37
 static void sel_led(uint32_t on)
 {
@@ -1598,7 +1657,7 @@ static uint32_t deploy_frame(void)
 {
     uint32_t usb_src = df_usb_n != 0, n = usb_src ? df_usb_len[df_usb_r % DF_USB_Q] : df_din_n, len, cmd, seq, i, k, ch = 0;
     const uint8_t *p = usb_src ? df_usb[df_usb_r % DF_USB_Q] : df_din;
-    uint8_t r[48];
+    uint8_t r[60];
     uint32_t rn = 1;
     char name[24];
     memset(r, 0, sizeof r);
@@ -1625,7 +1684,9 @@ static uint32_t deploy_frame(void)
         wr32(r + 20, hb_nv.crash.magic == CRASH_MAGIC ? hb_nv.crash.pc : 0); wr32(r + 24, hb_nv.crash.module);
         wr32(r + 28, hb_nv.stats.worst); wr32(r + 32, hb_nv.stats.overruns); wr32(r + 36, hb_nv.log_w);
         wr32(r + 40, BLOCK_TICKS);
-        rn = 44;
+        r[44] = cpu1_state; r[45] = (uint8_t)(cpu1_timeouts > 255u ? 255u : cpu1_timeouts);   /* the second core */
+        wr32(r + 48, cpu1_job_ticks); wr32(r + 52, cpu1_job_worst); wr32(r + 56, cpu1_stack_free());
+        rn = 60;
         break;
     }
     case D_LIST:                                /* one reply per module */
@@ -2057,7 +2118,7 @@ static void app_main(void)
 {
     uint32_t prev = 0, k, full = 1, picker = 0, sel = 0, t_top = 0, held_any = 0, t_notes = 0, safe = 0;
     uint32_t home_t0 = 0, home_alone = 0, home_eaten = 0;   /* HOME held alone 1.5 s: the picker (HB_F_PANEL) */
-    uint32_t ble_drawn = HX_S_MISSING + 1u;    /* (the picker's BLUETOOTH line as drawn) */
+    uint32_t ble_drawn = HX_S_MISSING + 1u, cc7_drawn = 127u;   /* (the OPTIONS lines as drawn) */
     uint32_t sheld = 0, t_press = 0;            /* the sensed keys held (bit k); the pressure's last round */
     int32_t oct_drawn = 99;
     uint8_t held[27] = {0}, press_sent[27] = {0};
@@ -2080,6 +2141,9 @@ static void app_main(void)
     }
     hb_nv.active = 0;
     hb_log_u32("fm1-dock " APP_VER " boot, reset", fm1_boot.p3_rst);
+    cpu1_said = cpu1_state == CPU1_NOSTART || (cpu1_state == CPU1_FAILED && cpu1_late == 1) ? cpu1_state : CPU1_SCREENING;
+    hb_log(cpu1_said == CPU1_SCREENING ? "cpu1: started" : cpu1_said == CPU1_NOSTART   /* (the screening may */
+           ? "cpu1: did not start, 1 core" : "cpu1: failed its self-test, 1 core");    /* have ended already) */
     if (hb_nv.crash.magic == CRASH_MAGIC)
         hb_log_u32("last crash pc", hb_nv.crash.pc);
 
@@ -2131,6 +2195,16 @@ static void app_main(void)
         uint8_t s, d1, d2;
         const hb_module_t *m;
         platform_poll();
+        if (cpu1_said != cpu1_state) {          /* the second core's changes, each once */
+            if (cpu1_said == CPU1_SCREENING)
+                hb_log_u32(cpu1_state == CPU1_OK ? "cpu1: 2 cores, screened in us" : cpu1_state == CPU1_MISREAD
+                           ? "cpu1: misread RAM, 1 core; screened us" : "cpu1: late in its screening, 1 core; us",
+                           cpu1_screen_ticks / 24u);
+            else
+                hb_log_u32(cpu1_state == CPU1_MISREAD ? "cpu1: misread around a job, 1 core; timeouts"
+                           : "cpu1: a job ran late, 1 core; timeouts", cpu1_timeouts);
+            cpu1_said = cpu1_state;
+        }
         if (fm1_ms < 600u && (fm1_in.buttons >> BTN_OCT_DOWN & 1u))
             rescue_late();                      /* (OCT- held from power-on) */
         m = hb_active;
@@ -2213,6 +2287,7 @@ static void app_main(void)
         while (midi_get(&s, &d1, &d2) || din_get(&s, &d1, &d2)) {   /* USB-MIDI and the DIN jack */
             uint32_t ch = s & 15u;
             if ((s & 0xE0u) == 0x80u) t_notes = fm1_ms;
+            if ((s & 0xF0u) == 0xB0u && d1 == 7u && (st.spare[1] & OPT_CC7)) { cc7_set(d2); continue; }   /* CC7 VOLUME: the host's */
             if (m && m->midi) { m->midi(s, d1, d2); continue; }
             switch (s & 0xF0u) {
             case 0x90: play_note(ch, d1, d2); break;
@@ -2255,19 +2330,27 @@ static void app_main(void)
                 fm1_enc_take(e);                /* (the module's knobs do nothing meanwhile) */
             if (mv) {
                 int32_t ns = (int32_t)sel + mv;
-                sel = ns < 0 ? 0 : ns > (int32_t)n_mods - !hx_built ? n_mods - !hx_built : (uint32_t)ns;   /* (n_mods: BLUETOOTH) */
+                sel = ns < 0 ? 0 : ns > (int32_t)(n_mods + N_OPTS - 1u) ? n_mods + N_OPTS - 1u : (uint32_t)ns;   /* (then OPTIONS) */
                 draw_picker(sel);
             }
-            if (ble_state() != ble_drawn) {
+            if (ble_state() != ble_drawn || cc7 != cc7_drawn) {
                 ble_drawn = ble_state();
-                draw_picker(sel);
+                cc7_drawn = cc7;
+                if (sel >= n_mods)
+                    draw_picker(sel);
             }
-            if (sel == n_mods && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {
-                ble_set(ble_state() == HX_S_OFF);   /* BLUETOOTH ON / OFF; the list stays */
+            if (sel >= n_mods && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {   /* an option changed; OPTIONS stays */
+                if (sel == n_mods) {
+                    st.spare[1] ^= OPT_CC7;     /* CC7 VOLUME ON / OFF (OFF: the level as the knob alone again) */
+                    cc7_set(127u);
+                    store_touch();
+                } else {
+                    ble_set(ble_state() == HX_S_OFF);   /* BLUETOOTH ON / OFF */
+                }
                 draw_picker(sel);
             } else if (b & (1u << BTN_HOME | 1u << BTN_SEL | 1u << BTN_PLAY)) {
-                if (sel == n_mods)
-                    sel = cur;                  /* (HOME on BLUETOOTH: back to the module) */
+                if (sel >= n_mods)
+                    sel = cur;                  /* (HOME on OPTIONS: back to the module) */
                 picker = 0;
                 full = 1;
                 lcd_fill(0, 0, 240, 240, C_BLACK);
