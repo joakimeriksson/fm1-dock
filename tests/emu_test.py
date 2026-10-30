@@ -41,7 +41,7 @@ def pick(name):
     return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
 
 
-O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_KNOBS, O_THRU = range(6)   # the OPTIONS lines (dock.c), past the list's modules
+O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU = range(7)   # the OPTIONS lines (dock.c), past the list's modules
 
 
 def options(sets, at=700, cur=0, hold=False):
@@ -59,6 +59,29 @@ def options(sets, at=700, cur=0, hold=False):
             t += 100
     out += [f"{t}:8", f"{t + 50}:8^"]
     return ",".join(out), t + 50
+
+
+def eq_keys(low=0, mid=0, high=0, on=False, at=700):
+    """the key script that opens the EQ's page (OPTIONS, EQ; the sine playing), turns KNOB1..3 by the bands' dB
+    (a band turned switches it on), SEL on its ON line with on, then HOME twice; and the time it ends at"""
+    t = at + 200
+    out = [f"{at}:8", f"{at + 50}:8^", f"{t}:e6:{1 + len(slots()) + O_EQ}", f"{t + 100}:3", f"{t + 150}:3^"]
+    t += 300
+    if on:
+        out += [f"{t}:3", f"{t + 50}:3^"]
+        t += 150
+    for e, g in ((2, low), (3, mid), (4, high)):
+        if g:
+            out.append(f"{t}:e{e}:{g}")
+            t += 100
+    out += [f"{t}:8", f"{t + 50}:8^", f"{t + 150}:8", f"{t + 200}:8^"]
+    return ",".join(out), t + 200
+
+
+def rms_left(s, t0, t1):
+    """the left channel's RMS between t0 and t1 s (as peak's times)"""
+    x = s[int(t0 * 44100) * 2:int(t1 * 44100) * 2:2]
+    return (sum(v * v for v in x) / max(1, len(x))) ** 0.5
 
 
 def sym(name):
@@ -232,6 +255,45 @@ def main():
     check("din_midi", peak(s, 0.9, 1.2) > 1000 and peak(s, 1.4, 1.5) < peak(s, 0.9, 1.2) and peak(s, 1.7, 2.0) > 1000,
           "the DIN jack plays notes (and running status split across bytes)")
 
+    # the master EQ (OPTIONS, EQ: the hardware EQ, fm1-emu's hweq.rs): ON and flat changes nothing; a band
+    # changes a sine's level as tools/eq_table.py's response says, within 1 dB (the emulator's EQ is not the
+    # chip's bit for bit: within a few f32 ulp)
+    import eq_table
+    keys, t = eq_keys()
+    flat_off, _ = run("eq_off", keys + f",{t + 300}:14,{t + 1300}:14^", t + 1500)
+    keys, t2 = eq_keys(on=True)
+    flat_on, log = run("eq_flat", keys + f",{t2 + 300}:14,{t2 + 1300}:14^", t2 + 1500)
+    a, b = onset_frames(flat_off), onset_frames(flat_on)
+    n = min(len(a), len(b))
+    on = [(OUT / c / "ram.bin").read_bytes()[sym("eq_on")] for c in ("eq_off", "eq_flat")]   # (and it was ON)
+    check("eq_flat", n > 40000 and a[:n] == b[:n] and "EQ:" not in log and on == [0, 1],
+          f"the EQ ON at 0 dB: the sine bit for bit as with it OFF ({n // 2} frames; eq_on {on})")
+    for case, band, db, oct_, k in (("eq_low", 0, 12, 0, 0), ("eq_mid", 1, -12, 1, 18), ("eq_high", 2, -12, 2, 26)):
+        f = 440 * 2 ** ((53 + 12 * oct_ + k - 69) / 12)
+        octs = "".join(f",{300 + 100 * i}:1,{350 + 100 * i}:1^" for i in range(oct_))   # (OCT+ before the list)
+        res = []
+        for gains in ((0, 0, 0), tuple(db if i == band else 0 for i in range(3))):
+            keys, t = eq_keys(*gains)
+            s, log = run(case if any(gains) else case + "_ref", keys + octs + f",{t + 300}:{14 + k},{t + 1300}:{14 + k}^",
+                         t + 1500)
+            res.append(rms_left(s, (t + 600) / 1000, (t + 1200) / 1000))
+        got = 20 * __import__("math").log10(res[1] / max(res[0], 1e-9))
+        want = 20 * __import__("math").log10(eq_table.response(band, db, f))
+        check(case, abs(got - want) < 1.0 and res[0] > 100,
+              f"{eq_table.BANDS[band][0]} {db:+d} dB: a {f:.0f} Hz sine {got:+.2f} dB (the table's response {want:+.2f})")
+    # the EQ heard while it is set: a module with a panel plays its keys in its draw(), which runs under the picker
+    # (OBERVAVE, started by 3.6 s: HOME held for the picker, OPTIONS, EQ; a key held, MID turned to -12 dB
+    # meanwhile, against the same without the turn)
+    idx = 1 + [n for n, _, _ in slots()].index("OBERVAVE")
+    page = pick("OBERVAVE") + f",4000:8,5700:8^,5900:e6:{1 + len(slots()) + O_EQ - idx},6000:3,6050:3^,6400:26,9400:26^"
+    res = []
+    for case, turn in (("eq_live_ref", ""), ("eq_live", ",7800:e3:-12")):
+        s, log = run(case, page + turn, 9600)
+        res.append((rms_left(s, 6.7, 7.7), rms_left(s, 8.2, 9.2)))
+    got = 20 * __import__("math").log10(res[1][1] / max(res[0][1], 1e-9))
+    check("eq_live", min(res[0]) > 100 and abs(res[1][0] - res[0][0]) < 0.03 * res[0][0] and got < -1.0,
+          f"OBERVAVE under the EQ's page: a key plays (RMS {res[0][0]:.0f}), MID -12 dB meanwhile {got:+.2f} dB")
+
     # USB audio: the computer records what the speaker plays, for every module, sample for sample (fm1-live's
     # FM1_USB_WAV; the speaker's capture is the DAC's value >> 8, the USB sample >> 1). A render that ran the
     # ring dry would repeat frames and shift what follows.
@@ -296,6 +358,17 @@ def main():
             out, t0 = midi_out("local_off_panel"), (t + 300) / 1000
             check("local_off_panel", peak(s, t0 - 0.1, t0 + 0.6) < 50 and any(st == 0x90 and v for st, _, v in out),
                   f"LOCAL OFF in CS-1: its key goes out as a note, CS-1 plays nothing (peak {peak(s, t0 - 0.1, t0 + 0.6)})")
+
+        keys, t = options([(O_MASTER_CC7, 1)])  # MASTER CC7: the pot sends CC 7 as it moves; its noise does not
+        s, log = run("master_cc7", keys + f",{t + 300}:pot:200,{t + 500}:pot:203,{t + 700}:pot:900", t + 1000,
+                     extra=("--usb",))
+        cc = [v for st, d1, v in midi_out("master_cc7") if st == 0xB0 and d1 == 7]
+        low = cc.index(200 >> 3) if 200 >> 3 in cc else -1   # (the reading glides to where the pot is: a CC a value)
+        down, up = cc[:low + 1], cc[low + 1:]
+        check("master_cc7", low >= 0 and abs(cc[-1] - (900 >> 3)) <= 1 and all(x > y for x, y in zip(down, down[1:])) and
+              all(x < y for x, y in zip(up, up[1:])),
+              f"MASTER CC7: the pot to 200, 203 (noise: nothing), 900 sends CC 7 down to {cc[low] if low >= 0 else '?'} "
+              f"and up to {cc[-1] if cc else '?'}, each value once ({len(cc)} messages)")
 
         keys, t = options([(O_CH, 2)])          # MIDI CH 2: channel 1 is not heard, 2 is; the keys send on 2
         s, log = run("midi_ch", keys + f",{t + 300}:m903c64,{t + 600}:m803c00,{t + 900}:m913c64,{t + 1200}:m813c00,"

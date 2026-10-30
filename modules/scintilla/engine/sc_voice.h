@@ -20,7 +20,7 @@ typedef struct {
     const sc_layer_t *L;
     uint32_t fa_inc, fd_inc, aa_inc, ad_inc;    /* envelope attack / decay steps, Q30 per sample */
     int32_t  fs, as;                            /* sustain levels, Q30 */
-    uint32_t fr_q8, ar_q8;                      /* release times in samples, Q8 */
+    int32_t  fr_mul, ar_mul;                    /* release: per-sample multiplier, Q30 (20 dB per r) */
     uint32_t lfo_inc[2], lfo_dly_inc[2];        /* phase step; delay ramp step (0: no delay) */
     int32_t  lfo_joy[2];                        /* 1 + joyXToLfoNDepth * joyX, Q16 */
     int32_t  semi1, semi2;                      /* octave (and OSC2's detune) in semitones, Q16 */
@@ -49,7 +49,7 @@ typedef struct {
 
 void sc_prep(sc_prep_t *p, const sc_layer_t *L, const sc_perf_t *perf);
 
-typedef struct { int8_t stage; int32_t level; uint32_t rel_inc; } sc_env_t;
+typedef struct { int8_t stage; int32_t level; int32_t rel_mul; } sc_env_t;
 typedef struct { uint32_t ph, rng; int32_t sh, sh_next, smooth, ramp; } sc_lfo_t;
 typedef struct { uint32_t ph; int32_t z; uint8_t wrapped; } sc_osc_t;
 typedef struct { int32_t ic1, ic2; } sc_svf_t;

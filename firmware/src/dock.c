@@ -5,7 +5,8 @@
  *   slots      the slot table (flash 0x34000) lists the modules; each is checked (header, ABI,
  *              CRC, sizes) before anything of it runs. The built-in sine is always there.
  *   switching  HOME opens the picker: SELECT / PRESETS move, HOME / SEL / PLAY load. A module is
- *              muted at a block boundary, released, its .data copied, .bss cleared, init().
+ *              muted at a block boundary, released, its .data copied, .bss cleared, init(). Under the
+ *              picker the module still runs (its draw(): many play their keys there), its drawing hidden.
  *   safety     OCT+ held at power-on starts the sine only. A module that crashes (or hangs into
  *              the watchdog) twice is skipped at boot until it is picked again. A module's crash
  *              does not count towards Dinghy's boot guard (the host is fine).
@@ -18,8 +19,9 @@
  *   options    past the last module the list turns to OPTIONS: CC7 VOLUME (MIDI CC 7 sets the level of
  *              whatever module plays, on top of MASTER; OFF by default, CC 7 goes to the module as before),
  *              MASTER CC7 (the MASTER knob sends CC 7), MIDI CH (ALL, or the one channel the module hears,
- *              as channel 1, and the keys send on), LOCAL (OFF: the keys only send MIDI), MIDI THRU (the
- *              DIN jack's messages on to USB and BLE-MIDI) and BLUETOOTH (BLE-MIDI). All off by default.
+ *              as channel 1, and the keys send on), LOCAL (OFF: the keys only send MIDI), EQ (its page: the
+ *              master EQ, eq.c), MIDI THRU (the DIN jack's messages on to USB and BLE-MIDI) and BLUETOOTH
+ *              (BLE-MIDI). All off by default.
  *   deploys    a module sent over SysEx (tools/dock.py deploy) goes into flash of its own, never
  *              the host's: received whole and checked first, the table written last (see below).
  *   keys       the bottom two rows' force is sensed (Velo's sense.c, by way of CS-1, in the key
@@ -75,6 +77,7 @@ static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #include "fm1_uart.h"
 #include "hb_module.h"
 #include "sense.c"
+#include "eq.c"
 
 #define C_ACC RGB(180, 140, 255)                /* lilac, as the logo */
 #define C_OFF RGB(90, 90, 90)
@@ -373,7 +376,8 @@ typedef struct {
     uint32_t magic, len, crc;                   /* crc over what follows the header */
     uint32_t sel_key;                           /* the module to start */
     int32_t oct;
-    uint32_t spare[3];                          /* [0]: a boot firmware's starts in a row (hb_boot_hook); [1]: OPT_* */
+    uint32_t spare[3];                          /* [0]: a boot firmware's starts in a row (hb_boot_hook); [1]: OPT_*;
+                                                 * [2]: the EQ (EQ_ON, the bands' dB: eq_db) */
     st_rec_t rec[ST_RECS];
 } st_t;
 #define OPT_CC7 1u                              /* CC7 VOLUME: the host takes MIDI CC 7 as the level (cc7_set) */
@@ -418,6 +422,27 @@ static void cc7_set(uint32_t v)
 {
     cc7 = v;
     app_vol_q12 = (int32_t)((v * v * 4096u + 8064u) / 16129u);   /* 127: 4096 */
+}
+
+/* EQ: st.spare[2] bit 0 on, then a byte a band (LOW, MID, HIGH), its gain in dB as an int8; 0: off, flat */
+#define EQ_ON 1u
+static int32_t eq_db(uint32_t b)
+{
+    int32_t v = (int8_t)(st.spare[2] >> (8u + 8u * b));
+    return v < -EQ_DB_MAX ? -EQ_DB_MAX : v > EQ_DB_MAX ? EQ_DB_MAX : v;
+}
+static void eq_apply(void)                      /* the settings to the EQ */
+{
+    int8_t db[EQ_BANDS];
+    uint32_t b;
+    for (b = 0; b < EQ_BANDS; b++)
+        db[b] = (int8_t)eq_db(b);
+    eq_set(st.spare[2] & EQ_ON, db);
+}
+static void eq_put(uint32_t b, int32_t v)       /* band b's gain, kept */
+{
+    v = v < -EQ_DB_MAX ? -EQ_DB_MAX : v > EQ_DB_MAX ? EQ_DB_MAX : v;
+    st.spare[2] = (st.spare[2] & ~(0xFFu << (8u + 8u * b))) | ((uint32_t)v & 0xFFu) << (8u + 8u * b);
 }
 
 /* MIDI CH: 0 ALL, else the channel 1..16 */
@@ -691,10 +716,13 @@ static int h_key_sense(uint32_t k, hb_key_sense_t *o)
 }
 
 /* ---- the service table */
+static uint8_t scr_hidden;                      /* the picker on screen: the module's drawing does nothing */
 static uint32_t h_ms(void) { return fm1_ms; }
 static uint32_t h_ticks(void) { return fm1_ticks(); }
 static void h_fill(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
 {
+    if (scr_hidden)
+        return;
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x + w > 240) w = 240 - x;
@@ -705,7 +733,7 @@ static void h_fill(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
 static void h_text(int32_t x, int32_t y, int32_t w, uint32_t big, const char *s, uint16_t fg, uint32_t center)
 {
     const felucca_font_t *f = big ? &FONT_L : &FONT_S;
-    if (x < 0 || y < 0 || w <= 0 || x + w > 240 || y + (int32_t)f->h > 240)
+    if (scr_hidden || x < 0 || y < 0 || w <= 0 || x + w > 240 || y + (int32_t)f->h > 240)
         return;
     draw_text_box((uint32_t)x, (uint32_t)y, (uint32_t)w, f, s, fg, center ? 1 : 0);
 }
@@ -721,20 +749,20 @@ static void h_cv_pixel(int32_t x, int32_t y, uint16_t c) { cv_pset(x, y, c); }
 static void h_cv_text(int32_t x, int32_t y, uint32_t big, const char *s, uint16_t fg) { cv_text(x, y, big ? &FONT_L : &FONT_S, s, fg); }
 static void h_cv_blit(int32_t x, int32_t y)
 {
-    if (x >= 0 && y >= 0 && x + (int32_t)cv_w <= 240 && y + (int32_t)cv_h <= 240)
+    if (!scr_hidden && x >= 0 && y >= 0 && x + (int32_t)cv_w <= 240 && y + (int32_t)cv_h <= 240)
         cv_blit((uint32_t)x, (uint32_t)y);
 }
 #if BOARD_SMK37
 static void h_led(uint32_t id, uint32_t on)   /* the buttons' LEDs (the SMK's keys have none); the glow: off */
 {
-    if (id < 14u)
+    if (id < 14u && !scr_hidden)
         fm1_led_key(id, on == 1u);
 }
 #else
 static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (hal/fm1_input.h's fm1_led_dim) */
 {
     uint32_t p, r;
-    if (id >= 41u)
+    if (id >= 41u || scr_hidden)                /* (under the picker: its LEDs, the module's again after) */
         return;
     fm1_led_key(id, on == 1u);
     for (p = 0; p < FM1_NCOL; p++)
@@ -753,7 +781,7 @@ static uint32_t h_master(void) { return (uint32_t)master_q12; }
 static void h_blit(int32_t x, int32_t y, int32_t w, int32_t h, const uint16_t *px)
 {
     int32_t r, k;
-    if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 240 || y + h > 240)
+    if (scr_hidden || x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 240 || y + h > 240)
         return;
     for (r = 0; r < h; r += k) {                /* in strips of at most 11 520 bytes a DMA, as FM-1 SID does */
         k = h - r < 5760 / w ? h - r : 5760 / w;
@@ -881,7 +909,7 @@ static const hb_host_t HOST = {
     h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free, h_c1_run, h_c1_wait,
 };
 
-/* ---- the sound: the module renders, the host measures */
+/* ---- the sound: the module renders (and the EQ filters), the host measures */
 static void app_audio(int32_t *out, uint32_t n)
 {
     const hb_module_t *m = hb_active;
@@ -893,6 +921,7 @@ static void app_audio(int32_t *out, uint32_t n)
         in_render = 0;
         if (cpu1_busy())
             (void)cpu1_wait();                  /* a job the module left out: over before the main loop runs */
+        eq_audio(out, n);                       /* the master EQ (eq.c): its time counts as the module's */
         dt = fm1_ticks() - t0;
         hb_nv.c1.magic = C1_MAGIC;
         hb_nv.c1.state = cpu1_state;
@@ -930,6 +959,7 @@ static int start_module(uint32_t i)
     hb_entry_t *e = &mods[i];
     const hb_file_t *f = e->file;
     stop_module();
+    eq_clear = 1;                               /* (the EQ from silence: nothing of the last module rings on) */
     if (e->state != M_OK || e->kind == K_BOOT)
         return -1;                              /* (a boot firmware is started by a reboot: hb_boot_hook) */
     if (f) {
@@ -1080,15 +1110,15 @@ static void draw_top(int32_t oct)
 }
 
 /* the list, then OPTIONS (past the last module): the host's, then BLUETOOTH (the last line, as it was) */
-enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_KNOBS, O_THRU };
+enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU };
 #if BOARD_SMK37
-#define N_OPTS_HOST 5u                          /* (no DIN jack: no MIDI THRU) */
+#define N_OPTS_HOST 6u                          /* (no DIN jack: no MIDI THRU) */
 #else
-#define N_OPTS_HOST 6u
+#define N_OPTS_HOST 7u
 #endif
 #define N_OPTS (N_OPTS_HOST + hx_built)
-#define OPT_H 22u                               /* (seven lines above the footer) */
-#define OPT_Y(i) (56u + (i) * OPT_H)
+#define OPT_H 20u                               /* (eight lines above the footer) */
+#define OPT_Y(i) (50u + (i) * OPT_H)
 static const char *const BLE_ST[] = {"OFF", "NO CAL", "HELD", "ON", "LINKED", "READY"};
 static char *put_u(char *p, uint32_t v)         /* v (0..999) in decimal; the end */
 {
@@ -1100,15 +1130,15 @@ static char *put_u(char *p, uint32_t v)         /* v (0..999) in decimal; the en
 }
 static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
 {
-    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "KNOBS CC", "MIDI THRU"};
+    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "MIDI THRU"};
     char v[8] = "OFF";
     uint32_t lit = 0, opt = st.spare[1];
     uint16_t col;
     cv_begin(240, OPT_H, on_it ? RGB(40, 30, 60) : C_BLACK);
     if (o >= N_OPTS_HOST) {                     /* BLUETOOTH and HX's state */
         uint32_t b = ble_state();
-        cv_text(12, 4, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
-        cv_text(150, 4, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
+        cv_text(12, 2, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
+        cv_text(150, 2, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
                 b == HX_S_MISSING || b == HX_S_NOCAL || b == HX_S_HELD ? C_BAD : b >= HX_S_LINK ? C_ACC : C_OFF);
         cv_blit(0, y);
         return;
@@ -1123,13 +1153,93 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
     case O_MASTER_CC7: if ((lit = opt & OPT_MASTER_CC7) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
     case O_CH: if ((lit = opt_ch()) != 0) put_u(v, opt_ch()); else v[0] = 'A', v[1] = 'L', v[2] = 'L'; break;
     case O_LOCAL: if (!(lit = opt & OPT_LOCAL_OFF)) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
+    case O_EQ:                                  /* OFF >, ON >, FAILED (SEL: its page) */
+        if (eq_failed) { memcpy(v, "FAILED", 7); break; }
+        if ((lit = st.spare[2] & EQ_ON) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0;
+        memcpy(v + (lit ? 2 : 3), " >", 3);
+        break;
     case O_KNOBS: if ((lit = opt & OPT_KNOBS) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
     default: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
     }
-    col = lit ? C_ACC : C_OFF;
-    cv_text(12, 4, &FONT_S, NAME[o], on_it ? C_ACC : C_WHITE);
-    cv_text(150, 4, &FONT_S, v, col);
+    col = o == O_EQ && eq_failed ? C_BAD : lit ? C_ACC : C_OFF;
+    cv_text(12, 2, &FONT_S, NAME[o], on_it ? C_ACC : C_WHITE);
+    cv_text(150, 2, &FONT_S, v, col);
     cv_blit(0, y);
+}
+
+/* the EQ's page (OPTIONS, EQ): its ON line, then the bands. SELECT / PRESETS pick a line, ALGORITHM changes it
+ * (KNOB1..3: a band each, on the FM-1), SEL: ON / OFF, a band back to 0 dB; HOME: OPTIONS again */
+static const char *const EQ_NAME[EQ_BANDS] = {"LOW   150 Hz", "MID     1 kHz", "HIGH   6 kHz"};
+static void draw_eq_page(uint32_t row)
+{
+    uint32_t r;
+    lcd_fill(0, HB_TOP, 240, 240 - HB_TOP, C_BLACK);
+    draw_text_box(0, 30, 240, &FONT_S, "EQ", C_OFF, 1);
+    for (r = 0; r < 1u + EQ_BANDS; r++) {
+        char d[12], *p = d;
+        const char *v = d;
+        uint32_t lit;
+        cv_begin(240, 28, r == row ? RGB(40, 30, 60) : C_BLACK);
+        if (r == 0) {
+            lit = (st.spare[2] & EQ_ON) && !eq_failed;
+            v = eq_failed ? "FAILED" : lit ? "ON" : "OFF";
+            cv_text(12, 6, &FONT_S, "EQ", r == row ? C_ACC : C_WHITE);
+        } else {
+            int32_t g = eq_db(r - 1u);
+            lit = g != 0;
+            if (g) *p++ = g > 0 ? '+' : '-';
+            p = put_u(p, (uint32_t)(g < 0 ? -g : g));
+            memcpy(p, " dB", 4);
+            cv_text(12, 6, &FONT_S, EQ_NAME[r - 1u], r == row ? C_ACC : C_WHITE);
+        }
+        cv_text(166, 6, &FONT_S, v, r == 0 && eq_failed ? C_BAD : lit ? C_ACC : C_OFF);
+        cv_blit(0, 56u + r * 30u);
+    }
+#if BOARD_SMK37
+    draw_text_box(0, 212, 240, &FONT_S, row ? "SCALE: 0 dB    PATCH: BACK" : "SCALE: ON/OFF   PATCH: BACK", C_OFF, 1);
+#else
+    draw_text_box(0, 212, 240, &FONT_S, row ? "SEL: 0 dB    HOME: BACK" : "SEL: ON/OFF   HOME: BACK", C_OFF, 1);
+#endif
+}
+static uint32_t eq_page_input(uint32_t *row, const int32_t *en, uint32_t b)   /* 1: back to OPTIONS */
+{
+    int32_t mv = en[ENC_SELECT] + en[ENC_PRESETS], t = en[ENC_ALGORITHM] + en[ENC_KNOB4];
+    uint32_t k, was = st.spare[2], moved = 0;
+    if (b & (1u << BTN_HOME))
+        return 1;
+    if (mv) {
+        int32_t r = (int32_t)*row + mv;
+        *row = r < 0 ? 0 : r > (int32_t)EQ_BANDS ? EQ_BANDS : (uint32_t)r;
+        moved = 1;
+    }
+    for (k = 0; k < EQ_BANDS; k++)              /* KNOB1..3: a band each */
+        if (en[ENC_KNOB1 + k]) {
+            eq_put(k, eq_db(k) + en[ENC_KNOB1 + k]);
+            *row = k + 1u;
+            moved = 1;
+        }
+    if (t) {
+        if (*row)
+            eq_put(*row - 1u, eq_db(*row - 1u) + t);
+        else
+            st.spare[2] ^= EQ_ON;
+    }
+    if (b & (1u << BTN_SEL | 1u << BTN_PLAY)) {
+        if (*row)
+            eq_put(*row - 1u, 0);
+        else
+            st.spare[2] ^= EQ_ON;
+    }
+    if (st.spare[2] != was) {
+        if ((st.spare[2] ^ was) & ~EQ_ON)
+            st.spare[2] |= EQ_ON;               /* (a band turned: the EQ on, to hear it) */
+        eq_apply();
+        store_touch();
+        moved = 1;
+    }
+    if (moved)
+        draw_eq_page(*row);
+    return 0;
 }
 
 static void draw_picker(uint32_t sel)
@@ -2200,6 +2310,7 @@ static void app_main(void)
     uint32_t prev = 0, k, full = 1, picker = 0, sel = 0, t_top = 0, held_any = 0, t_notes = 0, safe = 0;
     uint32_t home_t0 = 0, home_alone = 0, home_eaten = 0;   /* HOME held alone 1.5 s: the picker (HB_F_PANEL) */
     uint32_t ble_drawn = HX_S_MISSING + 1u, cc7_drawn = 127u;   /* (the OPTIONS lines as drawn) */
+    uint32_t eqp = 0, eq_row = 0, eq_said = 0;  /* the EQ's page open, its line; its failure logged */
     uint32_t sheld = 0, t_press = 0;            /* the sensed keys held (bit k); the pressure's last round */
     int32_t oct_drawn = 99;
     uint8_t held[27] = {0}, press_sent[27] = {0};
@@ -2230,6 +2341,7 @@ static void app_main(void)
 
     store_load();
     if (st.oct < -2 || st.oct > 2) st.oct = 0;
+    eq_apply();
 #if BOARD_SMK37
     ble_capture();                              /* (the stock VM's region: before anything writes it) */
     sense_mask = (1u << 27) - 1u;               /* (every key: its velocity is the scan's) */
@@ -2286,6 +2398,10 @@ static void app_main(void)
                 hb_log_u32(cpu1_state == CPU1_MISREAD ? "cpu1: misread around a job, 1 core; timeouts"
                            : "cpu1: a job ran late, 1 core; timeouts", cpu1_timeouts);
             cpu1_said = cpu1_state;
+        }
+        if (eq_failed && !eq_said) {
+            eq_said = 1;
+            hb_log("EQ: a run did not finish, the EQ is off");
         }
         if (fm1_ms < 600u && (fm1_in.buttons >> BTN_OCT_DOWN & 1u))
             rescue_late();                      /* (OCT- held from power-on) */
@@ -2407,7 +2523,7 @@ static void app_main(void)
         }
 
         if (deploy_tick()) {                    /* a deploy: the module may have changed */
-            picker = 0;
+            picker = eqp = 0;
             full = 1;
             if (!rx.on)
                 lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -2418,7 +2534,7 @@ static void app_main(void)
             hb_log_u32("too slow: stopped", cur);
             mods[cur].state = M_SLOW;
             start_module(0);
-            picker = 0;
+            picker = eqp = 0;
             full = 1;
             lcd_fill(0, 0, 240, 240, C_BLACK);
         }
@@ -2436,9 +2552,20 @@ static void app_main(void)
             if (b & (1u << BTN_OCT_UP) && st.oct < 2) { st.oct++; store_touch(); }
         }
         if (picker) {
-            int32_t mv = fm1_enc_take(ENC_SELECT) + fm1_enc_take(ENC_PRESETS), turn = 0;
+            int32_t en[7], mv, turn = 0;
+            for (e = 0; e < 7u; e++)
+                en[e] = fm1_enc_take(e);
+            mv = en[ENC_SELECT] + en[ENC_PRESETS];
             for (e = 1; e < 6u; e++)
-                turn += fm1_enc_take(e);        /* (the module's knobs: MIDI CH's value, else nothing meanwhile) */
+                turn += en[e];                  /* (the module's knobs: MIDI CH's value, else nothing meanwhile) */
+            if (eqp) {                          /* the EQ's page takes them all */
+                if (eq_page_input(&eq_row, en, b)) {
+                    eqp = 0;
+                    draw_picker(sel);
+                }
+                b = 0;
+                mv = turn = 0;
+            }
             if (mv) {
                 int32_t ns = (int32_t)sel + mv;
                 sel = ns < 0 ? 0 : ns > (int32_t)(n_mods + N_OPTS - 1u) ? n_mods + N_OPTS - 1u : (uint32_t)ns;   /* (then OPTIONS) */
@@ -2447,10 +2574,14 @@ static void app_main(void)
             if (ble_state() != ble_drawn || cc7 != cc7_drawn) {
                 ble_drawn = ble_state();
                 cc7_drawn = cc7;
-                if (sel >= n_mods)
+                if (sel >= n_mods && !eqp)
                     draw_picker(sel);
             }
-            if (sel >= n_mods && ((b & (1u << BTN_SEL | 1u << BTN_PLAY)) || (turn && sel == n_mods + O_CH))) {
+            if (sel == n_mods + O_EQ && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {
+                eqp = 1;                        /* the EQ's page */
+                eq_row = 0;
+                draw_eq_page(0);
+            } else if (sel >= n_mods && ((b & (1u << BTN_SEL | 1u << BTN_PLAY)) || (turn && sel == n_mods + O_CH))) {
                 uint32_t o = sel - n_mods;      /* an option changed; OPTIONS stays */
                 if (o == O_LOCAL || o == O_CH)  /* the keys held: let go as they were played */
                     for (k = 0; k < 27u; k++)
@@ -2477,7 +2608,7 @@ static void app_main(void)
                     st.spare[1] ^= OPT_LOCAL_OFF;
                 } else if (o == O_KNOBS) {
                     st.spare[1] ^= OPT_KNOBS;
-                } else if (o < N_OPTS_HOST) {
+                } else if (o == O_THRU && o < N_OPTS_HOST) {   /* (the SMK-37's O_THRU: BLUETOOTH) */
                     st.spare[1] ^= OPT_THRU;
                 }
                 if (o < N_OPTS_HOST)
@@ -2555,11 +2686,12 @@ static void app_main(void)
             t_top = fm1_ms;
             draw_top(st.oct);
         }
-        if (!picker) {
-            m = hb_active;
-            if (m && m->draw) m->draw(full);
-            full = 0;
-        }
+        m = hb_active;                          /* under the picker: the module's loop still (its keys), not seen */
+        scr_hidden = (uint8_t)(picker != 0);
+        if (m && m->draw) m->draw(picker ? 0 : full);
+        scr_hidden = 0;
+        if (!picker)
+            full = 0;                           /* (the picker gone: full, all of it again) */
 
         ble_main();
         if (st_dirty && !held_any && fm1_ms - st_changed > 2000u && fm1_ms - t_notes > 2000u)
