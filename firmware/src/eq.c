@@ -38,6 +38,9 @@ static void eq_audio(int32_t *o, uint32_t n)    /* the audio ISR's: o, n frames 
         return;
     if (eq_new || eq_clear) {
         eq_new = 0;
+        fm1_eq_stop();                          /* (the EQ's RAM takes the CPU's writes only with the EQ off:
+                                                 * after a run CON0 keeps bit 1, and on an FM-1 the writes were lost,
+                                                 * the first block's sections kept; the probe and the SDK write it off) */
         for (j = 0; j < 2u * EQ_BANDS; j++)    /* the left channel's sections, then the right's */
             fm1_eq_slot(j, EQ_TABLE[j % EQ_BANDS][eq_idx[j % EQ_BANDS]], eq_clear);
         eq_clear = 0;
