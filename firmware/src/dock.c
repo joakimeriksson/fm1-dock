@@ -5,7 +5,8 @@
  *   slots      the slot table (flash 0x34000) lists the modules; each is checked (header, ABI,
  *              CRC, sizes) before anything of it runs. The built-in sine is always there.
  *   switching  HOME opens the picker: SELECT / PRESETS move, HOME / SEL / PLAY load. A module is
- *              muted at a block boundary, released, its .data copied, .bss cleared, init().
+ *              muted at a block boundary, released, its .data copied, .bss cleared, init(). Under the
+ *              picker the module still runs (its draw(): many play their keys there), its drawing hidden.
  *   safety     OCT+ held at power-on starts the sine only. A module that crashes (or hangs into
  *              the watchdog) twice is skipped at boot until it is picked again. A module's crash
  *              does not count towards Dinghy's boot guard (the host is fine).
@@ -689,10 +690,13 @@ static int h_key_sense(uint32_t k, hb_key_sense_t *o)
 }
 
 /* ---- the service table */
+static uint8_t scr_hidden;                      /* the picker on screen: the module's drawing does nothing */
 static uint32_t h_ms(void) { return fm1_ms; }
 static uint32_t h_ticks(void) { return fm1_ticks(); }
 static void h_fill(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
 {
+    if (scr_hidden)
+        return;
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x + w > 240) w = 240 - x;
@@ -703,7 +707,7 @@ static void h_fill(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
 static void h_text(int32_t x, int32_t y, int32_t w, uint32_t big, const char *s, uint16_t fg, uint32_t center)
 {
     const felucca_font_t *f = big ? &FONT_L : &FONT_S;
-    if (x < 0 || y < 0 || w <= 0 || x + w > 240 || y + (int32_t)f->h > 240)
+    if (scr_hidden || x < 0 || y < 0 || w <= 0 || x + w > 240 || y + (int32_t)f->h > 240)
         return;
     draw_text_box((uint32_t)x, (uint32_t)y, (uint32_t)w, f, s, fg, center ? 1 : 0);
 }
@@ -719,7 +723,7 @@ static void h_cv_pixel(int32_t x, int32_t y, uint16_t c) { cv_pset(x, y, c); }
 static void h_cv_text(int32_t x, int32_t y, uint32_t big, const char *s, uint16_t fg) { cv_text(x, y, big ? &FONT_L : &FONT_S, s, fg); }
 static void h_cv_blit(int32_t x, int32_t y)
 {
-    if (x >= 0 && y >= 0 && x + (int32_t)cv_w <= 240 && y + (int32_t)cv_h <= 240)
+    if (!scr_hidden && x >= 0 && y >= 0 && x + (int32_t)cv_w <= 240 && y + (int32_t)cv_h <= 240)
         cv_blit((uint32_t)x, (uint32_t)y);
 }
 #if BOARD_SMK37
@@ -751,7 +755,7 @@ static uint32_t h_master(void) { return (uint32_t)master_q12; }
 static void h_blit(int32_t x, int32_t y, int32_t w, int32_t h, const uint16_t *px)
 {
     int32_t r, k;
-    if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 240 || y + h > 240)
+    if (scr_hidden || x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 240 || y + h > 240)
         return;
     for (r = 0; r < h; r += k) {                /* in strips of at most 11 520 bytes a DMA, as FM-1 SID does */
         k = h - r < 5760 / w ? h - r : 5760 / w;
@@ -2647,11 +2651,12 @@ static void app_main(void)
             t_top = fm1_ms;
             draw_top(st.oct);
         }
-        if (!picker) {
-            m = hb_active;
-            if (m && m->draw) m->draw(full);
-            full = 0;
-        }
+        m = hb_active;                          /* under the picker: the module's loop still (its keys), not seen */
+        scr_hidden = (uint8_t)(picker != 0);
+        if (m && m->draw) m->draw(picker ? 0 : full);
+        scr_hidden = 0;
+        if (!picker)
+            full = 0;                           /* (the picker gone: full, all of it again) */
 
         ble_main();
         if (st_dirty && !held_any && fm1_ms - st_changed > 2000u && fm1_ms - t_notes > 2000u)
