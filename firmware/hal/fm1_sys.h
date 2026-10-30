@@ -111,13 +111,26 @@ static void fm1_supply_raise(uint32_t reg, uint32_t mask, uint32_t level)
         fm1_delay_us(100);
     }
 }
+static uint32_t fm1_supplies __attribute__((section(".noinit")));   /* (fm1-dock) VDC14, SYSVDD as found << 16, as
+                                                 * left: read back (set before .bss is cleared) */
 static void fm1_supplies_stock(void)              /* M-VAVE's own: 1.60 V, then 1.38 V */
 {
+    fm1_supplies = fm1_vdc14() << 24 | fm1_sysvdd() << 16;
     fm1_supply_raise(FM1_P3_ANA_CON6, 7u, 7u);
     fm1_supply_raise(FM1_P3_ANA_CON9, 15u, 15u);
+    fm1_supplies |= fm1_vdc14() << 8 | fm1_sysvdd();
 }
 
 /* ---------------------------------------------------- reset and reboot --- */
+/* (fm1-dock) FM1_C1_RAN while the second core runs (cpu1.c): a reset that finds it set came from the watchdog, not
+ * from here (every reset below holds core 1 and clears it first, as fm1_cpu1_hold does) */
+#define FM1_C1_RAN 0x4E555231u                   /* "1RUN" */
+#ifdef FELUCCA_LOADER
+#define FM1_C1_RAN_CLEAR() ((void)0)            /* (the update loader: no .noinit, and core 1 never runs under it) */
+#else
+static volatile uint32_t fm1_c1_ran __attribute__((section(".noinit")));
+#define FM1_C1_RAN_CLEAR() (fm1_c1_ran = 0)
+#endif
 static struct {
     uint8_t p3_rst;      /* bit0 power-on, 1 VDDIO low, 2 WDT, 3 VCM, 4 long press, 5 1.2 V, 6 soft (P33) */
     uint32_t rst_src;    /* bit5 soft (PWR_CON) */
@@ -136,6 +149,7 @@ static void fm1_reboot(void)
     __asm__ volatile("cli");
     *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held (fm1_cpu1.h) */
     *(volatile uint32_t *)0x1EEE004u &= ~0x8u;
+    FM1_C1_RAN_CLEAR();
     fm1_p33_or(FM1_P3_PR_PWR, 0x10);
     for (;;)
         ;
@@ -148,6 +162,7 @@ static void fm1_enter_uboot(void)
     __asm__ volatile("cli");
     *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held first (fm1_cpu1.h): it */
     *(volatile uint32_t *)0x1EEE004u &= ~0x8u;         /* must not run old code while the loader writes */
+    FM1_C1_RAN_CLEAR();
     /* CPU0 write limits (fm1_guard.h) may cover the mailbox: drop them all */
     if (!(*(volatile uint32_t *)0x1EEE240u & 1u))
         *(volatile uint32_t *)0x1EEE240u = 0xE7u;
@@ -163,6 +178,7 @@ FM1_INLINE void fm1_core_reset(void)
 {
     *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held first (fm1_cpu1.h) */
     *(volatile uint32_t *)0x1EEE004u &= ~0x8u;
+    FM1_C1_RAN_CLEAR();
     FM1_PWR_CON |= 0x10u;
     for (;;)
         ;
