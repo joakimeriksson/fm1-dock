@@ -7,7 +7,9 @@
  * (1 - c3 z^-1 - c1 z^-2), then 3 words of the section's state, which a run writes back; slots 0..19 are
  * in the EQ's RAM, the rest at FLT_ADR.
  *
- *   fm1_eq_slot(j, c, clear)        slot j's coefficients (5 words), its state zeroed with clear
+ *   fm1_eq_slot(j, c, clear)        slot j's coefficients (5 words), its state zeroed with clear: with the EQ off
+ *                                   (fm1_eq_stop): while CON0 has bit 1 the CPU's writes to its RAM are lost, and
+ *                                   its reads come back as anything (an FM-1, 2026-10-30)
  *   fm1_eq_start_s32x2(in, out, n, sections, flt)   a run over n interleaved stereo s32 frames
  *   fm1_eq_done()                   the run has ended
  *   fm1_eq_finish() / fm1_eq_stop() after a run / to stop one (it writes nothing more)
