@@ -12,7 +12,7 @@
 #include "eq_table.h"
 #include "fm1_eq.h"
 
-#define EQ_POLLS 200000u                        /* (a run is done in ~5 000 polls; this many: it is stuck) */
+#define EQ_POLLS 25000u                         /* (a run is done in ~5 000 polls, 0.2 ms; this many, ~1 ms: it is stuck) */
 
 static int32_t eq_in[2u * HALF_FRAMES] __attribute__((aligned(16)));   /* the module's block, the EQ's input */
 static uint32_t eq_flt[8] __attribute__((aligned(16)));   /* FLT_ADR (slots past 20: none here), as the SDK sets it */
@@ -26,6 +26,7 @@ static void eq_set(uint32_t on, const int8_t *db)   /* the main loop's */
         eq_idx[b] = (uint8_t)(db[b] + EQ_DB_MAX);
     if (on && !eq_on)
         eq_clear = 1;                           /* (from silence) */
+    __asm__ volatile("" ::: "memory");         /* (the gains stored before eq_new) */
     eq_new = 1;                                 /* (after the gains: a block that took half of them takes them again) */
     eq_on = (uint8_t)on;
 }

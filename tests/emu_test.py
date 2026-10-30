@@ -265,8 +265,9 @@ def main():
     flat_on, log = run("eq_flat", keys + f",{t2 + 300}:14,{t2 + 1300}:14^", t2 + 1500)
     a, b = onset_frames(flat_off), onset_frames(flat_on)
     n = min(len(a), len(b))
-    check("eq_flat", n > 40000 and a[:n] == b[:n] and "EQ:" not in log,
-          f"the EQ ON at 0 dB: the sine bit for bit as with it OFF ({n // 2} frames)")
+    on = [(OUT / c / "ram.bin").read_bytes()[sym("eq_on")] for c in ("eq_off", "eq_flat")]   # (and it was ON)
+    check("eq_flat", n > 40000 and a[:n] == b[:n] and "EQ:" not in log and on == [0, 1],
+          f"the EQ ON at 0 dB: the sine bit for bit as with it OFF ({n // 2} frames; eq_on {on})")
     for case, band, db, oct_, k in (("eq_low", 0, 12, 0, 0), ("eq_mid", 1, -12, 1, 18), ("eq_high", 2, -12, 2, 26)):
         f = 440 * 2 ** ((53 + 12 * oct_ + k - 69) / 12)
         octs = "".join(f",{300 + 100 * i}:1,{350 + 100 * i}:1^" for i in range(oct_))   # (OCT+ before the list)

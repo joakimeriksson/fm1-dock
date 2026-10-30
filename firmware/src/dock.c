@@ -729,14 +729,14 @@ static void h_cv_blit(int32_t x, int32_t y)
 #if BOARD_SMK37
 static void h_led(uint32_t id, uint32_t on)   /* the buttons' LEDs (the SMK's keys have none); the glow: off */
 {
-    if (id < 14u)
+    if (id < 14u && !scr_hidden)
         fm1_led_key(id, on == 1u);
 }
 #else
 static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (hal/fm1_input.h's fm1_led_dim) */
 {
     uint32_t p, r;
-    if (id >= 41u)
+    if (id >= 41u || scr_hidden)                /* (under the picker: its LEDs, the module's again after) */
         return;
     fm1_led_key(id, on == 1u);
     for (p = 0; p < FM1_NCOL; p++)
@@ -1168,7 +1168,11 @@ static void draw_eq_page(uint32_t row)
         cv_text(166, 6, &FONT_S, v, r == 0 && eq_failed ? C_BAD : lit ? C_ACC : C_OFF);
         cv_blit(0, 56u + r * 30u);
     }
+#if BOARD_SMK37
+    draw_text_box(0, 212, 240, &FONT_S, row ? "SCALE: 0 dB    PATCH: BACK" : "SCALE: ON/OFF   PATCH: BACK", C_OFF, 1);
+#else
     draw_text_box(0, 212, 240, &FONT_S, row ? "SEL: 0 dB    HOME: BACK" : "SEL: ON/OFF   HOME: BACK", C_OFF, 1);
+#endif
 }
 static uint32_t eq_page_input(uint32_t *row, const int32_t *en, uint32_t b)   /* 1: back to OPTIONS */
 {
@@ -2492,7 +2496,7 @@ static void app_main(void)
         }
 
         if (deploy_tick()) {                    /* a deploy: the module may have changed */
-            picker = 0;
+            picker = eqp = 0;
             full = 1;
             if (!rx.on)
                 lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -2503,7 +2507,7 @@ static void app_main(void)
             hb_log_u32("too slow: stopped", cur);
             mods[cur].state = M_SLOW;
             start_module(0);
-            picker = 0;
+            picker = eqp = 0;
             full = 1;
             lcd_fill(0, 0, 240, 240, C_BLACK);
         }
@@ -2573,7 +2577,7 @@ static void app_main(void)
                     st.spare[1] = (st.spare[1] & ~OPT_CH_MASK) | (uint32_t)c << OPT_CH_SHIFT;
                 } else if (o == O_LOCAL) {
                     st.spare[1] ^= OPT_LOCAL_OFF;
-                } else if (o == O_THRU) {
+                } else if (o == O_THRU && o < N_OPTS_HOST) {   /* (the SMK-37's O_THRU: BLUETOOTH) */
                     st.spare[1] ^= OPT_THRU;
                 }
                 if (o < N_OPTS_HOST)
