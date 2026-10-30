@@ -384,6 +384,7 @@ typedef struct {
 #define OPT_MASTER_CC7 2u                       /* MASTER CC7: the MASTER knob sends CC 7 (master_cc7) */
 #define OPT_THRU 4u                             /* MIDI THRU: the DIN jack's channel messages on to USB and BLE */
 #define OPT_LOCAL_OFF 8u                        /* LOCAL OFF: the keys send MIDI only, the module gets none of them */
+#define OPT_KNOBS 16u                           /* KNOBS CC: KNOB1..4 send CCs (knobs_cc), not the module's knobs */
 #define OPT_CH_SHIFT 8u                         /* MIDI CH in bits 8..12: 0 ALL, else the channel 1..16 */
 #define OPT_CH_MASK (31u << OPT_CH_SHIFT)
 static st_t st;
@@ -464,6 +465,31 @@ static void master_cc7(uint32_t ch)
     } else if (k + 4u < mcc7 * 8u || k > mcc7 * 8u + 11u) {
         mcc7 = k >> 3;
         midi_send(0xB0u | ch, 7u, mcc7);
+    }
+}
+
+/* KNOBS CC: KNOB1..4 as CC 74, 71, 73, 72 (cutoff, resonance, attack, release: MIDI's sound controllers) on the
+ * keys' channel, a value each the host keeps (64 at power-on); a detent one step, turned fast four. The module
+ * hears them as MIDI in (LOCAL ON; LOCAL OFF: what comes back from the computer). */
+static const uint8_t KNOB_CC[4] = {74u, 71u, 73u, 72u};
+static uint8_t knob_v[4] = {64u, 64u, 64u, 64u};
+static uint32_t knob_ms[4];
+static void knobs_cc(const hb_module_t *m, uint32_t ch, uint32_t local)
+{
+    uint32_t e;
+    for (e = 0; e < 4u; e++) {
+        int32_t c = fm1_enc_take(ENC_KNOB1 + e), v;
+        if (!c)
+            continue;
+        v = (int32_t)knob_v[e] + (fm1_ms - knob_ms[e] < 40u ? 4 * c : c);
+        knob_ms[e] = fm1_ms;
+        v = v < 0 ? 0 : v > 127 ? 127 : v;
+        if ((uint32_t)v == knob_v[e])
+            continue;
+        knob_v[e] = (uint8_t)v;
+        midi_send(0xB0u | ch, KNOB_CC[e], (uint32_t)v);
+        if (local && m && m->midi) m->midi(0xB0u, KNOB_CC[e], (uint32_t)v);
+        else if (local && m && m->cc) m->cc(0, KNOB_CC[e], (uint32_t)v);
     }
 }
 
@@ -1084,15 +1110,15 @@ static void draw_top(int32_t oct)
 }
 
 /* the list, then OPTIONS (past the last module): the host's, then BLUETOOTH (the last line, as it was) */
-enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_THRU };
+enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU };
 #if BOARD_SMK37
-#define N_OPTS_HOST 5u                          /* (no DIN jack: no MIDI THRU) */
+#define N_OPTS_HOST 6u                          /* (no DIN jack: no MIDI THRU) */
 #else
-#define N_OPTS_HOST 6u
+#define N_OPTS_HOST 7u
 #endif
 #define N_OPTS (N_OPTS_HOST + hx_built)
-#define OPT_H 22u                               /* (seven lines above the footer) */
-#define OPT_Y(i) (56u + (i) * OPT_H)
+#define OPT_H 20u                               /* (eight lines above the footer) */
+#define OPT_Y(i) (50u + (i) * OPT_H)
 static const char *const BLE_ST[] = {"OFF", "NO CAL", "HELD", "ON", "LINKED", "READY"};
 static char *put_u(char *p, uint32_t v)         /* v (0..999) in decimal; the end */
 {
@@ -1104,15 +1130,15 @@ static char *put_u(char *p, uint32_t v)         /* v (0..999) in decimal; the en
 }
 static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
 {
-    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "MIDI THRU"};
+    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "MIDI THRU"};
     char v[8] = "OFF";
     uint32_t lit = 0, opt = st.spare[1];
     uint16_t col;
     cv_begin(240, OPT_H, on_it ? RGB(40, 30, 60) : C_BLACK);
     if (o >= N_OPTS_HOST) {                     /* BLUETOOTH and HX's state */
         uint32_t b = ble_state();
-        cv_text(12, 3, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
-        cv_text(150, 3, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
+        cv_text(12, 2, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
+        cv_text(150, 2, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
                 b == HX_S_MISSING || b == HX_S_NOCAL || b == HX_S_HELD ? C_BAD : b >= HX_S_LINK ? C_ACC : C_OFF);
         cv_blit(0, y);
         return;
@@ -1132,11 +1158,12 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
         if ((lit = st.spare[2] & EQ_ON) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0;
         memcpy(v + (lit ? 2 : 3), " >", 3);
         break;
+    case O_KNOBS: if ((lit = opt & OPT_KNOBS) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
     default: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
     }
     col = o == O_EQ && eq_failed ? C_BAD : lit ? C_ACC : C_OFF;
-    cv_text(12, 3, &FONT_S, NAME[o], on_it ? C_ACC : C_WHITE);
-    cv_text(150, 3, &FONT_S, v, col);
+    cv_text(12, 2, &FONT_S, NAME[o], on_it ? C_ACC : C_WHITE);
+    cv_text(150, 2, &FONT_S, v, col);
     cv_blit(0, y);
 }
 
@@ -2518,6 +2545,8 @@ static void app_main(void)
             for (e = 0; e < 7u; e++)
                 fm1_enc_take(e);
         }
+        if (!picker && (st.spare[1] & OPT_KNOBS))
+            knobs_cc(m, och, local);            /* (before the module's: they are not its knobs then) */
         if (!panel || picker) {
             if (b & (1u << BTN_OCT_DOWN) && st.oct > -2) { st.oct--; store_touch(); }
             if (b & (1u << BTN_OCT_UP) && st.oct < 2) { st.oct++; store_touch(); }
@@ -2577,6 +2606,8 @@ static void app_main(void)
                     st.spare[1] = (st.spare[1] & ~OPT_CH_MASK) | (uint32_t)c << OPT_CH_SHIFT;
                 } else if (o == O_LOCAL) {
                     st.spare[1] ^= OPT_LOCAL_OFF;
+                } else if (o == O_KNOBS) {
+                    st.spare[1] ^= OPT_KNOBS;
                 } else if (o == O_THRU && o < N_OPTS_HOST) {   /* (the SMK-37's O_THRU: BLUETOOTH) */
                     st.spare[1] ^= OPT_THRU;
                 }

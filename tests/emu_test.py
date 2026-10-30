@@ -41,7 +41,7 @@ def pick(name):
     return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
 
 
-O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_THRU = range(6)   # the OPTIONS lines (dock.c), past the list's modules
+O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU = range(7)   # the OPTIONS lines (dock.c), past the list's modules
 
 
 def options(sets, at=700, cur=0, hold=False):
@@ -387,6 +387,18 @@ def main():
         check("midi_thru", (0x90, 0x3C, 0x64) in out and (0x80, 0x3C, 0) in out and (0x90, 0x3C, 0x64) not in out2 and
               p1 > 1000 and p2 > 1000, f"MIDI THRU: the DIN jack's note on and off go out on USB ({out}), and play; "
               f"OFF: not sent ({out2})")
+
+        res = {}
+        for case, n in (("knobs_cc", 1), ("knobs_off", 0)):   # KNOBS CC: KNOB1 up 5 detents, KNOB2 down 3, slowly;
+            keys, t = options([(O_KNOBS, n)])   # then KNOB1 down fast (4 steps a detent); OFF: nothing goes out
+            turns = "".join(f",{t + 300 + 100 * i}:e2:1" for i in range(5)) + \
+                "".join(f",{t + 900 + 100 * i}:e3:-1" for i in range(3)) + "".join(f",{t + 1300 + 10 * i}:e2:-1" for i in range(3))
+            s, log = run(case, keys + turns, t + 1500, extra=("--usb",))
+            res[case] = [m for m in midi_out(case) if m[0] == 0xB0]
+        out, out2 = res["knobs_cc"], res["knobs_off"]
+        check("knobs_cc", out == [(0xB0, 74, 65 + i) for i in range(5)] + [(0xB0, 71, 63 - i) for i in range(3)] +
+              [(0xB0, 74, 68), (0xB0, 74, 64), (0xB0, 74, 60)] and out2 == [],
+              f"KNOBS CC: KNOB1 sends CC 74 64 -> 69, KNOB2 CC 71 down to 61, fast four a detent ({out}); OFF: none ({out2})")
 
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")
     return 1 if failures else 0
