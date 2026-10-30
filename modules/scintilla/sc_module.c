@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Scintilla: the Elka Synthex engine of synthex-web, ported to integers (joakimeriksson/scintilla-fm1),
- * as a fm1-dock module: its own app (app/scintilla.c, from take.py) with its 80 presets, pages, joystick
- * and MIDI. The host runs app_init() at init and app_loop() from draw(); the engine renders in the
- * host's audio interrupt. HOME held 1.5 s alone opens fm1-dock's module list (a short HOME is
- * Scintilla's). */
-#include "sc_platform.h"
+ * as a fm1-dock module: its own app (app/scintilla.c, from take.py, built with -DHB_MODULE: its platform
+ * is sc_harbor.h) with its 80 presets, pages, joystick, SETTINGS and MIDI. The host runs app_init() at
+ * init and app_loop() from draw(); the engine renders in the host's audio interrupt. The host senses the
+ * keys: ui() hands a key's velocity and pressure to the app (key_vel, key_press: its TOUCH and VELOCITY
+ * settings use them). HOME held 1.5 s alone opens fm1-dock's module list (a short HOME is Scintilla's). */
 #include "app/scintilla.c"
 
 static void render(int32_t *out, uint32_t n)
@@ -14,19 +14,24 @@ static void render(int32_t *out, uint32_t n)
 }
 static void ui(uint32_t ev, int32_t arg)
 {
-    if (HB_EV_KIND(ev) == HB_EV_KEY_PRESSURE)
-        return;
+    uint32_t k = HB_EV_ID(ev);
+    if (k < 27u) {
+        if (HB_EV_KIND(ev) == HB_EV_KEY_PRESSURE) {
+            key_press[k] = (uint8_t)arg;
+            return;
+        }
+        if (HB_EV_KIND(ev) == HB_EV_KEY_DOWN)
+            key_vel[k] = (uint8_t)(arg > 0 ? arg : 100);   /* (a key whose force is not sensed: 100, as Scintilla's) */
+        else if (HB_EV_KIND(ev) == HB_EV_KEY_UP)
+            key_press[k] = 0;
+    }
     hbf_event(ev, arg);
 }
 static void midi(uint32_t st, uint32_t d1, uint32_t d2) { hbf_midi(st, d1, d2); }
 static void draw(uint32_t full)
 {
-    if (full) {                                 /* (back from the module list: everything again) */
-        lcd_fill(0, 0, 240, 240, C_BLACK);
-        lit_drawn = page_drawn = preset_drawn = edited_drawn = cpu_drawn = ~0u;
-        oct_drawn = 99;
-        stick_drawn[0] = stick_drawn[1] = -1;
-    }
+    if (full)                                   /* (back from the module list: everything again) */
+        redraw_all();
     app_loop();
 }
 static void note(uint32_t ch, uint32_t key, uint32_t vel)
