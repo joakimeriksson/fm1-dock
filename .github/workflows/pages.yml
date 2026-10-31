@@ -4,7 +4,8 @@
 # .dock on FM-1 SID's release), copied into fw/ and checked (tools/site_packages.py). The
 # pages of FM-1 SID (fm1-emu's site) and Scintilla use them too: the same origin, joakimeriksson.github.io.
 # Published from the Actions artifact (Settings -> Pages -> Source: GitHub Actions). FM-1 SID's and Scintilla's
-# releases reach it with the next run: every six hours, or by hand (Actions -> pages -> Run workflow).
+# releases reach it with the next run: every six hours, or by hand (Actions -> pages -> Run workflow); fm1-dock's own
+# when its release workflow has finished (workflow_run).
 
 name: pages
 
@@ -14,6 +15,9 @@ on:
   pull_request:
   release:
     types: [published]
+  workflow_run:                   # fm1-dock's own releases: the release workflow publishes them with its token, and a
+    workflows: [release]          # release made with that token starts no other workflow, so this runs after it
+    types: [completed]
   schedule:
     - cron: "23 */6 * * *"
   workflow_dispatch:
@@ -29,6 +33,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
