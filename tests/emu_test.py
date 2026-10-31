@@ -230,6 +230,39 @@ def main():
         check("fm106_presets", "fm106: FM-106" in log and b"*A11 Brass" in ram,
               "FM-106's user preset is there after a power-off (its banks loaded back)")
 
+    if "MONK-1" in names:
+        def rms(s, t0, t1):
+            seg = s[int(t0 * 44100) * 2:int(t1 * 44100) * 2]
+            return (sum(x * x for x in seg) / max(1, len(seg))) ** 0.5
+        k = pick("MONK-1")
+        a, _ = run("monk_soft", k + ",1800:23@20,2900:23^", 3200)
+        b, log = run("monk", k + ",1800:23@127,2900:23^", 3200)
+        c, _ = run("monk_pressure", k + ",1800:23@20,2400:23~127,2900:23^", 3200)   # (past the key's settling)
+        check("monk", "monk: MONK-1" in log and peak(b, 0.0, 1.5) == 0 and rms(b, 1.7, 2.1) > 1000 and
+              " 0 overruns" in log, f"MONK-1 starts and a key sings (RMS {rms(b, 1.7, 2.1):.0f}), nothing before it")
+        check("monk_velocity", rms(b, 1.7, 2.1) > 1.5 * rms(a, 1.7, 2.1),
+              f"MONK-1 takes the host's velocity (RMS {rms(a, 1.7, 2.1):.0f} soft, {rms(b, 1.7, 2.1):.0f} hard)")
+        n = int(2.1 * 44100) * 2
+        check("monk_pressure", a[:n] == c[:n] and a[n:] != c[n:],
+              "MONK-1's own pressure from the host's readings: pressing harder moves the vowel")
+        # the heaviest: ten voices in unison (EDIT, KNOB1), two octaves up, G5, the vowel swept on ALGORITHM all along
+        # (each pitch period's grain made anew)
+        sweep = "".join(f",{2300 + 60 * i}:e1:{3 if i // 5 % 2 == 0 else -3}" for i in range(20))
+        s, log = run("monk_heavy", k + ",1300:1,1350:1^,1450:1,1500:1^,1700:6,1750:6^,1900:e2:12,2200:40" + sweep +
+                     ",3500:40^", 3700)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("monk_heavy", peak(s, 2.1, 3.3) > 1000 and " 0 overruns" in log and worst < 80,
+              f"MONK-1 sings ten voices at G7, its vowel moving; worst {worst} % of a block")
+        # the next singer (PRESETS), SAVE: its project in the module's bank, there after a power-off
+        flash = OUT / "monk_flash.bin"
+        flash.unlink(missing_ok=True)
+        fw = ("--fwsc", str(SRC / "build" / "fm1-dock.fwsc"), "--flash", str(flash))
+        run("monk_save", k + ",1800:e6:1,2400:9,2500:9^", 6000, extra=fw)
+        _, log = run("monk_saved", "", 3000, extra=fw)
+        ram = (OUT / "monk_saved" / "ram.bin").read_bytes()
+        check("monk_saved", "monk: MONK-1" in log and b"MONK\x03\x00\x00\x00\x01" in ram,
+              "MONK-1's singer is there after a power-off (its project loaded back from its bank)")
+
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
     s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
