@@ -271,7 +271,8 @@ static void env_skip(sc_env_t *e, uint32_t ai, uint32_t di, int32_t s, uint32_t 
 }
 
 /* Lfo.step: Q20 output, scaled by the delay ramp */
-static inline int32_t lfo_step(sc_lfo_t *l, uint32_t inc, int shape, uint32_t dly_inc)
+/* the LFO's shape at its phase, before the smoothing */
+static inline int32_t lfo_raw(const sc_lfo_t *l, int shape)
 {
     int32_t raw;
     uint32_t ph = l->ph;
@@ -288,6 +289,13 @@ static inline int32_t lfo_step(sc_lfo_t *l, uint32_t inc, int shape, uint32_t dl
     case SC_LFO_RAMPDN: raw = SC_ONE20 - (int32_t)(ph >> 11); break;        /* falling ramp */
     default:          raw = (int32_t)(ph >> 11) - SC_ONE20; break;           /* ramp */
     }
+    return raw;
+}
+
+static inline int32_t lfo_step(sc_lfo_t *l, uint32_t inc, int shape, uint32_t dly_inc)
+{
+    uint32_t ph = l->ph;
+    int32_t raw = lfo_raw(l, shape);
     l->smooth += (raw - l->smooth) >> 1;
     l->ph = ph + inc;
     if (l->ph < ph) { l->sh = l->sh_next; l->sh_next = sc_rand20(&l->rng); }
@@ -430,6 +438,7 @@ void sc_voice_init(sc_voice_t *v, uint32_t seed)
     v->n1 = v->n2 = INT32_MIN;                  /* no cached pitch yet */
     v->vel = SC_ONE16;
     v->a1 = SC_ONE30;                           /* filled in at the first block */
+    v->cn = -(1 << 30);                         /* no cutoff yet */
 }
 
 void sc_voice_note_on(sc_voice_t *v, const sc_prep_t *p, int32_t note, int32_t vel_q16)
@@ -439,11 +448,13 @@ void sc_voice_note_on(sc_voice_t *v, const sc_prep_t *p, int32_t note, int32_t v
     v->target = (int64_t)note << 32;
     if (!(L->glide_mode == SC_GLIDE_PORTA && !from_idle)) v->cur = v->target;
     v->vel = vel_q16;
-    if (from_idle || L->multi_trigger) { v->env1.stage = ENV_ATTACK; v->env2.stage = ENV_ATTACK; }
+    if (from_idle || L->multi_trigger) { v->env1.stage = ENV_ATTACK; v->amp_gate = SC_AMP_ONSET_DELAY; }
     if (L->lfo[0].sync) lfo_trigger(&v->lfo1);
     if (L->lfo[1].sync) lfo_trigger(&v->lfo2);
-    if (!L->o2_sync) osc_reset(&v->o1);
-    osc_reset(&v->o2);
+    if (from_idle) {                            /* a sounding voice keeps its phases: a reset is a step */
+        if (!L->o2_sync) osc_reset(&v->o1);
+        osc_reset(&v->o2);
+    }
 
     v->off1 = L->o1_glide_amt * 256;
     v->off2 = L->o2_glide_amt * 256;
@@ -458,21 +469,124 @@ void sc_voice_note_on(sc_voice_t *v, const sc_prep_t *p, int32_t note, int32_t v
 void sc_voice_note_off(sc_voice_t *v, const sc_prep_t *p)
 {
     env_off(&v->env1, p->fr_mul);
+    if (v->amp_gate) { v->amp_gate = 0; v->env2.stage = ENV_ATTACK; }   /* a note shorter than the delay */
     env_off(&v->env2, p->ar_mul);
 }
 
-/* VoiceCore.updateCoeffs */
-static void update_coeffs(sc_voice_t *v, const sc_prep_t *p)
+/* VoiceCore.cutoffNote: the modulated cutoff in semitones (Q16), from this sample's envelope and LFO
+ * values and the portamento pitch (key_q16 = cur >> 16) */
+static inline int32_t cutoff_note(const sc_voice_t *v, const sc_prep_t *p, int32_t e1, int32_t l1, int32_t l2,
+                                  int32_t key_q16)
 {
-    int32_t e1 = v->env1.level;
     int64_t c = p->c_base;
-    c += ((int64_t)v->l1 * p->kc[0] + (int64_t)v->l2 * p->kc[1]) >> 20;
+    c += ((int64_t)l1 * p->kc[0] + (int64_t)l2 * p->kc[1]) >> 20;
     c += ((int64_t)(v->vel - SC_ONE16 / 2) * p->kc_vel) >> 16;
     c += ((int64_t)e1 * p->kc_env) >> 30;
     c += ((int64_t)(e1 - SC_ONE30 / 2) * p->kc_env1) >> 30;
-    c += ((int64_t)((int32_t)(v->cur >> 16) - (60 << 16)) * p->kc_key) >> 16;
-    int32_t cn = c < 0 ? 0 : c > (132 << 16) ? (132 << 16) : (int32_t)c;
+    c += ((int64_t)(key_q16 - (60 << 16)) * p->kc_key) >> 16;
+    return c < 0 ? 0 : c > (132 << 16) ? (132 << 16) : (int32_t)c;
+}
 
+/* did the cutoff move SC_CUTOFF_STEP from the coefficients' note */
+static inline int cutoff_moved(const sc_voice_t *v, int32_t cn)
+{
+    int32_t d = cn - v->cn;
+    return d > SC_CUTOFF_STEP || d < -SC_CUTOFF_STEP;
+}
+
+/* The first sample in [a, b) on which the cutoff, moved by the filter envelope e1[] alone, has
+ * crossed the step from the coefficients' note, or b. Over [a, b) the cutoff is monotone and it was
+ * within the step at a - 1, so the crossing is found by bisection. */
+static uint32_t first_cross(const sc_voice_t *v, const sc_prep_t *p, const int32_t *e1, int32_t key,
+                            uint32_t a, uint32_t b)
+{
+    if (a >= b || !cutoff_moved(v, cutoff_note(v, p, e1[b - 1], 0, 0, key))) return b;
+    uint32_t lo = a, hi = b - 1;
+    while (lo < hi) {
+        uint32_t mid = (lo + hi) / 2;
+        if (cutoff_moved(v, cutoff_note(v, p, e1[mid], 0, 0, key))) hi = mid;
+        else lo = mid + 1;
+    }
+    return lo;
+}
+
+static void update_coeffs(sc_voice_t *v, const sc_prep_t *p, int32_t cn);
+
+/* LFO k's largest move of the cutoff a sample (Q16 semitones) over the samples after this one, and
+ * in *lim no more of them than it keeps to that: a square's edge, a ramp's wrap and a new random
+ * value are jumps, and the samples up to one are all it vouches for. The bound adds the shape's
+ * slope, the smoothing's catch-up (it moves half the way to the shape a sample, so never more than
+ * half the gap it has now plus the slope), the delay's fade-in and the joystick's depth. */
+static uint32_t lfo_cut_dmax(const sc_lfo_t *l, const sc_prep_t *p, int k, uint32_t *lim)
+{
+    const int shape = p->L->lfo[k].shape;
+    const uint32_t inc = p->lfo_inc[k], ph = l->ph;
+    uint32_t slope, edge = 0;                   /* edge: the phase of the next jump, 0 = the wrap */
+    int jumps = 1;
+    switch (shape) {
+    case SC_LFO_TRI: slope = 4 * (inc >> 12) + 4; jumps = 0; break;
+    case SC_LFO_SQR:
+    case SC_LFO_SQRU: slope = 0; if (ph < 0x80000000u) edge = 0x80000000u; break;
+    case SC_LFO_SH: slope = 0; break;
+    case SC_LFO_RND: {
+        int32_t span = l->sh_next - l->sh;
+        slope = (uint32_t)(((uint64_t)(uint32_t)(span < 0 ? -span : span) * (inc >> 2)) >> 30) + 2;
+        break;
+    }
+    default: slope = (inc >> 11) + 2; break;    /* the ramps */
+    }
+    if (jumps && inc) {
+        uint32_t to = (edge - ph) / inc;        /* whole steps before the phase reaches the jump */
+        to = to > 2 ? to - 2 : 0;
+        if (to < *lim) *lim = to;
+    }
+    int32_t gap = lfo_raw(l, shape) - l->smooth;
+    uint64_t d = (uint64_t)((uint32_t)(gap < 0 ? -gap : gap) >> 1) + slope + 2;
+    if (p->lfo_dly_inc[k] && l->ramp < SC_ONE30)
+        d += (((uint64_t)SC_ONE20 * p->lfo_dly_inc[k]) >> 30) + 2;
+    const int32_t joy = p->lfo_joy[k];
+    if (joy != SC_ONE16) d = ((d * (uint32_t)(joy < 0 ? -joy : joy)) >> 16) + 2;
+    const int32_t kc = p->kc[k];
+    return (uint32_t)((d * (uint32_t)(kc < 0 ? -kc : kc)) >> 20) + 2;
+}
+
+/* One sample of the per-sample path's cutoff: recompute the coefficients at a block start (force) or
+ * once the cutoff has moved the step. Returns how many following samples cannot cross the step, so
+ * the loop skips them: none while the portamento moves the cutoff (every sample then, as the staged
+ * render does); while the filter envelope or an LFO moves it, as far as their largest possible steps
+ * allow (the attack may turn into the decay; a release's steps shrink; an LFO's, lfo_cut_dmax); up
+ * to the next block start when nothing moves it. Out of line to keep the loop's registers. */
+static __attribute__((noinline)) uint32_t cut_eval(sc_voice_t *v, const sc_prep_t *p, int32_t e1, int32_t l1,
+                                                   int32_t l2, int force)
+{
+    int32_t cn = cutoff_note(v, p, e1, l1, l2, (int32_t)(v->cur >> 16));
+    if (force || cutoff_moved(v, cn)) update_coeffs(v, p, cn);
+    if (v->block == 0) return 0;                /* the next sample starts a block: looked at anyway */
+    const uint32_t to_block = SC_COEFF_BLOCK - v->block - 1;
+    if (v->cur != v->target && p->kc_key) return 0;
+    uint32_t lim = to_block, dmax = 0;          /* dmax: the cutoff's largest move a sample */
+    if ((p->use & SC_USE_L1) && p->kc[0]) dmax += lfo_cut_dmax(&v->lfo1, p, 0, &lim);
+    if ((p->use & SC_USE_L2) && p->kc[1]) dmax += lfo_cut_dmax(&v->lfo2, p, 1, &lim);
+    const int st = v->env1.stage;
+    if ((p->kc_env || p->kc_env1) && st != ENV_SUSTAIN && st != ENV_IDLE) {
+        const uint32_t step = st == ENV_ATTACK ? (p->fa_inc > p->fd_inc ? p->fa_inc : p->fd_inc)
+                            : st == ENV_DECAY ? p->fd_inc
+                            : (uint32_t)(((int64_t)v->env1.level * (SC_ONE30 - v->env1.rel_mul)) >> 30) + 1;
+        const uint32_t kenv = (uint32_t)(p->kc_env < 0 ? -p->kc_env : p->kc_env)
+                            + (uint32_t)(p->kc_env1 < 0 ? -p->kc_env1 : p->kc_env1);
+        dmax += (uint32_t)(((uint64_t)step * kenv) >> 30) + 3;
+    }
+    if (!dmax) return lim;                      /* nothing moves it */
+    const int32_t d = cn - v->cn;
+    const uint32_t room = (uint32_t)(SC_CUTOFF_STEP - (d < 0 ? -d : d));
+    const uint32_t k = room / dmax;
+    return k < lim ? k : lim;
+}
+
+/* VoiceCore.updateCoeffs, for the cutoff cn */
+static void update_coeffs(sc_voice_t *v, const sc_prep_t *p, int32_t cn)
+{
+    v->cn = cn;
     /* a1 = 1 / (1 + g (g + k)), a2 = g a1, a3 = g a2 */
     uint32_t g = cut_g(cn);
     uint64_t d28 = ((uint64_t)1 << 28) + (((uint64_t)g * (g + (uint32_t)p->k_q28)) >> 28);
@@ -491,12 +605,15 @@ static void render_general(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint
     const uint32_t use = p->use;
     const int32_t vgain = (SC_ONE16 + sc_mul(L->mm[SC_MM_VEL_AMP], v->vel - SC_ONE16, 16)) / 2;   /* velAmp * 0.5 */
 
+    uint32_t cut_skip = 0;                      /* samples on which the cutoff cannot have crossed the step (cut_eval) */
+
     for (uint32_t i = 0; i < n; i++) {
-        if (v->block == 0) update_coeffs(v, p);
+        int block_start = v->block == 0;
         if (++v->block == SC_COEFF_BLOCK) v->block = 0;
 
         if (v->cur != v->target)                /* Q30 coefficient x the distance in Q24 -> Q32 */
             v->cur += ((int64_t)p->glide_coef * (int32_t)((v->target - v->cur) >> 8)) >> 22;
+        if (v->amp_gate && --v->amp_gate == 0) v->env2.stage = ENV_ATTACK;
 
         int32_t e1 = env_step(&v->env1, p->fa_inc, p->fd_inc, p->fs);
         int32_t e2 = env_step(&v->env2, p->aa_inc, p->ad_inc, p->as);
@@ -511,6 +628,11 @@ static void render_general(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint
             if (p->lfo_joy[1] != SC_ONE16) l2 = sc_mul(l2, p->lfo_joy[1], 16);
             v->l2 = l2;
         }
+
+        /* the cutoff: VoiceCore evaluates it every sample; cut_eval does, and says how many of the
+         * next samples need no look (the same samples the staged render looks at) */
+        if (cut_skip) cut_skip--;
+        else cut_skip = cut_eval(v, p, e1, l1, l2, block_start);
 
         if (v->off1) v->off1 = (int32_t)(((int64_t)v->off1 * v->c1 + (1 << 29)) >> 30);   /* rounded: no drift */
         if (v->off2) v->off2 = (int32_t)(((int64_t)v->off2 * v->c2 + (1 << 29)) >> 30);
@@ -586,6 +708,7 @@ static void render_general(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint
 static int32_t  S_amp[256], S_s1[256], S_s2[256], S_nz[256], S_e1[256], S_l1[256], S_l2[256];
 static const int32_t S_zero[256];              /* an LFO that is not routed reads as 0 */
 static uint32_t S_dt1[256], S_dt2[256], S_pw1[256];
+static int32_t  S_key[256];                     /* the portamento pitch per sample, for key tracking */
 static int64_t  S_pw2[256];                     /* OSC2's PWM sum before OSC1's cross-mod term */
 static uint8_t  S_wrap[256];
 
@@ -742,7 +865,7 @@ static void mix_run(sc_voice_t *v, int mode, const mix_t *m, const int32_t *c, i
 
 void sc_voice_render(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n)
 {
-    if (v->env2.stage == ENV_IDLE) return;
+    if (v->env2.stage == ENV_IDLE && !v->amp_gate) return;
 #ifndef SC_TEST_GENERAL                         /* tests/run.sh: the general path for every patch */
     if (p->cross2 || n > 256)
 #endif
@@ -753,31 +876,56 @@ void sc_voice_render(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n
     const uint32_t use = p->use;
     const int32_t vgain = (SC_ONE16 + sc_mul(L->mm[SC_MM_VEL_AMP], v->vel - SC_ONE16, 16)) / 2;   /* velAmp * 0.5 */
 
-    /* the filter's coefficient sets and where each starts (one per COEFF_BLOCK, at most 3 here) */
-    uint32_t seg_at[4];
-    int32_t seg_c[4][3];
+    /* the filter's coefficient sets and where each starts: one per COEFF_BLOCK, plus one wherever
+     * the cutoff moves SC_CUTOFF_STEP within a block (every sample through a fast filter attack) */
+    static uint32_t seg_at[257];
+    static int32_t seg_c[256][3];
     uint32_t nseg = 1;
     seg_at[0] = 0;
     seg_c[0][0] = v->a1; seg_c[0][1] = v->a2; seg_c[0][2] = v->a3;
+#define NEW_SEG(i) do { uint32_t k_ = (i) == 0 ? 0 : nseg++; seg_at[k_] = (i); \
+                        seg_c[k_][0] = v->a1; seg_c[k_][1] = v->a2; seg_c[k_][2] = v->a3; } while (0)
 
-    /* 1. control, a segment at a time: segments end where VoiceCore recomputes the coefficients,
-     * and each starts with that update, in the state the samples before it left */
+    /* 1. control, a block at a time: VoiceCore recomputes the coefficients at the top of each block
+     * and whenever the cutoff has moved; each segment starts with that update, in the state the
+     * samples before it left */
     const int sq1 = w1 == SC_WAVE_SQR, sq2 = w2 == SC_WAVE_SQR;
     for (uint32_t i0 = 0; i0 < n; ) {
-        if (v->block == 0) {
-            update_coeffs(v, p);
-            uint32_t k = i0 == 0 ? 0 : nseg++;
-            seg_at[k] = i0;
-            seg_c[k][0] = v->a1; seg_c[k][1] = v->a2; seg_c[k][2] = v->a3;
-        }
+        const int block_start = v->block == 0;
         uint32_t m = SC_COEFF_BLOCK - v->block;
         if (m > n - i0) m = n - i0;
         uint32_t i1 = i0 + m;
         v->block = (v->block + m) % SC_COEFF_BLOCK;
 
-        env_run(&v->env2, p->aa_inc, p->ad_inc, p->as, S_amp + i0, m);
-        if (use & SC_USE_P2MOD) env_run(&v->env1, p->fa_inc, p->fd_inc, p->fs, S_e1 + i0, m);
+        /* the amp envelope, silent until its gate (and a release it was retriggered in goes on) */
+        if (v->amp_gate) {
+            uint32_t z = v->amp_gate - 1;       /* samples before the gate opens */
+            if (z > m) z = m;
+            if (v->env2.stage == ENV_IDLE) for (uint32_t i = i0; i < i0 + z; i++) S_amp[i] = 0;
+            else env_run(&v->env2, p->aa_inc, p->ad_inc, p->as, S_amp + i0, z);
+            v->amp_gate -= z;
+            if (v->amp_gate == 1) { v->amp_gate = 0; v->env2.stage = ENV_ATTACK; }
+            if (z < m) env_run(&v->env2, p->aa_inc, p->ad_inc, p->as, S_amp + i0 + z, m - z);
+        } else
+            env_run(&v->env2, p->aa_inc, p->ad_inc, p->as, S_amp + i0, m);
+
+        /* the filter envelope: per sample when something reads it per sample (OSC2's pitch, or the
+         * cutoff while it moves), else skipped in one jump */
+        const int e1_stage = v->env1.stage;
+        const int e1_moves = e1_stage == ENV_ATTACK || e1_stage == ENV_DECAY || e1_stage == ENV_RELEASE;
+        const int track_env = (p->kc_env || p->kc_env1) && e1_moves;
+        /* where an attack peaks and turns into the decay (the one turn in the envelope's course) */
+        uint32_t j_peak = m;
+        if (track_env && e1_stage == ENV_ATTACK && p->fa_inc) {
+            uint32_t to = (uint32_t)(SC_ONE30 - v->env1.level);
+            j_peak = (to + p->fa_inc - 1) / p->fa_inc;
+            if (j_peak == 0) j_peak = 1;
+            if (j_peak > m) j_peak = m;
+        }
+        if ((use & SC_USE_P2MOD) || track_env) env_run(&v->env1, p->fa_inc, p->fd_inc, p->fs, S_e1 + i0, m);
         else env_skip(&v->env1, p->fa_inc, p->fd_inc, p->fs, m);
+        const int32_t e1_const = e1_stage == ENV_SUSTAIN ? p->fs : 0;   /* what the cutoff reads if not tracking */
+        const int moving = v->cur != v->target;
         if (use & SC_USE_L1) {
             for (uint32_t i = i0; i < i1; i++) {
                 int32_t l = lfo_step(&v->lfo1, p->lfo_inc[0], sh1, p->lfo_dly_inc[0]);
@@ -813,6 +961,7 @@ void sc_voice_render(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n
                 if (n2 != v->n2) { v->n2 = n2; v->dt2 = sc_pitch_inc(n2); if (v->dt2 > MAX_DT) v->dt2 = MAX_DT; }
                 S_dt1[i] = v->dt1;
                 S_dt2[i] = v->dt2;
+                S_key[i] = (int32_t)(v->cur >> 16);
             }
         } else {
             int32_t note = (int32_t)(v->cur >> 16) + v->bend + p->joy_pitch;
@@ -821,6 +970,43 @@ void sc_voice_render(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n
             if (n2 != v->n2) { v->n2 = n2; v->dt2 = sc_pitch_inc(n2); if (v->dt2 > MAX_DT) v->dt2 = MAX_DT; }
             uint32_t d1 = v->dt1, d2 = v->dt2;
             for (uint32_t i = i0; i < i1; i++) { S_dt1[i] = d1; S_dt2[i] = d2; }
+        }
+
+        /* the cutoff. VoiceCore evaluates it every sample and recomputes the coefficients at a block
+         * start or once it has moved SC_CUTOFF_STEP. Here: the block's first sample always (a note-on
+         * can have moved it); then per sample while an LFO or the portamento moves it; while only the
+         * filter envelope moves it, the cutoff is monotone between the attack's peak and the next
+         * stage, so the sample it crosses the step on is found by bisection in S_e1 */
+        const int32_t key_c = (int32_t)(v->cur >> 16);
+        const int key_per_sample = moving && p->kc_key;
+        const int lfo_tracks = ((use & SC_USE_L1) && p->kc[0]) || ((use & SC_USE_L2) && p->kc[1]);
+        const int opposite = (p->kc_env > 0) != (p->kc_env1 > 0) && p->kc_env && p->kc_env1;
+        if (lfo_tracks || key_per_sample || (track_env && opposite)) {
+            for (uint32_t i = i0; i < i1; i++) {
+                int32_t cn = cutoff_note(v, p, track_env ? S_e1[i] : e1_const, l1[i], l2[i],
+                                         key_per_sample ? S_key[i] : key_c);
+                if ((block_start && i == i0) || cutoff_moved(v, cn)) {
+                    update_coeffs(v, p, cn);
+                    NEW_SEG(i);
+                }
+            }
+        } else if (track_env) {
+            uint32_t a = i0;
+            for (int piece = 0; piece < 2 && a < i1; piece++) {
+                uint32_t b = piece == 0 ? i0 + j_peak : i1;
+                int32_t cn = cutoff_note(v, p, S_e1[a], 0, 0, key_c);
+                if ((block_start && a == i0) || cutoff_moved(v, cn)) { update_coeffs(v, p, cn); NEW_SEG(a); }
+                for (uint32_t i = a + 1; i < b; i++) {
+                    i = first_cross(v, p, S_e1, key_c, i, b);
+                    if (i == b) break;
+                    update_coeffs(v, p, cutoff_note(v, p, S_e1[i], 0, 0, key_c));
+                    NEW_SEG(i);
+                }
+                a = b;
+            }
+        } else {
+            int32_t cn = cutoff_note(v, p, e1_const, 0, 0, key_c);
+            if (block_start || cutoff_moved(v, cn)) { update_coeffs(v, p, cn); NEW_SEG(i0); }
         }
 
         if (sq1)
@@ -869,4 +1055,5 @@ void sc_voice_render(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n
     mix_t m = { p->mix1, p->mix2, (use & SC_USE_NOISE) ? p->mixn : 0, p->atten, p->k_q28, L->ring };
     seg_at[nseg] = n;
     for (uint32_t g = 0; g < nseg; g++) mix_run(v, mode, &m, seg_c[g], out, seg_at[g], seg_at[g + 1]);
+#undef NEW_SEG
 }
