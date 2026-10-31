@@ -29,6 +29,10 @@ WebMIDI), the emulator in the browser, the module interface and the protocol.
 | **FM-1 SID** | Joakim Eriksson | 3, the SID's | C64 music: a cycle-exact 6510, reSID and an own SID model; GoatTracker 2 songs and their editor: [write your first chiptune](https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step) on the FM-1. Not in the package: added with one click on [the page](https://joakimeriksson.github.io/fm1-dock/#install), or `tools/dock.py deploy`. |
 | **AMB-1** | Charles Vestal | 4 pad voices, 6 bells, a bass, 3 drums | A generative ambient machine after *Music for Airports*: it plays itself. [The original](https://charlesvestal.github.io/fm1-amb/), its code unchanged (`modules/amb`). Not in the package: added with one click on the page. |
 | **FoMni** | Charles Vestal | 16 harp strings, a 3-note chord, a bass | A chord harp after the Omnichord: chords on the black keys, strummed on the white ones. [The original](https://charlesvestal.github.io/fm1-fomni/), its code unchanged (`modules/fomni`). Not in the package: added with one click. |
+| **MONK-1** | Charles Vestal | 1, up to 10 in unison | Twelve singers: MonkSynth's formant voice with the characters of its iOS port, the mouth following the vowel; velocity and pressure from the keys. [The original](https://github.com/charlesvestal/fm1-monk), its app and voice unchanged in sound and screen (`modules/monk/take.py`: smaller buffers, the same samples and pixels). 240 KB: not in the package, added with one click on the page. |
+| **FiMba-1** | Adam Sowers | 16 tines | A kalimba (thumb piano) by modal synthesis: the white keys are its tines, the black keys thumb-roll chords; bodies, buzzers, the sound hole's wah under the keys' pressure, grains, delay, plate reverb and tape. [The original](https://jadamsowers.github.io/fm1-fimba/), its code unchanged but for the screen drawn in strips (`modules/fimba/take.py`). Not in the package: added with one click on the page. |
+| **GATOR** | npi3pak | 1 (mono) | A macro-oscillator after Mutable Instruments' Plaits: 24 models in 3 banks (Emilie Gillet's Plaits DSP, MIT), its low-pass gate, an envelope, two LFOs, an 8-slot modulation matrix and 16 presets; not affiliated with or endorsed by Mutable Instruments. [The original](https://github.com/npi3pak/fm1-gator), its code unchanged (`modules/gator`). Not in the package: added with one click on the page. |
+| **DUB-1** | sbegueria | 4 chord voices, 6 pings, a bass, 5 drums | A generative dub techno machine, AMB-1's fork: chord stabs dissolving in a tape echo over a steady kick, in eight pieces it plays by itself. [The original](https://sbegueria.github.io/fm1-dub/), its code unchanged but for its tape loop (4.2 s) and plate (16 bits), to fit a module's RAM (`modules/dub`). 266 KB: not in the package, added with one click on the page. |
 | **SINE** | built in | 4 | Dinghy's 4-voice sine: the fallback when a module fails, and the smallest module to copy. |
 
 ## Install
@@ -133,8 +137,9 @@ The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `pla
 
 ## Credits
 
-fm1-dock, FM-1 SID and Scintilla: Joakim Eriksson. OberVave: zvenson. CS-1: twochannels. AMB-1 and FoMni: Charles Vestal.
-FM-106: PatttF. reSID: Dag Lem. The second core: Charles Vestal's X0X, after Kerem Kilic's Melodee, by way of SLOOP
+fm1-dock, FM-1 SID and Scintilla: Joakim Eriksson. OberVave: zvenson. CS-1: twochannels. AMB-1, FoMni and MONK-1: Charles Vestal
+(MONK-1's voice: Jonathan Taylor's MonkSynth). FiMba-1: Adam Sowers. GATOR: npi3pak (Emilie Gillet's Plaits). DUB-1:
+sbegueria. FM-106: PatttF. reSID: Dag Lem. The second core: Charles Vestal's X0X, after Kerem Kilic's Melodee, by way of SLOOP
 (Andre Rezemini).
 fm1-dock stands on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), on the platform of
 [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton Instruments) as [SLOOP](https://github.com/isod89/sloop-fm1)

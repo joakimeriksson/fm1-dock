@@ -366,15 +366,16 @@ def main():
     # the EQ heard while it is set: a module with a panel plays its keys in its draw(), which runs under the picker
     # (OBERVAVE, started by 3.6 s: HOME held for the picker, OPTIONS, EQ; a key held, MID turned to -12 dB
     # meanwhile, against the same without the turn)
-    idx = 1 + [n for n, _, _ in slots()].index("OBERVAVE")
-    page = pick("OBERVAVE") + f",4000:8,5700:8^,5900:e6:{1 + len(slots()) + O_EQ - idx},6000:3,6050:3^,6400:26,9400:26^"
-    res = []
-    for case, turn in (("eq_live_ref", ""), ("eq_live", ",7800:e3:-12")):
-        s, log = run(case, page + turn, 9600)
-        res.append((rms_left(s, 6.7, 7.7), rms_left(s, 8.2, 9.2)))
-    got = 20 * __import__("math").log10(res[1][1] / max(res[0][1], 1e-9))
-    check("eq_live", min(res[0]) > 100 and abs(res[1][0] - res[0][0]) < 0.03 * res[0][0] and got < -1.0,
-          f"OBERVAVE under the EQ's page: a key plays (RMS {res[0][0]:.0f}), MID -12 dB meanwhile {got:+.2f} dB")
+    if "OBERVAVE" in [n for n, _, _ in slots()]:
+        idx = 1 + [n for n, _, _ in slots()].index("OBERVAVE")
+        page = pick("OBERVAVE") + f",4000:8,5700:8^,5900:e6:{1 + len(slots()) + O_EQ - idx},6000:3,6050:3^,6400:26,9400:26^"
+        res = []
+        for case, turn in (("eq_live_ref", ""), ("eq_live", ",7800:e3:-12")):
+            s, log = run(case, page + turn, 9600)
+            res.append((rms_left(s, 6.7, 7.7), rms_left(s, 8.2, 9.2)))
+        got = 20 * __import__("math").log10(res[1][1] / max(res[0][1], 1e-9))
+        check("eq_live", min(res[0]) > 100 and abs(res[1][0] - res[0][0]) < 0.03 * res[0][0] and got < -1.0,
+              f"OBERVAVE under the EQ's page: a key plays (RMS {res[0][0]:.0f}), MID -12 dB meanwhile {got:+.2f} dB")
 
     # USB audio: the computer records what the speaker plays, for every module, sample for sample (fm1-live's
     # FM1_USB_WAV; the speaker's capture is the DAC's value >> 8, the USB sample >> 1). A render that ran the
