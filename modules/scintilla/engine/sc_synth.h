@@ -23,7 +23,7 @@ typedef struct { uint8_t type, note; int32_t val; } sc_event_t;
 
 typedef struct {
     int32_t buf[SC_CHORUS_LEN];                 /* Q20: a loud chord's voices sum past 1.0 (Brass I: ~1.8) */
-    uint32_t w, ph;
+    uint32_t w, ph[2];                          /* the two lines' triangle LFO phases */
 } sc_chorus_t;
 
 /* The reverb: eight delay lines in a Hadamard feedback loop, standing in for the app's convolution
