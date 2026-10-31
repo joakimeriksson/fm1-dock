@@ -12,7 +12,7 @@ complete source under the same licence too.
 | The host `firmware/src/dock.c`, the module interface `firmware/dock/`, the tools for modules, deploys and probes (`tools/dock.py`, `hbmod.py`, `hbdeploy.py`, `hbboot.py`, `probe.py`), `probes/`, the page `docs/` | Joakim Eriksson |
 | The keys' force sensing `firmware/src/sense.c` | Velo's, by way of CS-1 (twochannels) |
 | The modules: CS-1 `modules/cs1/` | twochannels ([CS-1](https://github.com/twochannels/CS-1)), wrapped by Joakim Eriksson |
-| Scintilla `modules/scintilla/` | Joakim Eriksson ([Scintilla](https://github.com/joakimeriksson/synthex-fm1)) |
+| Scintilla `modules/scintilla/` | Joakim Eriksson ([Scintilla](https://github.com/joakimeriksson/scintilla-fm1)) |
 | OberVave `modules/obervave/` | zvenson ([OberVave](https://github.com/zvenson/obervave)), wrapped by Joakim Eriksson |
 | FM-106 `modules/fm106/` | PatttF ([FM-106](https://github.com/PatttF/fm-106); its DSP after [ultramaster_kr106](https://github.com/kayrockscreenprinting/ultramaster_kr106)), wrapped by Joakim Eriksson |
 | AMB-1 `modules/amb/` (MPL-2.0, file by file) and FoMni `modules/fomni/` | Charles Vestal ([AMB-1](https://github.com/charlesvestal/fm1-amb), [FoMni](https://github.com/charlesvestal/fm1-fomni)), wrapped by Joakim Eriksson |
@@ -21,6 +21,7 @@ complete source under the same licence too.
 | GATOR `modules/gator/` | npi3pak ([GATOR](https://github.com/npi3pak/fm1-gator); Plaits and stmlib by Emilie Gillet, MIT, `modules/gator/gator/eurorack/`), wrapped by Joakim Eriksson |
 | DUB-1 `modules/dub/` | sbegueria ([DUB-1](https://github.com/sbegueria/fm1-dub); after Charles Vestal's AMB-1), wrapped by Joakim Eriksson |
 | The second core: `firmware/hal/fm1_cpu1.h`, `fm1_cpu1.S` | Charles Vestal ([X0X](https://github.com/charlesvestal/fm1-x0x)), after Melodee's dual-core audio by Kerem Kilic ([Melodee](https://github.com/keremimo/melodee)), by way of SLOOP's dualcore branch (Andre Rezemini) |
+| BLE-MIDI: `firmware/src/ble/` (`ble_*`, `rf_share.h`) and `firmware/hal/fm1_ble.h`, `fm1_ble_rf.h`, `ble_rf_tables_v15.h` | w0ts ([Optimist](https://github.com/w0ts/optimist), commit 5b06939, GPL-3.0-only); `hx.c` / `hx.h` and the calibration's hooks: Joakim Eriksson, the hooks after Melodee (Kerem Kilic) |
 | The supplies' start-up `firmware/hal/fm1_power.h`; the second core's hold (`fm1_core1_stop`, `fm1_sys.h`), its own stack limit and the paced wait (`fm1_cpu1.h`), DBG's bits by core (`fm1_irq.h`) | Kerem Kilic (Ellic Studio) ([Melodee](https://github.com/keremimo/melodee)); the hold with portions by Leo Kuroshita (@kurogedelic), Hügelton Instruments (Felucca 1.6.1); the supplies in the form of w0ts's `fm1_supply.h` ([Optimist](https://github.com/w0ts/optimist)); brought in by Joakim Eriksson |
 | Its use in the host: `firmware/src/cpu1.c` | after SLOOP's `cpu1.c` (Andre Rezemini); the screening and the checks: Joakim Eriksson |
 | FM-1 SID `modules/sid/` (with reSID 0.16 by Dag Lem, GPL-2.0-or-later) | Joakim Eriksson |

@@ -37,15 +37,27 @@
 <section class="hero" id="top">
   <div class="hero-text">
     <div class="hero-logo"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></div>
-    <p class="kicker">for the M-VAVE FM-1 and SMK-37 · <a href="#new">new in 0.7</a></p>
+    <a class="news" href="#new"><span class="news-tag">New in 0.7</span><span>Bluetooth MIDI, five new modules, the second core</span><span aria-hidden="true">→</span></a>
     <h1>One firmware.<br><span>Many synths.</span></h1>
-    <p class="lede">fm1-dock is installed once. The synths are modules in its flash: hold HOME and pick another one, no
-      reinstall. Add the ones you want from this page and take them out again; your settings and presets stay.</p>
-    <ol class="how">
-      <li><span class="n">1</span><span><b>Install fm1-dock</b> over USB, from this page in Chrome or Edge. CS-1, Scintilla, OberVave and a sine come with it.</span></li>
-      <li><span class="n">2</span><span><b>Add modules</b> from <a href="#modules">the catalog</a>: FM-106, MONK-1, FiMba-1, GATOR, DUB-1, FM-1 SID, AMB-1 and FoMni go into its flash with one click.</span></li>
-      <li><span class="n">3</span><span><b>Hold HOME</b> on the device, pick a synth and play. Your own module deploys the same way.</span></li>
-    </ol>
+    <p class="lede">fm1-dock is installed once on your M-VAVE FM-1 or SMK-37. The synths are modules in its flash: hold HOME and
+      pick another one, no reinstall. Add the ones you want from this page and take them out again; your settings and presets stay.</p>
+    <div class="cta">
+      <button type="button" class="btn primary big" id="hero-connect">Connect your FM-1</button>
+      <a class="btn big" href="#modules">Browse the modules</a>
+    </div>
+    <p class="cta-note" id="hero-nomidi" hidden>Installing needs Chrome or Edge on a computer; the modules and the rest of the page are here for any browser.</p>
+    <ul class="screens" aria-label="Some of the modules">
+      <li><a href="#mod-cs1"><img src="media/screen_cs1.png" width="480" height="480" alt=""><span>CS-1</span></a></li>
+      <li><a href="#mod-scintilla"><img src="media/screen_scintilla.png" width="480" height="480" alt=""><span>Scintilla</span></a></li>
+      <li><a href="#mod-obervave"><img src="media/screen_obervave.png" width="480" height="480" alt=""><span>OberVave</span></a></li>
+      <li><a href="#mod-fm1-sid"><img src="media/screen_fm1sid.png" width="480" height="480" alt=""><span>FM-1 SID</span></a></li>
+      <li><a href="#mod-fm106"><img src="media/screen_fm106.png" width="480" height="480" alt=""><span>FM-106</span></a></li>
+      <li><a href="#mod-monk"><img src="media/screen_monk.png" width="480" height="480" alt=""><span>MONK-1</span></a></li>
+      <li><a href="#mod-amb"><img src="media/screen_amb.png" width="480" height="480" alt=""><span>AMB-1</span></a></li>
+      <li><a href="#mod-gator"><img src="media/screen_gator.png" width="480" height="480" alt=""><span>GATOR</span></a></li>
+    </ul>
+    <p class="screens-cap">CS-1, Scintilla, OberVave and a sine come with it. FM-106, MONK-1, FiMba-1, GATOR, DUB-1, FM-1 SID,
+      AMB-1 and FoMni go into its flash with one click, and your own module the same way.</p>
     <p class="hero-links"><a href="#play">See it play</a><a href="#console">Open the console</a><a href="#build">Write a module</a>
       <a href="https://github.com/joakimeriksson/fm1-dock">Source on GitHub</a></p>
   </div>
@@ -69,17 +81,18 @@
       </li>
       <li class="step">
         <h3><span class="n">3</span> Add synths</h3>
-        <p class="dim">Pick them in <a href="#modules">the catalog</a> below: <b>Add</b> puts a module into fm1-dock's flash next to the
+        <p class="dim">Pick them in the catalog below: <b>Add</b> puts a module into fm1-dock's flash next to the
           others, <b>Remove</b> takes it out. The meter there shows how much room is left.</p>
+        <div class="dev-row"><a class="btn small" href="#modules">Open the catalog ↓</a></div>
       </li>
     </ol>
   </aside>
 </section>
 
 <section id="new" aria-labelledby="new-h">
-  <h2 id="new-h">New in 0.7</h2>
-  <p class="sub">31 October 2026. <a href="https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.7">The release and its notes</a>: built and signed on GitHub, with a build attestation.</p>
-  <div class="features">
+  <div class="sec-h"><h2 id="new-h">New in 0.7</h2><span class="pill">31 October 2026</span></div>
+  <p class="sub"><a href="https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.7">The release and its notes</a>: built and signed on GitHub, with a build attestation.</p>
+  <div class="features news-grid">
     <div class="feat"><h3>Bluetooth MIDI that connects</h3><p>The radio now calibrates itself at every start, so a Mac, phone or controller connects and stays connected, with both CPU cores running. On a Mac: Audio MIDI Setup, MIDI Studio, the Bluetooth button, <b>Connect</b>.</p></div>
     <div class="feat"><h3>Five new modules</h3><p>FM-106 (the Juno-106), MONK-1's twelve singers, FiMba-1's kalimba, GATOR's Plaits-style macro oscillator and DUB-1's self-playing dub machine, each its author's own code: <a href="#modules">the catalog</a>.</p></div>
     <div class="feat"><h3>The second core</h3><p>Modules can play voices on the chip's second CPU (CS-1, FM-106). The top line shows 1CPU or 2CPU; after a crash with both, one core until power-off.</p></div>
@@ -101,8 +114,9 @@
     <label class="search"><span class="vh">Search modules</span>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input type="search" id="q" placeholder="Search modules" aria-label="Search modules" autocomplete="off"></label>
-    <div class="chips" id="chips" role="group" aria-label="Filter the modules"></div>
+    <div class="kinds" id="kinds" role="group" aria-label="Which modules"></div>
     <span class="count" id="count" aria-live="polite"></span>
+    <div class="chips" id="chips" role="group" aria-label="Filter by tag"></div>
   </div>
   <div class="meter" id="meter" aria-live="polite"></div>
   <div class="mods-grid" id="catalog">
@@ -139,7 +153,7 @@
 <section id="dock" aria-labelledby="dock-h">
   <h2 id="dock-h">What's in the dock</h2>
   <p class="sub">Around every module: the same settings, MIDI and safety nets. On the device: hold HOME, past the last module, <b>OPTIONS</b>.</p>
-  <div class="features">
+  <div class="features dock-grid">
     <div class="feat"><h3>EQ</h3><p>Three bands on whatever plays: a 150 Hz shelf, a 1 kHz peak and a 6 kHz shelf, ±12 dB each, in the chip's hardware EQ. KNOB1–3 turn them.</p></div>
     <div class="feat"><h3>MIDI CH</h3><p>ALL, or one channel 1–16: the module hears it as channel 1, and the keys send on it.</p></div>
     <div class="feat"><h3>LOCAL</h3><p>OFF: the keys only send MIDI, so a computer playing them back gives no doubled notes.</p></div>
@@ -167,12 +181,17 @@
     <p>fm1-dock starts whatever played last. A module that crashes, or hangs into the watchdog, twice in a row is skipped at
       boot until you pick it again. One that renders slower than real time for 64 blocks (0.4 s) is stopped and the sine
       plays, so USB and the updater keep working.</p>
-    <img src="media/screen_picker.png" width="480" height="480" alt="The picker: SINE, CS-1, SCINTILLA, OBERVAVE, FM-1 SID with their sizes" class="screen-lg" loading="lazy">
   </div>
-  <figure class="video">
-    <video src="media/fm1-dock.mp4" poster="media/fm1-dock_poster.jpg" controls playsinline preload="none" aria-label="fm1-dock on a real FM-1 and in the emulator"></video>
-    <figcaption>A real FM-1 and the emulator, running the same firmware and the same flash.</figcaption>
-  </figure>
+  <div>
+    <figure class="video">
+      <video src="media/fm1-dock.mp4" poster="media/fm1-dock_poster.jpg" controls playsinline preload="none" aria-label="fm1-dock on a real FM-1 and in the emulator"></video>
+      <figcaption>A real FM-1 and the emulator, running the same firmware and the same flash.</figcaption>
+    </figure>
+    <figure class="picker">
+      <img src="media/screen_picker.png" width="480" height="480" alt="The picker: SINE, CS-1, SCINTILLA, OBERVAVE, FM-1 SID with their sizes" class="screen-lg" loading="lazy">
+      <figcaption>The picker, after HOME: the modules and their sizes.</figcaption>
+    </figure>
+  </div>
 </section>
 
 <section id="console">
@@ -198,6 +217,11 @@
         <table class="mods" id="c-mods"><tr><td class="dim">—</td></tr></table>
       </div>
 
+      <div class="box">
+        <div class="box-h"><h3>MIDI</h3><span><button id="c-note" class="btn small" disabled title="C4 for 300 ms, into the FM-1">Test note</button></span></div>
+        <p class="dim">What the FM-1 sends back (keys you play, a probe's notes): the quickest check that USB-MIDI out works.</p>
+        <pre id="c-midi" class="log short"></pre>
+      </div>
       <div class="box wide">
         <div class="box-h"><h3>Log</h3>
           <span><label class="chk"><input type="checkbox" id="c-follow" disabled> follow</label>
@@ -235,11 +259,6 @@
         <p id="c-syms-msg" class="msg"></p>
       </div>
 
-      <div class="box">
-        <div class="box-h"><h3>MIDI</h3><span><button id="c-note" class="btn small" disabled title="C4 for 300 ms, into the FM-1">Test note</button></span></div>
-        <p class="dim">What the FM-1 sends back (keys you play, a probe's notes): the quickest check that USB-MIDI out works.</p>
-        <pre id="c-midi" class="log short"></pre>
-      </div>
     </div>
 
     <details class="traffic"><summary>SysEx traffic</summary><pre id="c-traffic" class="log"></pre></details>

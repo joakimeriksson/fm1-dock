@@ -3,7 +3,7 @@
 fm1-dock also runs on the **M-Vave SMK-37** keyboards: the SMK-37 Pro, the SMK-37 Elite and the MKE-P37, and the
 Donner Starrykey 37 Play (with the SMK-37 Pro's package). They have the FM-1's chip; only the panel and the flash map
 differ. It is the same fm1-dock, with the same modules: CS-1, Scintilla, OberVave and the sine in the package, and
-FM-1 SID, AMB-1 and FoMni added from [the page](https://joakimeriksson.github.io/fm1-dock/#install). A module does not
+FM-106, MONK-1, FiMba-1, GATOR, DUB-1, FM-1 SID, AMB-1 and FoMni added from [the page](https://joakimeriksson.github.io/fm1-dock/#modules). A module does not
 need to know: the SMK's panel reaches it as an FM-1's, and what the FM-1 does not have (the outer keys, the pads, the
 faders, the wheels) reaches it as MIDI.
 
@@ -109,6 +109,9 @@ What is known, and how (fm1-emu runs the stock firmwares of both on the same chi
   FM-1. Both firmwares carry byte-identical Bluetooth configuration.
 - The fourth (187) is the radio's own calibration result, measured by the stock firmware on the unit, which it
   measures again when it is missing: a return to stock loses nothing.
+- From 0.7 the radio also measures itself at every start (the VCO banks per channel, the RX and TX trims; the AC79
+  SDK's calibration, `firmware/hal/fm1_rf_cal.h`): the values recorded from stock in an emulator left a real FM-1's
+  data channels deaf. It still needs the stored records above to start.
 - Not yet tried: the radio of a real SMK-37 started by fm1-dock.
 
 ## Not yet on the SMK-37

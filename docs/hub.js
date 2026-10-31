@@ -8,7 +8,8 @@
 // A module in modules/modules.json (the key is its id; fw/index.json's modules, from tools/site_packages.py, use it):
 //   title, module (its name on the device, as in its .dock), by, author_url, original (its own page or repository),
 //   links [{label, url}], license, voices, description (one line), tags [...] (the page adds "large" to an add-on
-//   over 200 KiB: most of an FM-1's 296 KiB on its own), screenshot (media/...png), alt;
+//   over 200 KiB: most of an FM-1's 296 KiB on its own), screenshot (media/...png), alt, accent (a colour from its
+//   screen, for the card's frame);
 //   packaged: true for one in fm1-dock's package (no file, no button; size_kib for the card);
 //   else file (the .dock next to modules.json), version, source, songs; pending: why the file is not here yet.
 import { catalog, installButton, tuneButtons, inspectDevice, addModule, removeModule, loadModule, explain } from "./install/fm1install.js";
@@ -150,10 +151,26 @@ async function connect({ log = true } = {}) {
   renderCatalog();
 }
 
+// one primary button at a time: Connect until a device answered, then Install while there is something to install
+function emphasis() {
+  const d = dock(), rel = latest(), dv = S.dev;
+  const install = !!dv && (dv.ota || (!!dv.identity && !d) || (!!d && !!d.version && d.version !== "0.0" && !!rel && vcmp(d.version, rel.version) < 0));
+  $("#dev-connect").classList.toggle("primary", !dv || (!dv.identity && !d));
+  const ib = document.querySelector("[data-fm1-install] button");
+  if (ib) ib.classList.toggle("primary", install);
+  const hero = $("#hero-connect");
+  if (!hero) return;
+  hero.disabled = !navigator.requestMIDIAccess || S.connecting || !!S.busy;
+  hero.textContent = S.connecting ? "Asking the device…" : d ? `${devName()} connected · fm1-dock ${d.version || ""}`.trim()
+    : dv && dv.identity ? `${devName()} connected` : "Connect your FM-1";
+  hero.classList.toggle("primary", !d);
+}
+
 function renderDevice() {
   const pill = $("#dev-pill"), info = $("#dev-info"), btn = $("#dev-connect");
   btn.disabled = S.connecting || !!S.busy;
   btn.textContent = S.dev ? "Check again" : "Connect over USB";
+  emphasis();
   if (S.connecting) {
     pill.textContent = "asking…"; pill.className = "pill";
     info.innerHTML = `<p class="say">Asking the device what it runs…</p>`;
@@ -233,8 +250,7 @@ function renderMeter() {
   let head, segs = [], free, total, largest = null, legend = [];
   if (!d) {
     total = b.area; free = total;
-    head = `<h3>Room for add-ons</h3><span class="figs"><b>${kib(BOARD.fm1.area)}</b> on an FM-1 · <b>${kib(BOARD.smk37.area)}</b> on an SMK-37 ·
-      connect to see yours</span>`;
+    head = `<h3>Room for add-ons</h3><span class="figs"><b>${kib(BOARD.fm1.area)}</b> on an FM-1 · <b>${kib(BOARD.smk37.area)}</b> on an SMK-37</span>`;
   } else {
     total = b.area; free = d.hello.free; largest = d.hello.largest;
     const sizeOf = (x) => { const c = S.mods.find((m) => m.module === x.name && m.size); return sectors(c ? c.size : x.size); };
@@ -247,7 +263,7 @@ function renderMeter() {
   }
   const g = ghostOf(total, free, largest);
   const pct = (n) => `${(100 * n / total).toFixed(2)}%`;
-  const bar = segs.map((s) => `<div class="seg${s.other ? " other" : ""}" style="width:${pct(s.n)}" title="${esc(s.name)}: ${kib(s.n)}">${esc(s.name)}</div>`).join("")
+  const bar = (!d && !g ? `<span class="meter-empty">Connect your device to see what is on it</span>` : "") + segs.map((s) => `<div class="seg${s.other ? " other" : ""}" style="width:${pct(s.n)}" title="${esc(s.name)}: ${kib(s.n)}">${esc(s.name)}</div>`).join("")
     + (g ? `<div class="seg ghost${g.fits ? "" : " nofit"}" style="width:${pct(Math.max(g.w, total * 0.02))}" title="${esc(g.m.title)}: ${kib(g.need)}">${esc(g.m.title)}</div>` : "");
   legend = segs.map((s) => `<li><i class="${s.other ? "other" : ""}"></i>${esc(s.name)} <b>${kib(s.n)}</b></li>`);
   if (g) legend.push(`<li><i class="ghost"></i>${esc(g.m.title)} would take <b>${kib(g.need)}</b>${g.fits ? "" : ": it does not fit"}</li>`);
@@ -265,9 +281,9 @@ function chips() {
   const kinds = [["all", "All"], ["builtin", "Built in"], ["addon", "Add-ons"]];
   if (dock()) kinds.push(["here", `On my ${devName()}`]);
   if (!kinds.some(([k]) => k === S.filter) && !tags.includes(S.filter)) S.filter = "all";
-  const chip = ([k, label], i) => `<button type="button" class="chip${i === 0 && k !== "all" ? " sep" : ""}" data-f="${esc(k)}"
-    aria-pressed="${S.filter === k}">${esc(label)}</button>`;
-  $("#chips").innerHTML = kinds.map((k) => chip(k, 1)).join("") + tags.map((t, i) => chip([t, t], i)).join("");
+  const chip = ([k, label]) => `<button type="button" class="chip" data-f="${esc(k)}" aria-pressed="${S.filter === k}">${esc(label)}</button>`;
+  $("#kinds").innerHTML = kinds.map(chip).join("");
+  $("#chips").innerHTML = tags.map((t) => chip([t, t])).join("");
 }
 
 function shown(m) {
@@ -293,6 +309,8 @@ function card(m) {
   const a = document.createElement("article");
   a.className = `mod ${m.addon ? "addon" : "builtin"}`;
   a.dataset.id = m.id;
+  a.id = `mod-${m.id}`;
+  if (/^#[0-9a-f]{3,8}$/i.test(m.accent || "")) a.style.setProperty("--mod", m.accent);
   a.setAttribute("aria-labelledby", `m-${m.id}`);
   a.innerHTML = `<div class="shot">${shot}</div>
     <div class="mod-body">
@@ -436,7 +454,11 @@ async function remove(m) {
 // ------------------------------------------------------------------ start ---
 
 $("#dev-connect").addEventListener("click", () => connect());
-$("#chips").addEventListener("click", (e) => {
+$("#hero-connect").addEventListener("click", () => {
+  $("#install").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  connect();
+});
+$("#modules .toolbar").addEventListener("click", (e) => {
   const b = e.target.closest("[data-f]");
   if (!b) return;
   S.filter = S.filter === b.dataset.f && b.dataset.f !== "all" ? "all" : b.dataset.f;
@@ -444,7 +466,10 @@ $("#chips").addEventListener("click", (e) => {
 });
 $("#catalog").addEventListener("click", (e) => { if (e.target.id === "clear") { S.filter = "all"; S.q = ""; $("#q").value = ""; renderCatalog(); } });
 $("#q").addEventListener("input", (e) => { S.q = e.target.value.trim(); renderCatalog(); });
-if (!navigator.requestMIDIAccess) { $("#nomidi").hidden = false; $("#dev-connect").disabled = true; }
+if (!navigator.requestMIDIAccess) {
+  $("#nomidi").hidden = false; $("#dev-connect").disabled = true;
+  $("#hero-connect").hidden = true; $("#hero-nomidi").hidden = false;
+}
 
 for (const el of document.querySelectorAll("[data-fm1-install]"))
   installButton(el, el.dataset.fm1Install, { buttonClass: "btn primary big", ask: (q) => ask(q, "Install"),
@@ -460,3 +485,5 @@ try {
 }
 renderRelease();
 renderCatalog();
+emphasis();
+if (/^#mod-/.test(location.hash)) { const el = document.getElementById(location.hash.slice(1)); if (el) el.scrollIntoView(); }
