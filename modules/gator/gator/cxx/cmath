@@ -1,0 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#ifndef FW_CXX_CMATH
+#define FW_CXX_CMATH
+#include <math.h>
+#endif

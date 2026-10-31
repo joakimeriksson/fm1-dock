@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-only
+#ifndef FW_CXX_NEW
+#define FW_CXX_NEW
+#include <stddef.h>
+
+inline void* operator new(size_t, void* p) { return p; }
+
+#endif

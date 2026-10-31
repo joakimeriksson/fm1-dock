@@ -230,6 +230,88 @@ def main():
         check("fm106_presets", "fm106: FM-106" in log and b"*A11 Brass" in ram,
               "FM-106's user preset is there after a power-off (its banks loaded back)")
 
+    if "MONK-1" in names:
+        def rms(s, t0, t1):
+            seg = s[int(t0 * 44100) * 2:int(t1 * 44100) * 2]
+            return (sum(x * x for x in seg) / max(1, len(seg))) ** 0.5
+        k = pick("MONK-1")
+        a, _ = run("monk_soft", k + ",1800:23@20,2900:23^", 3200)
+        b, log = run("monk", k + ",1800:23@127,2900:23^", 3200)
+        c, _ = run("monk_pressure", k + ",1800:23@20,2400:23~127,2900:23^", 3200)   # (past the key's settling)
+        check("monk", "monk: MONK-1" in log and peak(b, 0.0, 1.5) == 0 and rms(b, 1.7, 2.1) > 1000 and
+              " 0 overruns" in log, f"MONK-1 starts and a key sings (RMS {rms(b, 1.7, 2.1):.0f}), nothing before it")
+        check("monk_velocity", rms(b, 1.7, 2.1) > 1.5 * rms(a, 1.7, 2.1),
+              f"MONK-1 takes the host's velocity (RMS {rms(a, 1.7, 2.1):.0f} soft, {rms(b, 1.7, 2.1):.0f} hard)")
+        n = int(2.1 * 44100) * 2
+        check("monk_pressure", a[:n] == c[:n] and a[n:] != c[n:],
+              "MONK-1's own pressure from the host's readings: pressing harder moves the vowel")
+        # the heaviest: ten voices in unison (EDIT, KNOB1), two octaves up, G5, the vowel swept on ALGORITHM all along
+        # (each pitch period's grain made anew)
+        sweep = "".join(f",{2300 + 60 * i}:e1:{3 if i // 5 % 2 == 0 else -3}" for i in range(20))
+        s, log = run("monk_heavy", k + ",1300:1,1350:1^,1450:1,1500:1^,1700:6,1750:6^,1900:e2:12,2200:40" + sweep +
+                     ",3500:40^", 3700)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("monk_heavy", peak(s, 2.1, 3.3) > 1000 and " 0 overruns" in log and worst < 80,
+              f"MONK-1 sings ten voices at G7, its vowel moving; worst {worst} % of a block")
+        # the next singer (PRESETS), SAVE: its project in the module's bank, there after a power-off
+        flash = OUT / "monk_flash.bin"
+        flash.unlink(missing_ok=True)
+        fw = ("--fwsc", str(SRC / "build" / "fm1-dock.fwsc"), "--flash", str(flash))
+        run("monk_save", k + ",1800:e6:1,2400:9,2500:9^", 6000, extra=fw)
+        _, log = run("monk_saved", "", 3000, extra=fw)
+        ram = (OUT / "monk_saved" / "ram.bin").read_bytes()
+        check("monk_saved", "monk: MONK-1" in log and b"MONK\x03\x00\x00\x00\x01" in ram,
+              "MONK-1's singer is there after a power-off (its project loaded back from its bank)")
+
+    if "FIMBA" in names:
+        # the heaviest FiMba-1: Buzz, Wah and its rate (ENV: Body), Reverb, Size and Delay (FX: Space), Tape, Lo-fi,
+        # Chorus and Filter (FX again: Color), Grains and their density (LFO: Grain), Worn (HOME twice: Character), each
+        # turned quickly to its top; then all 16 tines at once and two chord rolls over them
+        keys = pick("FIMBA") + (",1300:4,1350:4^,1450:e3:20,1600:e4:20,1750:e5:20,1950:2,2000:2^,2100:e2:20,2250:e3:20,"
+                                "2400:e4:20,2600:2,2650:2^,2750:e2:20,2900:e3:20,3050:e4:20,3200:e5:10,3400:5,3450:5^,"
+                                "3550:e2:20,3700:e4:20,3900:8,3950:8^,4050:8,4100:8^,4200:e2:20")
+        keys += "".join(f",4600:{14 + k},6200:{14 + k}^" for k in (0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26))
+        s, log = run("fimba", keys + ",5200:15,5300:15^,5400:17,5500:17^", 7000)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("fimba", "fimba: FiMba-1" in log and peak(s, 0.0, 4.0) == 0 and peak(s, 4.5, 6.5) > 1000 and
+              " 0 overruns" in log and worst < 80, f"FiMba-1 plays 16 tines through all its effects; worst {worst} % of a block")
+        # the keys' force: a pluck as hard as the key lands; its pressure covers the sound hole (the wah)
+        k = pick("FIMBA")
+        a, _ = run("fimba_soft", k + ",1800:23@20,2600:23^", 3000)
+        b, _ = run("fimba_hard", k + ",1800:23@127,2600:23^", 3000)
+        c, _ = run("fimba_pressure", k + ",1800:23@100,2000:23~127,2600:23^", 3000)
+        d, _ = run("fimba_nopressure", k + ",1800:23@100,2600:23^", 3000)
+        first = next((i for i, (x, y) in enumerate(zip(c, d)) if x != y), len(c)) / 88200
+        diff = [x - y for x, y in zip(c, d)]
+        check("fimba_force", peak(b, 1.5, 2.2) > 5 * peak(a, 1.5, 2.2) > 0 and 1.7 < first < 2.0 and
+              rms_left(diff, 1.9, 2.3) > 0.3 * rms_left(d, 1.9, 2.3),
+              f"FiMba-1 plucks at the key's velocity (peak {peak(a, 1.5, 2.2)} soft, {peak(b, 1.5, 2.2)} hard); its "
+              f"pressure moves the wah from {first:.2f} s")
+
+    if "GATOR" in names:
+        # preset 1 (VIRTUAL ANLG) plays a held key; then HOME held + note key 15 picks the SPEECH model, HARM,
+        # TIMBRE and MORPH turned up (a word, the heaviest of its 24 models here), and the key again says it
+        keys = pick("GATOR") + ",1800:21,2300:8,2350:29,2400:29^,2450:8^,2500:e2:60,2510:e3:60,2520:e4:60,2600:21^," \
+            "2650:21,3300:21^"
+        s, log = run("gator", keys, 3500)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("gator", "gator: GATOR" in log and peak(s, 0.0, 1.5) == 0 and peak(s, 1.7, 2.1) > 1000 and
+              peak(s, 2.5, 2.9) > 1000 and " 0 overruns" in log and worst < 40,
+              f"GATOR (Plaits) plays a key, then its SPEECH model; worst {worst} % of a block")
+
+    if "DUB-1" in names:
+        # DUB-1 plays by itself once its launch screen is over (~1.4 s): PRESETS a click, Chamber (among its heaviest
+        # pieces, root A); a key (G3) takes its note out of the scale (the project's pool, bit 10), PLAY rests it
+        s, log = run("dub", pick("DUB-1") + ",3000:e6:1,4000:16,4200:16^,6000:12,6100:12^", 9500)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        ram = (OUT / "dub" / "ram.bin").read_bytes()
+        p = ram.find(b"DUB1" + struct.pack("<I", 36))   # (project_t: magic, format 36, par[170], pool, leds, piece)
+        pool, piece = struct.unpack_from("<HxB", ram, p + 348) if p >= 0 else (0, 0)
+        check("dub", "dub: DUB-1" in log and peak(s, 0.0, 1.0) == 0 and peak(s, 3.0, 5.5) > 1000 and
+              peak(s, 8.5, 9.2) < peak(s, 3.0, 5.5) // 20 and piece == 1 and pool == 0x1AD and " 0 overruns" in log
+              and worst < 75, f"DUB-1 plays by itself, a key changes its scale (pool {pool:#x}), PLAY rests it; "
+              f"worst {worst} % of a block")
+
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
     s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
@@ -284,15 +366,16 @@ def main():
     # the EQ heard while it is set: a module with a panel plays its keys in its draw(), which runs under the picker
     # (OBERVAVE, started by 3.6 s: HOME held for the picker, OPTIONS, EQ; a key held, MID turned to -12 dB
     # meanwhile, against the same without the turn)
-    idx = 1 + [n for n, _, _ in slots()].index("OBERVAVE")
-    page = pick("OBERVAVE") + f",4000:8,5700:8^,5900:e6:{1 + len(slots()) + O_EQ - idx},6000:3,6050:3^,6400:26,9400:26^"
-    res = []
-    for case, turn in (("eq_live_ref", ""), ("eq_live", ",7800:e3:-12")):
-        s, log = run(case, page + turn, 9600)
-        res.append((rms_left(s, 6.7, 7.7), rms_left(s, 8.2, 9.2)))
-    got = 20 * __import__("math").log10(res[1][1] / max(res[0][1], 1e-9))
-    check("eq_live", min(res[0]) > 100 and abs(res[1][0] - res[0][0]) < 0.03 * res[0][0] and got < -1.0,
-          f"OBERVAVE under the EQ's page: a key plays (RMS {res[0][0]:.0f}), MID -12 dB meanwhile {got:+.2f} dB")
+    if "OBERVAVE" in [n for n, _, _ in slots()]:
+        idx = 1 + [n for n, _, _ in slots()].index("OBERVAVE")
+        page = pick("OBERVAVE") + f",4000:8,5700:8^,5900:e6:{1 + len(slots()) + O_EQ - idx},6000:3,6050:3^,6400:26,9400:26^"
+        res = []
+        for case, turn in (("eq_live_ref", ""), ("eq_live", ",7800:e3:-12")):
+            s, log = run(case, page + turn, 9600)
+            res.append((rms_left(s, 6.7, 7.7), rms_left(s, 8.2, 9.2)))
+        got = 20 * __import__("math").log10(res[1][1] / max(res[0][1], 1e-9))
+        check("eq_live", min(res[0]) > 100 and abs(res[1][0] - res[0][0]) < 0.03 * res[0][0] and got < -1.0,
+              f"OBERVAVE under the EQ's page: a key plays (RMS {res[0][0]:.0f}), MID -12 dB meanwhile {got:+.2f} dB")
 
     # USB audio: the computer records what the speaker plays, for every module, sample for sample (fm1-live's
     # FM1_USB_WAV; the speaker's capture is the DAC's value >> 8, the USB sample >> 1). A render that ran the

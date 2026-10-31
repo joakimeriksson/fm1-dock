@@ -7,7 +7,9 @@
   tools/hbmod.py probes/timing.c                     -> build/probes/timing.dock (tools/probe.py)
 
 A module is a directory of C / C++ files (*.c, *.cc), and module.cfg: `name =`, `version =`,
-`cflags =`, `cxxflags =` (C++ only), `sources =` for files elsewhere (relative to the directory),
+`cflags =`, `cflags FILE =` more for one of its files (after cflags; FILE as in `sources`, or a file of the
+directory: DUB-1's engine -O2, its UI -Os, as DUB-1 builds them), `cxxflags =` (C++ only), `sources =` for files
+elsewhere (relative to the directory),
 `includes =` directories for -I (relative to the directory; a module may live outside fm1-dock's tree, as
 FM-1 SID's fm1-dock/ does in its own repository),
 `libs =` toolchain libraries (`m c` for libm and libc), `kind = probe` for a probe (hb_module.h,
@@ -209,8 +211,12 @@ def build_module(d):
                 return "up" * up + "_" + "_".join(s.relative_to(anc).with_suffix("").parts).replace(".", "_")
         return s.stem
     objs = [out / (oname(s) + ".o") for s in srcs]
-    build.tc_all(*[("cxx", *flags, *cfg["cxxflags"].split(), "-c", s, "-o", o) if s.suffix == ".cc" else
-                   ("cc", *flags, "-c", s, "-o", o) for s, o in zip(srcs, objs)])
+    own = {(base_dir / k.split(None, 1)[1]).resolve(): v.split() for k, v in cfg.items() if k.startswith("cflags ")}
+    for f in own:
+        if f not in srcs:
+            raise SystemExit(f"hbmod: module.cfg: cflags for {f}, not one of the module's files")
+    build.tc_all(*[("cxx", *flags, *cfg["cxxflags"].split(), *own.get(s, []), "-c", s, "-o", o) if s.suffix == ".cc"
+                   else ("cc", *flags, *own.get(s, []), "-c", s, "-o", o) for s, o in zip(srcs, objs)])
     libs = cfg["libs"].split()
     elf_a, img_a, sym, syms, desc, (code, data, rt) = link(objs, out, BASE_A, libs, probe)
     _, img_b, _, _, desc_b, _ = link(objs, out, BASE_B, libs, probe)

@@ -15,6 +15,11 @@ complete source under the same licence too.
 | Scintilla `modules/scintilla/` | Joakim Eriksson ([Scintilla](https://github.com/joakimeriksson/synthex-fm1)) |
 | OberVave `modules/obervave/` | zvenson ([OberVave](https://github.com/zvenson/obervave)), wrapped by Joakim Eriksson |
 | FM-106 `modules/fm106/` | PatttF ([FM-106](https://github.com/PatttF/fm-106); its DSP after [ultramaster_kr106](https://github.com/kayrockscreenprinting/ultramaster_kr106)), wrapped by Joakim Eriksson |
+| AMB-1 `modules/amb/` (MPL-2.0, file by file) and FoMni `modules/fomni/` | Charles Vestal ([AMB-1](https://github.com/charlesvestal/fm1-amb), [FoMni](https://github.com/charlesvestal/fm1-fomni)), wrapped by Joakim Eriksson |
+| MONK-1 `modules/monk/` | Charles Vestal ([MONK-1](https://github.com/charlesvestal/fm1-monk); its voice Jonathan Taylor's MonkSynth, MIT), wrapped by Joakim Eriksson |
+| FiMba-1 `modules/fimba/` | Adam Sowers ([FiMba-1](https://github.com/jadamsowers/fm1-fimba)), wrapped by Joakim Eriksson |
+| GATOR `modules/gator/` | npi3pak ([GATOR](https://github.com/npi3pak/fm1-gator); Plaits and stmlib by Emilie Gillet, MIT, `modules/gator/gator/eurorack/`), wrapped by Joakim Eriksson |
+| DUB-1 `modules/dub/` | sbegueria ([DUB-1](https://github.com/sbegueria/fm1-dub); after Charles Vestal's AMB-1), wrapped by Joakim Eriksson |
 | The second core: `firmware/hal/fm1_cpu1.h`, `fm1_cpu1.S` | Charles Vestal ([X0X](https://github.com/charlesvestal/fm1-x0x)), after Melodee's dual-core audio by Kerem Kilic ([Melodee](https://github.com/keremimo/melodee)), by way of SLOOP's dualcore branch (Andre Rezemini) |
 | Its use in the host: `firmware/src/cpu1.c` | after SLOOP's `cpu1.c` (Andre Rezemini); the screening and the checks: Joakim Eriksson |
 | FM-1 SID `modules/sid/` (with reSID 0.16 by Dag Lem, GPL-2.0-or-later) | Joakim Eriksson |
