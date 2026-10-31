@@ -21,6 +21,7 @@ complete source under the same licence too.
 | GATOR `modules/gator/` | npi3pak ([GATOR](https://github.com/npi3pak/fm1-gator); Plaits and stmlib by Emilie Gillet, MIT, `modules/gator/gator/eurorack/`), wrapped by Joakim Eriksson |
 | DUB-1 `modules/dub/` | sbegueria ([DUB-1](https://github.com/sbegueria/fm1-dub); after Charles Vestal's AMB-1), wrapped by Joakim Eriksson |
 | The second core: `firmware/hal/fm1_cpu1.h`, `fm1_cpu1.S` | Charles Vestal ([X0X](https://github.com/charlesvestal/fm1-x0x)), after Melodee's dual-core audio by Kerem Kilic ([Melodee](https://github.com/keremimo/melodee)), by way of SLOOP's dualcore branch (Andre Rezemini) |
+| The supplies' start-up `firmware/hal/fm1_power.h`; the second core's hold (`fm1_core1_stop`, `fm1_sys.h`), its own stack limit and the paced wait (`fm1_cpu1.h`), DBG's bits by core (`fm1_irq.h`) | Kerem Kilic (Ellic Studio) ([Melodee](https://github.com/keremimo/melodee)); the hold with portions by Leo Kuroshita (@kurogedelic), Hügelton Instruments (Felucca 1.6.1); the supplies in the form of w0ts's `fm1_supply.h` ([Optimist](https://github.com/w0ts/optimist)); brought in by Joakim Eriksson |
 | Its use in the host: `firmware/src/cpu1.c` | after SLOOP's `cpu1.c` (Andre Rezemini); the screening and the checks: Joakim Eriksson |
 | FM-1 SID `modules/sid/` (with reSID 0.16 by Dag Lem, GPL-2.0-or-later) | Joakim Eriksson |
 | The base: Dinghy's app `firmware/src/dinghy.c`, the wiring `platform.c`, the host mode `tests/`, `docs/API.md`, `RULES.md`, `MAKE-IT-YOURS.md` | zvenson ([Dinghy](https://github.com/zvenson/dinghy)) |
@@ -30,6 +31,7 @@ complete source under the same licence too.
 | What | Licence | Where |
 | --- | --- | --- |
 | Terminus font 8x16 (ter-u16n), rendered into `firmware/gen/felucca_font.h` | SIL OFL 1.1 | `assets/fonts/Terminus-LICENSE.txt` |
+| The radio's start-up calibration `firmware/hal/fm1_rf_cal.h`: JieLi's AC79 SDK calibration (`wl_rf_common.a`) in C by Charles Vestal, from [Melodee](https://github.com/keremimo/melodee) (as felucca-bsp's); its hooks in `fm1_ble_rf.h` / `fm1_ble.h` after Melodee's (Kerem Kilic, GPL-3.0) | Apache-2.0, Copyright (c) 2024-2026 Zhuhai Jieli Technology Co., Ltd., Copyright (C) 2026 Charles Vestal | `LICENSES/` |
 | JieLi AC79 SDK: `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin` are read from your SDK checkout at build time and placed in the package; no SDK files are in this tree | Apache-2.0 | <https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK> |
 
 ## The logo

@@ -40,6 +40,9 @@
 #include "fm1_ble.h"
 #include "rf_share.h"                   /* the radio started once, shared with Bluetooth audio (bt/bt_inq.c) */
 
+#ifndef BLE_HW_RX_OK_EVTCOUNT
+#define BLE_HW_RX_OK_EVTCOUNT 1         /* (fm1-dock's HX: 0) EVTCOUNT == the event counter counts as a reception */
+#endif
 #ifndef BLE_HW_IRQ_PRIO
 #define BLE_HW_IRQ_PRIO 2u              /* below the audio (3) and TIMER5 (4): stock's (HW §10) */
 #endif
@@ -297,9 +300,33 @@ static uint8_t hw_freq(uint32_t i)      /* MHz - 2402 of channel index i (HW §3
     return (uint8_t)(i <= 10u ? 2u * (i + 1u) : 2u * (i + 1u) + 2u);
 }
 
+#ifndef BLE_HW_SW_REMAP
+#define BLE_HW_SW_REMAP 0
+#endif
 static void cb_channels(const uint8_t chm[5])
 {
     uint32_t i, used = 0;
+#if BLE_HW_SW_REMAP
+    /* (fm1-dock) CSA #1's remapping done here, not by the engine: an unused channel i always goes to the used list's
+     * entry i % n, so every index of the tables gets its channel and frequency and the engine is told all 37 are in
+     * use (a map with Wi-Fi's channels left out lost nearly every data packet on an FM-1, 2026-10-31) */
+    uint8_t list[37];
+    for (i = 0; i < 37u; i++)
+        if (chm[i >> 3] >> (i & 7u) & 1u)
+            list[used++] = (uint8_t)i;
+    if (used && used < 37u) {
+        for (i = 0; i < 40u; i++) {
+            uint32_t c = i >= 37u || (chm[i >> 3] >> (i & 7u) & 1u) ? i : list[i % used];
+            CB->frq_idx0[i] = CB->frq_idx1[i] = (uint8_t)c;
+            CB->frq_tbl0[i] = CB->frq_tbl1[i] = hw_freq(c);
+        }
+        CB->chmap[0] = 0xFFFFu;
+        CB->chmap[1] = 0xFFFFu;
+        CB->chmap[2] = (uint16_t)(0x1Fu | 37u << 5);
+        return;
+    }
+    used = 0;
+#endif
     for (i = 0; i < 40u; i++) {
         CB->frq_idx0[i] = (uint8_t)i;
         CB->frq_tbl0[i] = hw_freq(i);
@@ -1056,7 +1083,7 @@ static void hw_event_service(void)
     BLE_DG(ble_dg.conn_events++);
     BLE_DG(ble_dg.last_evt = counter);
     /* a reception in this event: an RX interrupt, or EVTCOUNT (also moved by a repeat the engine dropped) */
-    rx_ok = (uint8_t)(drv.rx_seen || (drv.rx_any && CB->evtcount == counter));
+    rx_ok = (uint8_t)(drv.rx_seen || (BLE_HW_RX_OK_EVTCOUNT && drv.rx_any && CB->evtcount == counter));
     drv.rx_seen = 0;
     hw_instants(counter);
 #if BLE_CENTRAL

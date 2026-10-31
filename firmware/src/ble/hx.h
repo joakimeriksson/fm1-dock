@@ -23,7 +23,30 @@
 #include <stdint.h>
 
 #define HX_MAGIC 0x31584248u                    /* "HBX1" */
-#define HX_ABI 1u
+#define HX_ABI 3u
+#define HX_DIAG_N 6u                            /* (ABI 3) diag's words */
+/* (fm1-dock) the two BLE interrupts' priority: above the audio (3) and TIMER5 (4). Stock's 2 is
+ * below both: the audio interrupt (a module's render, and with two cores the wait for core 1's job) held a
+ * CONNECT_IND past its transmit window (1.25 ms) and a link's stop past its wait (fm1_ble_link_stop: preempted, its
+ * 3 ms ran out on the clock with the engine still busy, then advertising was programmed over it). Their bodies are
+ * short but for those waits (an advertising RX poll up to ~1 ms, a link's stop up to 3 ms) and share only SPSC rings
+ * with the audio (out) and TIMER5 (in) */
+/* (fm1-dock) the radio's start (hal/fm1_ble_rf.h fm1_rf_cal_mode): 2 everything measured at every start (fm1-base's
+ * way, Melodee's measured path: the VCO bank scan, the RF-die banks, the RX filter, TX LO and RX DC trims, the BT TX
+ * trims from them; VM 187 not used); 1 stock's second start (the scan and the RF-die banks measured, VM 187 applied as
+ * stock applies it); 0 the capture as it is (v0.6). HX_RF_CAL_FULL 1: also TX DC / gain / phase (fm1_rf_cal.h
+ * FM1_RF_CAL_FULL). On an FM-1 (2026-10-31) the capture's start advertised but heard nothing on the data channels: its
+ * per-channel VCO banks and the RF-die RX DC are the emulator's (hal/fm1_ble_rf.h); measured (2), a Mac connected
+ * and played CS-1 on two cores for minutes */
+#ifndef HX_RF_CAL
+#define HX_RF_CAL 2u
+#endif
+#ifndef HX_RF_CAL_FULL
+#define HX_RF_CAL_FULL 0
+#endif
+#ifndef HX_IRQ_PRIO
+#define HX_IRQ_PRIO 5u
+#endif
 #if BOARD_SMK37
 #define HX_AT 0x65000u                          /* flash: the top 40 KiB of the SMK-37's app area (to 0x6F000; its app slot ends at 0x6F0DC) */
 #else
@@ -56,5 +79,12 @@ typedef struct {
     uint32_t (*state)(void);
     int (*kept)(uint8_t kept[HX_KEPT]);
     void (*stop)(void);
+    void (*diag)(uint32_t d[HX_DIAG_N]);        /* (ABI 2) the stack's counters for the host's log: d[0] CONNECT_INDs
+                                                 * seen << 24 | taken << 16 | refused << 8 | why; d[1] link closes
+                                                 * << 24 | by << 20 (BDC_*) | reason << 12 | the longest BLE
+                                                 * interrupt in 16 us steps (8 bits) | stops that ran out (4 bits);
+                                                 * d[2] connection packets received << 16 | ours acknowledged (all
+                                                 * links since the radio started); (ABI 3) d[3..5] the radio's
+                                                 * start-up calibration (hx.c hx_diag) */
 } hx_api_t;
 #endif

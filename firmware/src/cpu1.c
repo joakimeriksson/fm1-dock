@@ -23,18 +23,19 @@
  *
  * On some units a core goes to a wrong address while core 1 runs: code addresses read with bits 23 / 24 set
  * (0x038405DC for 0x020405DC; fm1-x0x#21, Melodee's 0x03801494), or an unmapped one (DBG bit 4 / 19), at M-VAVE's
- * own supply levels (fm1_supplies_stock), where no check of core 1's sees it. On one FM-1 (2026-10-30) it came
- * with the BLE radio running and core 1 working (screening or a job), within ~0.3 s; with the radio off, two cores
- * ran clean. So the radio holds core 1 (cpu1_radio), and a crash or the watchdog while core 1 runs keeps it off
- * until power-off (cpu1_bar, as Melodee and X0X do): the next boots run on one core instead of crashing again
- * into the boot guard's USB rescue. */
+ * own supply levels, where no check of core 1's sees it. On one FM-1 (2026-10-30) it came with the BLE radio running
+ * and core 1 working (screening or a job), within ~0.3 s, with only those two levels raised; with the radio off, two
+ * cores ran clean. Optimist saw the same until it set the supplies up as M-VAVE's firmware does (fm1_power.h), as
+ * now, so the radio no longer holds core 1; if the supplies do not read back as stock, core 1 is not started. A crash
+ * or the watchdog while core 1 runs keeps it off until power-off (cpu1_bar, as Melodee and X0X do): the next boots
+ * run on one core instead of crashing again into the boot guard's USB rescue. */
 #include "fm1_cpu1.h"
 
-enum { CPU1_OFF, CPU1_NOSTART, CPU1_FAILED, CPU1_OK, CPU1_MISREAD, CPU1_SCREENING, CPU1_BARRED, CPU1_BLE };   /* not
-                                                 * started / did not report in / self-test or screening wrong or
+enum { CPU1_OFF, CPU1_NOSTART, CPU1_FAILED, CPU1_OK, CPU1_MISREAD, CPU1_SCREENING, CPU1_BARRED, CPU1_BLE,
+       CPU1_SUPPLY };                            /* not started / did not report in / self-test or screening wrong or
                                                  * late / running / held after a misread / being screened / not
-                                                 * started: a crash with two cores since power-on / held: the radio
-                                                 * runs (cpu1_radio) */
+                                                 * started: a crash with two cores since power-on / (held for the
+                                                 * radio: no longer) / not started: the supplies not as stock */
 static volatile uint8_t cpu1_state = CPU1_OFF;   /* (the main loop reads it: dock.c) */
 #define CPU1_BAR_MAGIC 0x52414231u               /* "1BAR" */
 static uint32_t cpu1_bar __attribute__((section(".noinit")));   /* CPU1_BAR_MAGIC: one core until power-off */
@@ -71,18 +72,6 @@ static void cpu1_stop(uint8_t state)             /* core 1 held (or never starte
 {
     fm1_c1_ran = 0;
     cpu1_state = state;
-}
-
-/* the radio is about to start (dock.c ble_start, the main loop's: no job is out between audio blocks): core 1 held
- * until the next power-on (it cannot be started again). On this unit, with the radio running and core 1 working,
- * one core or the other went to an unmapped address within ~0.3 s (core 1 idle while the radio started did not
- * help); with the radio off two cores ran clean, with one core the radio did */
-static void cpu1_radio(void)
-{
-    if (cpu1_state != CPU1_OK && cpu1_state != CPU1_SCREENING)
-        return;
-    fm1_cpu1_hold();
-    cpu1_stop(CPU1_BLE);
 }
 
 static int cpu1_crashed(void)                    /* core 0's fault (core 1 already held): 1 when core 1 ran: one
@@ -154,6 +143,10 @@ static void cpu1_boot(void)
     }
     if (cpu1_bar == CPU1_BAR_MAGIC) {
         cpu1_stop(CPU1_BARRED);
+        return;
+    }
+    if (fm1_power_err) {                         /* (fm1_power.h: the read-back) */
+        cpu1_stop(CPU1_SUPPLY);
         return;
     }
     fm1_guard_pc_open();

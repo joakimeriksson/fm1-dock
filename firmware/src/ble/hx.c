@@ -15,9 +15,19 @@
 #define BLE_DEVICE_NAME "FM1-DOCK"
 #define FM1_IRQ_UNIT 1                          /* hal/fm1_irq.h: registers and attach only (the host has the rest) */
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
+#include "hx.h"
+#define FM1_RF_CAL_FULL HX_RF_CAL_FULL          /* (hal/fm1_rf_cal.h) */
+#define BLE_HW_IRQ_PRIO HX_IRQ_PRIO             /* (ble_hw_wl82.c: stock's 2 unless set) */
+/* (ble_hw_wl82.c) a connection event counts as heard only with an RX interrupt. On an FM-1 (2026-10-31, ble_dg read
+ * from RAM) EVTCOUNT equalled the event counter in every event of a link where nothing came after the central's first
+ * packet: 1,337 events with no RX interrupt, the supervision timeout (720 ms) never ran out, the link was held for 40 s
+ * until our LL_LENGTH_REQ's procedure timeout (0x22), and nothing advertised meanwhile (with no procedure of ours
+ * pending: never again). A repeat the engine drops raises no RX interrupt, so a central that keeps repeating (it never
+ * hears our acknowledgement) now ends the link after the timeout, as it does on its side */
+#define BLE_HW_RX_OK_EVTCOUNT 0
+
 #include "ble_stack.c"
 #include "ble_vm.c"
-#include "hx.h"
 
 #define BMQ 64u
 #define ADDR_KEPT 0xA5u                         /* kept[6]: kept[0..5] is the address */
@@ -154,6 +164,7 @@ static int radio_start(void)
     }
     ble_init(a, rnd);
     ble_rf_copy_get(kept + 8, &use);            /* (the VM's set: ble_rf_choose made the copy from it) */
+    fm1_rf_cal_mode = HX_RF_CAL;
     ble_hw_wl82_start(&use);
     up = 1;
     return 1;
@@ -202,6 +213,28 @@ static void hx_stop(void)                       /* before flash under HX is writ
     out_on = 0;
 }
 
+static uint32_t sat(uint32_t v, uint32_t max) { return v > max ? max : v; }
+static void hx_diag(uint32_t d[HX_DIAG_N])      /* the main loop (reads only) */
+{
+    /* d[3]: the radio's start (fm1_rf_cal.h): mode << 28 | scan failed << 27 | trim failed << 26 | the mid bank << 16
+     * | the bank at fbds 121 << 8 | the scan in ms (8 bits); d[4]: the trim in ms << 16 | the BT TX trims' 0x2FC10 [15:0]
+     * as written (CMPUK2 << 8 | CMPUK1); d[5]: limit[0] << 24 | limit[23] << 16 | limit[46] << 8 | the top bank */
+    d[3] = (uint32_t)fm1_rf_cal_mode << 28 | (uint32_t)(fm1_rfc_scan_rc != 0) << 27 | (uint32_t)(fm1_rfc_trim_rc != 0) << 26
+           | (uint32_t)fm1_rfc.mid << 16 | (uint32_t)fm1_rfc.bank121 << 8 | sat(fm1_rfc.us_scan / 1000u, 255u);
+    d[4] = sat(fm1_rfc.us_total / 1000u, 0xFFFFu) << 16 | (up ? FM1_BT_C10 & 0xFFFFu : 0u);
+    d[5] = (uint32_t)fm1_rfc.limit[0] << 24 | (uint32_t)fm1_rfc.limit[23] << 16 | (uint32_t)fm1_rfc.limit[46] << 8
+           | fm1_rfc.top;
+#if BLE_DIAG
+    d[0] = sat(ble_dg.cind_rx, 255u) << 24 | sat(ble_dg.cind_ok, 255u) << 16 | sat(ble_dg.cind_rej, 255u) << 8 |
+           ble_dg.cind_rej_why;
+    d[1] = sat(ble_dg.closes, 255u) << 24 | (uint32_t)(ble_dg.close_by & 15u) << 20 | (uint32_t)ble_dg.close_reason << 12 |
+           sat(ble_dg.isr_max_us / 16u, 255u) << 4 | sat(ble_dg.busy_timeouts, 15u);
+    d[2] = sat(ble_dg.rx_good, 0xFFFFu) << 16 | sat(ble_dg.tx_acked, 0xFFFFu);
+#else
+    d[0] = d[1] = d[2] = 0;
+#endif
+}
+
 extern uint32_t _hx_data_start[], _hx_data_end[], _hx_data_load[];
 static uint32_t hx_init(const hx_host_t *h, const uint8_t rec[HX_KEPT], uint32_t want, uint32_t failed)
 {
@@ -230,4 +263,4 @@ static uint32_t hx_init(const hx_host_t *h, const uint8_t rec[HX_KEPT], uint32_t
 }
 
 __attribute__((section(".hx_head"), used))
-const hx_api_t hx_head = {HX_MAGIC, 0, 0, HX_ABI, hx_init, hx_set, hx_poll, hx_out, hx_state, hx_kept, hx_stop};
+const hx_api_t hx_head = {HX_MAGIC, 0, 0, HX_ABI, hx_init, hx_set, hx_poll, hx_out, hx_state, hx_kept, hx_stop, hx_diag};

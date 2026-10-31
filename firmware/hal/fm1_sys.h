@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+ * fm1_core1_stop: Copyright (C) 2026 Kerem Kilic (Ellic Studio), Melodee's hal/fm1_core1_stop.h
+ * (github.com/keremimo/melodee), portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+ * (Felucca 1.6.1 fm1_cpu1_halt) */
 /* FM-1 system HAL: P33 access, watchdog, reset reason, reboot / UBOOT entry.
  * Call with interrupts off so nothing else touches P33.
  *
@@ -11,6 +14,7 @@
  *   fm1_enter_update(p)  112-byte UPDATA_PARM record at 0x01C7FD88 + core reset
  *                        (the SPL then runs the staged update loader)
  *   fm1_core_reset()     PWR_CON core reset
+ *   fm1_core1_stop()     the second core held (every reset here holds it first)
  *   fm1_updata_parm_clear()  zero the record (CRC 0: ignored on a warm reset)
  *   fm1_mailbox_clear()  zero 0x01C7FD80..0x01C7FDFF (boot info, mailbox) at cold start
  *   fm1_mem_readable(a, n) / fm1_peek8(a)   debug reads of RAM / XIP only
@@ -112,13 +116,44 @@ static void fm1_supply_raise(uint32_t reg, uint32_t mask, uint32_t level)
     }
 }
 static uint32_t fm1_supplies __attribute__((section(".noinit")));   /* (fm1-dock) VDC14, SYSVDD as found << 16, as
-                                                 * left: read back (set before .bss is cleared) */
-static void fm1_supplies_stock(void)              /* M-VAVE's own: 1.60 V, then 1.38 V */
+                                                 * left: read back (set before .bss is cleared). M-VAVE's whole
+                                                 * start-up, these two levels with it: fm1_power.h */
+
+/* ------------------------------------------------- the second core held --- */
+/* Melodee 1.6 (fm1_core1_stop, from Felucca 1.6.1's fm1_cpu1_halt, hugelton/Felucca#247): holding core 1 can cut off
+ * a bus access it has out and raise a late bus-invalid flag on core 0, so those traps (DBG_EN bits 4, 5, 16..21) are
+ * off around the hold, the flag let arrive (256 spins) and cleared, then they are on again, the debug write lock as
+ * it was. Registers only: also before RAM is set up. C1_CON (0x1EEE004) bit 1 hold, bit 3 enable (fm1_cpu1.h).
+ * FM1_C1_SAFE_HOLD 0 (the default, as tested with BLE and two cores on an FM-1, 2026-10-31): the plain hold */
+#ifndef FM1_C1_SAFE_HOLD
+#define FM1_C1_SAFE_HOLD 0
+#endif
+FM1_INLINE void fm1_core1_stop(void)
 {
-    fm1_supplies = fm1_vdc14() << 24 | fm1_sysvdd() << 16;
-    fm1_supply_raise(FM1_P3_ANA_CON6, 7u, 7u);
-    fm1_supply_raise(FM1_P3_ANA_CON9, 15u, 15u);
-    fm1_supplies |= fm1_vdc14() << 8 | fm1_sysvdd();
+#if FM1_C1_SAFE_HOLD
+    uint32_t locked = !(*(volatile uint32_t *)0x1EEE240u & 1u), en, bus = 0x003F0030u;
+    volatile uint32_t n;
+    __asm__("" : "+r"(bus));                    /* (not folded: ~bus is a ROM address to the build's check) */
+    if (locked)
+        *(volatile uint32_t *)0x1EEE240u = 0xE7u;
+    en = *(volatile uint32_t *)0x1EEE340u;
+    *(volatile uint32_t *)0x1EEE340u = en & ~bus;
+    __asm__ volatile("csync" ::: "memory");
+    *(volatile uint32_t *)0x1EEE004u |= 0x2u;
+    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;
+    __asm__ volatile("csync" ::: "memory");
+    for (n = 0; n < 256u; n++)                  /* the late bus flag */
+        ;
+    *(volatile uint32_t *)0x1EEE248u = bus;
+    __asm__ volatile("csync" ::: "memory");
+    *(volatile uint32_t *)0x1EEE340u = en;
+    if (locked && (*(volatile uint32_t *)0x1EEE240u & 1u))
+        *(volatile uint32_t *)0x1EEE240u = 0xE7u;
+    __asm__ volatile("csync" ::: "memory");
+#else
+    *(volatile uint32_t *)0x1EEE004u |= 0x2u;
+    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;
+#endif
 }
 
 /* ---------------------------------------------------- reset and reboot --- */
@@ -147,8 +182,7 @@ static void fm1_reset_reason(void)
 static void fm1_reboot(void)
 {
     __asm__ volatile("cli");
-    *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held (fm1_cpu1.h) */
-    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;
+    fm1_core1_stop();                                  /* the second core held */
     FM1_C1_RAN_CLEAR();
     fm1_p33_or(FM1_P3_PR_PWR, 0x10);
     for (;;)
@@ -160,8 +194,8 @@ static void fm1_enter_uboot(void)
     static const char k[16] = "usb_update_mode";
     uint32_t i;
     __asm__ volatile("cli");
-    *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held first (fm1_cpu1.h): it */
-    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;         /* must not run old code while the loader writes */
+    fm1_core1_stop();                                  /* the second core held first: it must not run old
+                                                        * code while the loader writes */
     FM1_C1_RAN_CLEAR();
     /* CPU0 write limits (fm1_guard.h) may cover the mailbox: drop them all */
     if (!(*(volatile uint32_t *)0x1EEE240u & 1u))
@@ -176,8 +210,7 @@ static void fm1_enter_uboot(void)
 
 FM1_INLINE void fm1_core_reset(void)
 {
-    *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held first (fm1_cpu1.h) */
-    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;
+    fm1_core1_stop();                                  /* the second core held first */
     FM1_C1_RAN_CLEAR();
     FM1_PWR_CON |= 0x10u;
     for (;;)

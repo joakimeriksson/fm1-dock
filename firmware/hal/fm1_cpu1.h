@@ -2,7 +2,9 @@
  * Copyright (C) 2026 Charles Vestal: from X0X (github.com/charlesvestal/fm1-x0x, commit 00bff73),
  * after Melodee's dual-core audio by Kerem Kilic (github.com/keremimo/melodee). Brought into SLOOP
  * unchanged but for this notice (the SLOOP dualcore branch, github.com/andrerezemini/sloop-lab), and into
- * fm1-dock from SLOOP's smk37 branch (genkigenki/sloop-fm1, cab2110), unchanged but for this notice. */
+ * fm1-dock from SLOOP's smk37 branch (genkigenki/sloop-fm1, cab2110), unchanged but for this notice.
+ * Core 1's own stack limit and traps (fm1_c1_main) and the paced wait: after Melodee 1.6's fm1_multicore.h and
+ * fm1_aw_relax, Copyright (C) 2026 Kerem Kilic (Ellic Studio); the hold: fm1_core1_stop (fm1_sys.h). */
 /* The AC79's second core (docs/plans/2026-10-04-dual-core-and-clock.md), with what Melodee's
  * dual-core audio (github.com/keremimo/melodee, GPL-3.0) found on the device.
  *
@@ -29,7 +31,7 @@ static inline __attribute__((always_inline)) uint32_t fm1_c1_ticks(void) { retur
                                                  * core 1's code in RAM, no call into the flash) */
 
 extern void fm1_c1_entry(void);
-extern uint32_t _c1_ustack[];
+extern uint32_t _c1_ustack[], _c1_sstack_top[];
 #define FM1_C1_STACK_WORDS (2816u / 4u)
 #define FM1_C1_MARK 0x43314D4Bu                  /* "C1MK": how deep core 1's stack has gone */
 static volatile uint32_t fm1_c1_alive, fm1_c1_job, fm1_c1_done, fm1_c1_arg;
@@ -46,6 +48,15 @@ void fm1_c1_main(void);
 void __attribute__((section(".c1_text"), noreturn, used)) fm1_c1_main(void)
 {
     fm1_c1_trace = 0xC1000002;
+#if FM1_C1_SAFE_HOLD
+    /* (fm1-dock, as Melodee 1.6) its own EMU bank (core 0's at 0x1EEF0D0): the stack limit over both its stacks, as
+     * fm1_guard_enable sets core 0's, on (bit 3); the div0 trap (bit 2) and the float traps (bits 16..20) off */
+    *(volatile uint32_t *)0x1EEF2DCu = (uint32_t)(uintptr_t)_c1_ustack;
+    *(volatile uint32_t *)0x1EEF2D8u = (uint32_t)(uintptr_t)_c1_sstack_top;
+    *(volatile uint32_t *)0x1EEF2E4u = (uint32_t)(uintptr_t)_c1_ustack;
+    *(volatile uint32_t *)0x1EEF2E0u = (uint32_t)(uintptr_t)_c1_sstack_top;
+    *(volatile uint32_t *)0x1EEF2D0u = (*(volatile uint32_t *)0x1EEF2D0u & ~((1u << 2) | (0x1Fu << 16))) | (1u << 3);
+#endif
     fm1_c1_alive = 1;
     FM1_C1_SYNC();
     for (;;) {
@@ -66,8 +77,7 @@ void __attribute__((section(".c1_text"), noreturn, used)) fm1_c1_main(void)
 
 static void fm1_cpu1_hold(void)
 {
-    FM1_C1_CON |= 0x2u;
-    FM1_C1_CON &= ~0x8u;
+    fm1_core1_stop();                           /* (fm1-dock: its bus traps off around the hold, fm1_sys.h) */
     FM1_C1_SYNC();
     fm1_c1_on = 0;
     fm1_c1_ran = 0;                             /* (fm1-dock: fm1_sys.h) */
@@ -131,5 +141,12 @@ static inline int fm1_cpu1_wait(void)
             fm1_cpu1_hold();
             return -1;
         }
+#if FM1_C1_SAFE_HOLD
+        {   /* (fm1-dock) paced, as Melodee's fm1_aw_relax: 64 nops between polls, no load, no csync */
+            uint32_t k;
+            for (k = 0; k < 16u; k++)
+                __asm__ volatile("nop\n\tnop\n\tnop\n\tnop" ::: "memory");
+        }
+#endif
     }
 }
