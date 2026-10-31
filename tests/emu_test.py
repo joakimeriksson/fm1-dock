@@ -263,6 +263,31 @@ def main():
         check("monk_saved", "monk: MONK-1" in log and b"MONK\x03\x00\x00\x00\x01" in ram,
               "MONK-1's singer is there after a power-off (its project loaded back from its bank)")
 
+    if "FIMBA" in names:
+        # the heaviest FiMba-1: Buzz, Wah and its rate (ENV: Body), Reverb, Size and Delay (FX: Space), Tape, Lo-fi,
+        # Chorus and Filter (FX again: Color), Grains and their density (LFO: Grain), Worn (HOME twice: Character), each
+        # turned quickly to its top; then all 16 tines at once and two chord rolls over them
+        keys = pick("FIMBA") + (",1300:4,1350:4^,1450:e3:20,1600:e4:20,1750:e5:20,1950:2,2000:2^,2100:e2:20,2250:e3:20,"
+                                "2400:e4:20,2600:2,2650:2^,2750:e2:20,2900:e3:20,3050:e4:20,3200:e5:10,3400:5,3450:5^,"
+                                "3550:e2:20,3700:e4:20,3900:8,3950:8^,4050:8,4100:8^,4200:e2:20")
+        keys += "".join(f",4600:{14 + k},6200:{14 + k}^" for k in (0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26))
+        s, log = run("fimba", keys + ",5200:15,5300:15^,5400:17,5500:17^", 7000)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("fimba", "fimba: FiMba-1" in log and peak(s, 0.0, 4.0) == 0 and peak(s, 4.5, 6.5) > 1000 and
+              " 0 overruns" in log and worst < 80, f"FiMba-1 plays 16 tines through all its effects; worst {worst} % of a block")
+        # the keys' force: a pluck as hard as the key lands; its pressure covers the sound hole (the wah)
+        k = pick("FIMBA")
+        a, _ = run("fimba_soft", k + ",1800:23@20,2600:23^", 3000)
+        b, _ = run("fimba_hard", k + ",1800:23@127,2600:23^", 3000)
+        c, _ = run("fimba_pressure", k + ",1800:23@100,2000:23~127,2600:23^", 3000)
+        d, _ = run("fimba_nopressure", k + ",1800:23@100,2600:23^", 3000)
+        first = next((i for i, (x, y) in enumerate(zip(c, d)) if x != y), len(c)) / 88200
+        diff = [x - y for x, y in zip(c, d)]
+        check("fimba_force", peak(b, 1.5, 2.2) > 5 * peak(a, 1.5, 2.2) > 0 and 1.7 < first < 2.0 and
+              rms_left(diff, 1.9, 2.3) > 0.3 * rms_left(d, 1.9, 2.3),
+              f"FiMba-1 plucks at the key's velocity (peak {peak(a, 1.5, 2.2)} soft, {peak(b, 1.5, 2.2)} hard); its "
+              f"pressure moves the wah from {first:.2f} s")
+
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
     s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
