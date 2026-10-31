@@ -70,16 +70,25 @@ typedef struct {
     int32_t prev1, prev2;                       /* the last oscillator outputs, for cross-mod */
     uint32_t block;                             /* samples into the coefficient block */
     int32_t a1, a2, a3;                         /* SVF coefficients, Q30 */
+    int32_t cn;                                 /* the cutoff (semitones Q16) they were computed for */
+    uint32_t amp_gate;                          /* samples until the amp envelope starts (SC_AMP_ONSET_DELAY) */
     int32_t n1, n2;                             /* the pitches dt1 / dt2 were computed for */
     uint32_t dt1, dt2;
 } sc_voice_t;
 
 #define SC_COEFF_BLOCK 128                      /* as VoiceCore's COEFF_BLOCK */
+/* VoiceCore's CUTOFF_STEP: between block boundaries the coefficients are recomputed as soon as the
+ * cutoff has moved half a semitone from the note they were computed for (a 2 ms filter attack is
+ * shorter than a block; holding the old coefficients through it put a click on Take-off) */
+#define SC_CUTOFF_STEP (1 << 15)
+/* VoiceCore's AMP_ONSET_DELAY, 1.5 ms: the amp envelope starts this many samples after note-on,
+ * the filter envelope at once (the hardware's VCA opens after the filter envelope's fastest attack) */
+#define SC_AMP_ONSET_DELAY 66
 
 void sc_voice_init(sc_voice_t *v, uint32_t seed);
 void sc_voice_note_on(sc_voice_t *v, const sc_prep_t *p, int32_t note, int32_t vel_q16);
 void sc_voice_note_off(sc_voice_t *v, const sc_prep_t *p);
-static inline int sc_voice_idle(const sc_voice_t *v) { return v->env2.stage == 0; }
+static inline int sc_voice_idle(const sc_voice_t *v) { return v->env2.stage == 0 && v->amp_gate == 0; }
 /* add n samples of this voice (audio Q20, mono) into out */
 void sc_voice_render(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n);
 
