@@ -212,43 +212,54 @@ static void drain(sc_synth_t *s)
 
 /* ---- the chain ------------------------------------------------------------------------------ */
 
-/* StereoChorus: two taps around 12 ms, swept by one sine in opposite phase; dry 1 - mix/2, wet mix.
- * Its mode presets: (rate Hz, depth s) = (0.30, 0.002), (0.55, 0.004), (0.90, 0.007), each scaled
- * by (0.5 + the patch's rate / depth). */
+/* The Synthex's chorus as fx/chorus.ts models it from the schematic (board 5860): two bucket-brigade
+ * lines around 4 ms, each swept by a triangle LFO, line 1 at 0.49 Hz, line 2 at 0.60 Hz or, in mode 3,
+ * 4.6 Hz with 0.59 of line 1's sweep; the modes set which lines and how much. Dry at unity; the right
+ * channel's lines swept in opposite phase. The patch's rate / depth / mix bias each line (0.5 neutral). */
+typedef struct { int32_t rate, depth, wet; } chorus_line_t;      /* Hz Q16, seconds Q16, gain Q16 */
+static const chorus_line_t CHORUS_LINES[3][2] = {
+    { { SC_Q16(0.49), SC_Q16(0.0016), SC_Q16(0.30) }, { 0, 0, 0 } },
+    { { SC_Q16(0.49), SC_Q16(0.0016), SC_Q16(0.22) }, { SC_Q16(0.60), SC_Q16(0.0012), SC_Q16(0.22) } },
+    { { SC_Q16(0.49), SC_Q16(0.0016), SC_Q16(0.25) }, { SC_Q16(4.60), SC_Q16(0.0012), SC_Q16(0.25) } },
+};
+#define CHORUS_BASE SC_Q16(0.004 * SC_FS)       /* samples, Q16 */
 static void chorus(sc_chorus_t *c, const sc_chorus_p_t *p, const int32_t *in, int32_t *l, int32_t *r, uint32_t n)
 {
-    static const int32_t RATE[3] = { SC_Q16(0.30), SC_Q16(0.55), SC_Q16(0.90) };
-    static const int32_t DEPTH[3] = { SC_Q16(0.002), SC_Q16(0.004), SC_Q16(0.007) };
     if (!p->on) {
         for (uint32_t i = 0; i < n; i++) l[i] = r[i] = in[i];
         return;
     }
     int m = p->mode < 1 ? 0 : p->mode > 3 ? 2 : p->mode - 1;
-    int32_t rate = sc_mul(RATE[m], SC_ONE16 / 2 + p->rate, 16);
-    uint32_t inc = (uint32_t)(((uint64_t)(uint32_t)rate * 398915783u) >> 28);
-    int32_t depth = sc_mul(DEPTH[m], SC_ONE16 / 2 + p->depth, 16) * SC_FS;          /* samples, Q16 */
-    const int32_t base = SC_Q16(0.012 * SC_FS);
-    int32_t dry = SC_ONE16 - p->mix / 2, wet = p->mix;
-
+    uint32_t inc[2]; int32_t depth[2], wet[2];
+    for (int k = 0; k < 2; k++) {
+        const chorus_line_t *ln = &CHORUS_LINES[m][k];
+        int32_t rate = sc_mul(ln->rate, SC_ONE16 / 2 + p->rate, 16);
+        inc[k] = (uint32_t)(((uint64_t)(uint32_t)rate * 398915783u) >> 28);   /* Q16 Hz -> Q32 phase per sample */
+        depth[k] = sc_mul(ln->depth, SC_ONE16 / 2 + p->depth, 16) * SC_FS;      /* samples, Q16 */
+        wet[k] = sc_mul(ln->wet, p->mix * 2, 16);
+    }
     for (uint32_t i = 0; i < n; i++) {
         int32_t x = in[i];
         c->buf[c->w] = x;
-        uint32_t si = c->ph >> 22, fr = (c->ph >> 6) & 0xFFFFu;
-        int32_t sn = SC_SINE[si] * 2 + (int32_t)(((int64_t)(SC_SINE[si + 1] - SC_SINE[si]) * fr) >> 15);  /* Q16 */
-        c->ph += inc;
-        int32_t dm = sc_mul(depth, sn, 16);
-        int32_t tap[2];
+        int32_t yl = x, yr = x;
         for (int k = 0; k < 2; k++) {
-            int32_t d = base + (k ? -dm : dm);                         /* Q16 samples */
-            uint32_t di = (uint32_t)d >> 16, f = (uint32_t)d & 0xFFFFu;
-            int32_t a = c->buf[(c->w - di) & (SC_CHORUS_LEN - 1)];
-            int32_t b = c->buf[(c->w - di - 1) & (SC_CHORUS_LEN - 1)];
-            tap[k] = a + (int32_t)(((int64_t)(b - a) * f) >> 16);
+            if (!wet[k]) continue;
+            uint32_t ph = c->ph[k];
+            uint32_t dd = ph < 0x80000000u ? 0x80000000u - ph : ph - 0x80000000u;
+            int32_t tri = SC_ONE16 - (int32_t)(dd >> 14);                /* 1 - 4 |phase - 1/2|, Q16 */
+            c->ph[k] = ph + inc[k];
+            int32_t dm = sc_mul(depth[k], tri, 16);
+            for (int ch = 0; ch < 2; ch++) {
+                int32_t d = CHORUS_BASE + (ch ? -dm : dm);                   /* Q16 samples */
+                uint32_t di = (uint32_t)d >> 16, f = (uint32_t)d & 0xFFFFu;
+                int32_t a = c->buf[(c->w - di) & (SC_CHORUS_LEN - 1)];
+                int32_t b = c->buf[(c->w - di - 1) & (SC_CHORUS_LEN - 1)];
+                int32_t tap = a + (int32_t)(((int64_t)(b - a) * f) >> 16);
+                if (ch) yr += sc_mul(tap, wet[k], 16); else yl += sc_mul(tap, wet[k], 16);
+            }
         }
         c->w = (c->w + 1) & (SC_CHORUS_LEN - 1);
-        int32_t d0 = sc_mul(x, dry, 16);
-        l[i] = d0 + sc_mul(tap[0], wet, 16);
-        r[i] = d0 + sc_mul(tap[1], wet, 16);
+        l[i] = yl; r[i] = yr;
     }
 }
 
