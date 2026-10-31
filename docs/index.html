@@ -4,10 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>fm1-dock</title>
-<meta name="description" content="fm1-dock: one firmware for the M-VAVE FM-1, many synths as modules. Switch between them on the device, deploy your own over USB, and debug them from the browser.">
+<meta name="description" content="fm1-dock: one firmware for the M-VAVE FM-1 and SMK-37, many synths as modules. Install it from the page, then add and remove synths with one click; switch between them with HOME.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0d0c11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f5fb" media="(prefers-color-scheme: light)">
 <meta property="og:type" content="website">
 <meta property="og:title" content="fm1-dock: one FM-1 firmware, many synths">
-<meta property="og:description" content="Install once, then hold HOME and pick CS-1, Scintilla or OberVave, and add FM-1 SID with one click: synths as modules for the M-VAVE FM-1. Install it from the page.">
+<meta property="og:description" content="Install once, then add the synths you want: CS-1, Scintilla and OberVave come with it, FM-1 SID, AMB-1 and FoMni go in with one click. Hold HOME to switch. For the M-VAVE FM-1 and SMK-37.">
 <meta property="og:url" content="https://joakimeriksson.github.io/fm1-dock/">
 <meta property="og:image" content="https://joakimeriksson.github.io/fm1-dock/media/social.png">
 <meta property="og:image:width" content="1280">
@@ -16,142 +19,134 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="media/fm1-dock-icon.svg" type="image/svg+xml">
 </head>
 <body>
+<a class="skip" href="#main">Skip to the content</a>
 <header class="top">
-  <a class="brand" href="#top"><img src="media/fm1-dock-light.svg" alt="fm1-dock"></a>
-  <nav>
-    <a href="#synths">Synths</a><a href="#play">Play</a><a href="#console">Console</a><a href="#emulator">Emulator</a>
-    <a href="#debug">Debug</a><a href="#build">Build a module</a><a href="#protocol">Protocol</a>
+  <a class="brand" href="#top" aria-label="fm1-dock, to the top"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></a>
+  <nav aria-label="Sections">
+    <a href="#install">Install</a><a href="#modules">Modules</a><a href="#dock">In the dock</a><a href="#play">Play</a>
+    <a href="#console">Console</a><a href="#emulator">Emulator</a><a href="#debug">Debug</a><a href="#build">Build a module</a><a href="#protocol">Protocol</a>
   </nav>
 </header>
 
-<main id="top">
-<section class="hero">
+<main id="main">
+<section class="hero" id="top">
   <div class="hero-text">
-    <img class="hero-logo" src="media/fm1-dock-light.svg" alt="fm1-dock">
-    <p class="kicker">for the M-VAVE FM-1</p>
+    <div class="hero-logo"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></div>
+    <p class="kicker">for the M-VAVE FM-1 and SMK-37</p>
     <h1>One firmware.<br><span>Many synths.</span></h1>
-    <p class="lede">fm1-dock is installed once. The synths are modules in flash: hold HOME and pick another one,
-      no reinstall. Deploy your own module over USB, no reinstall, and when something goes wrong, the log, the
-      crash record and the render load are one click away, here in the browser.</p>
-    <div class="cta">
-      <a class="btn primary" href="#install">Install on my FM-1</a>
-      <a class="btn" href="https://github.com/joakimeriksson/fm1-dock/releases/latest">Download</a>
-      <a class="btn" href="#console">Open the console</a>
-      <a class="btn" href="#build">Write a module</a>
+    <p class="lede">fm1-dock is installed once. The synths are modules in its flash: hold HOME and pick another one, no
+      reinstall. Add the ones you want from this page and take them out again; your settings and presets stay.</p>
+    <ol class="how">
+      <li><span class="n">1</span><span><b>Install fm1-dock</b> over USB, from this page in Chrome or Edge. CS-1, Scintilla, OberVave and a sine come with it.</span></li>
+      <li><span class="n">2</span><span><b>Add modules</b> from <a href="#modules">the catalog</a>: FM-1 SID, AMB-1, FoMni and more go into its flash with one click.</span></li>
+      <li><span class="n">3</span><span><b>Hold HOME</b> on the device, pick a synth and play. Your own module deploys the same way.</span></li>
+    </ol>
+    <p class="hero-links"><a href="#play">See it play</a><a href="#console">Open the console</a><a href="#build">Write a module</a>
+      <a href="https://github.com/joakimeriksson/fm1-dock">Source on GitHub</a></p>
+  </div>
+
+  <aside class="device" id="install" aria-labelledby="dev-h">
+    <div class="device-h"><h2 id="dev-h">Your device</h2><span class="pill" id="dev-pill">not connected</span></div>
+    <p class="notice" id="nomidi" hidden>This browser cannot talk to MIDI devices (no WebMIDI). Open the page in <b>Chrome or Edge</b>
+      on a computer to install and add modules; or use <code>tools/fm1_install.py</code> and <code>tools/dock.py</code>.</p>
+    <ol class="steps">
+      <li class="step">
+        <h3><span class="n">1</span> Connect</h3>
+        <p class="dim">Plug in the FM-1 or SMK-37 with a USB data cable. The page asks it what it runs and what is on it;
+          nothing is written until you press Install, Add or Remove.</p>
+        <div class="dev-row"><button type="button" class="btn" id="dev-connect">Connect over USB</button></div>
+        <div class="dev-info" id="dev-info" aria-live="polite"></div>
+      </li>
+      <li class="step">
+        <h3><span class="n">2</span> Install fm1-dock <span class="pill acc" id="rel-ver" hidden></span></h3>
+        <div data-fm1-install="fm1-dock"></div>
+        <p class="prov" id="prov"></p>
+      </li>
+      <li class="step">
+        <h3><span class="n">3</span> Add synths</h3>
+        <p class="dim">Pick them in <a href="#modules">the catalog</a> below: <b>Add</b> puts a module into fm1-dock's flash next to the
+          others, <b>Remove</b> takes it out. The meter there shows how much room is left.</p>
+      </li>
+    </ol>
+  </aside>
+</section>
+
+<section id="modules" aria-labelledby="mods-h">
+  <div class="cat-head">
+    <div>
+      <h2 id="mods-h">Modules</h2>
+      <p class="sub">Built-in modules come with fm1-dock. Add-ons go into its flash from here, and out again, without
+        touching the rest. Every one is its author's work: their pages, manuals and licences are on the cards.</p>
     </div>
   </div>
-  <figure class="hero-video">
-    <video src="media/fm1-dock.mp4" poster="media/fm1-dock_poster.jpg" controls playsinline preload="none"></video>
-    <figcaption>A real FM-1 and the emulator, running the same firmware and the same flash.</figcaption>
-  </figure>
-</section>
-
-<section id="install">
-  <h2>Install</h2>
-  <p class="sub">From this page, over USB, in Chrome or Edge: the latest release, checked against GitHub's SHA-256 of
-    it and its own checksums before anything is sent. Back to any other firmware, or the official one, with the
-    <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>.</p>
-  <div data-fm1-install="fm1-dock"></div>
-  <h3 class="install-then">Then add FM-1 SID</h3>
-  <p class="dim">FM-1 SID, the C64 synth in the video, is not in the package: it is a module, added to fm1-dock from here.</p>
-  <div data-fm1-add="fm1-sid"></div>
-  <h3 class="install-then">The tunes from the video, on your FM-1</h3>
-  <p class="dim">Straight to FM-1 SID in your fm1-dock, over USB: each comes from the High Voltage SID Collection when you
-    press it (none are shipped here), goes into FM-1 SID's C64 memory and plays. Nothing is written to flash.</p>
-  <div data-fm1-tunes></div>
-  <p class="dim">More: any of HVSC's 61 000 tunes on <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/">FM-1 SID's
-    page</a>, with <b>Play on my FM-1</b>.</p>
-  <h3 class="install-then">Write your own chiptune</h3>
-  <p class="dim">FM-1 SID has GoatTracker 2's editor built in, the tracker C64 musicians use, on the FM-1's knobs and keys
-    while the song plays. <a href="https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step">Your first chiptune, step by step</a>: a pulsing bass, arpeggio chords
-    and drums made of noise, from an empty song in about 15 minutes, saved in the FM-1's flash.</p>
-  <h3 class="install-then">And two synths by Charles Vestal</h3>
-  <p class="dim">Two of the FM-1 community's favourites, ported to fm1-dock with their code unchanged: add them next
-    to the others, and pick them with HOME. The originals, their manuals and their own firmware are on Charles Vestal's
-    pages.</p>
-  <div class="add-grid">
-    <div><h4>AMB-1 <span class="dim">· <a href="https://charlesvestal.github.io/fm1-amb/">original</a> · <a href="https://charlesvestal.github.io/fm1-amb/manual/">manual</a></span></h4>
-      <p class="dim">A generative ambient machine after <i>Music for Airports</i>: it plays itself, and you tend it.</p>
-      <div data-fm1-add="amb"></div></div>
-    <div><h4>FoMni <span class="dim">· <a href="https://charlesvestal.github.io/fm1-fomni/">original</a></span></h4>
-      <p class="dim">A chord harp after the Omnichord: chords on the black keys, strummed on the white ones.</p>
-      <div data-fm1-add="fomni"></div></div>
+  <div class="toolbar" role="search">
+    <label class="search"><span class="vh">Search modules</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input type="search" id="q" placeholder="Search modules" aria-label="Search modules" autocomplete="off"></label>
+    <div class="chips" id="chips" role="group" aria-label="Filter the modules"></div>
+    <span class="count" id="count" aria-live="polite"></span>
   </div>
-  <p class="dim">Room: fm1-dock keeps 296 KB for added synths. FM-1 SID takes 266 KB, AMB-1 76 KB, FoMni 139 KB: AMB-1
-    and FoMni fit together; to swap FM-1 SID for them, delete it in the <a href="#console">console</a>'s module list.</p>
-  <p class="dim">Or the <code>.fwsc</code> from the <a href="https://github.com/joakimeriksson/fm1-dock/releases/latest">latest
-    release</a> with <code>tools/fm1_install.py</code>. FM-1 SID and Scintilla install from their own pages, or all
-    three from <a href="install/">one page</a>.</p>
+  <div class="meter" id="meter" aria-live="polite"></div>
+  <div class="mods-grid" id="catalog">
+    <noscript><p class="empty">The catalog needs JavaScript; the modules are listed in the
+      <a href="https://github.com/joakimeriksson/fm1-dock#whats-in-the-dock">README</a>.</p></noscript>
+  </div>
+  <p class="cat-foot">Your own module goes in the same way: drop its <code>.dock</code> on <a href="#console">the console</a>'s
+    Deploy, or <code>tools/dock.py deploy</code>. A module ported to fm1-dock comes to this catalog with an entry in
+    <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/docs/modules/modules.json">docs/modules/modules.json</a>, its
+    <code>.dock</code> and a screenshot.</p>
 </section>
 
-<section id="synths">
-  <h2>What's in the dock</h2>
-  <p class="sub">The package carries three synths and a sine. FM-1 SID, AMB-1 and FoMni are added to them with one click
-    (<a href="#install">Install</a>), or with <code>tools/dock.py deploy</code>. Each runs alone, with all of
-    the module RAM, the screen and the panel to itself.</p>
-  <div class="cards">
-    <article class="card">
-      <img src="media/screen_cs1.png" alt="CS-1's screen: its tone bars and BLADE BRASS" loading="lazy">
-      <div><h3>CS-1</h3><p class="by">twochannels</p>
-        <p>A CS-80-style synthesizer: two layers, its tone bars, effects, user presets, velocity and aftertouch from the keys.</p>
-        <p class="meta">image module · 52 KB · 8 voices</p></div>
-    </article>
-    <article class="card">
-      <img src="media/screen_scintilla.png" alt="Scintilla's screen: RING MOD., Paul Wiffen's laser harp patch" loading="lazy">
-      <div><h3>Scintilla</h3><p class="by">Joakim Eriksson</p>
-        <p>The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them, checked sample by sample against its browser original.</p>
-        <p class="meta">image module · 87 KB · 8 voices</p></div>
-    </article>
-    <article class="card">
-      <img src="media/screen_obervave.png" alt="OberVave's PERFORM page: cutoff, resonance, envelope, release" loading="lazy">
-      <div><h3>OberVave</h3><p class="by">zvenson</p>
-        <p>A 4-track analog poly with arpeggiator, sequencer and effects: its pages, presets and patterns live in fm1-dock's banks.</p>
-        <p class="meta">image module · 149 KB · 8 voices</p></div>
-    </article>
-    <article class="card">
-      <img src="media/screen_fm1sid.png" alt="FM-1 SID's screen: Arkanoid by Martin Galway, three voices, the filter, the scope" loading="lazy">
-      <div><h3>FM-1 SID</h3><p class="by">Joakim Eriksson</p>
-        <p>C64 music on the FM-1: a cycle-exact 6510, reSID and an own SID model; GoatTracker 2 songs and their editor,
-          and any .sid sent from <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/">its page</a> plays at once.
-          <a href="https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step">Write your own chiptune</a> in its editor. Not in the package: <a href="#install">add it</a>
-          with one click.</p>
-        <p class="meta">added module · 266 KB · 3 voices</p></div>
-    </article>
-    <article class="card">
-      <img src="media/screen_amb.png" alt="AMB-1's screen: the Garden, D Dorian on Dm7, the four layers' levels" loading="lazy">
-      <div><h3>AMB-1</h3><p class="by">Charles Vestal</p>
-        <p>A generative ambient machine after <i>Music for Airports</i>: breathing pads, bells on tape loops, a gliding
-          bass, through a tape echo and a plate. Ported unchanged from <a href="https://charlesvestal.github.io/fm1-amb/">AMB-1</a>; not in the package:
-          <a href="#install">add it</a>.</p>
-        <p class="meta">added module · 76 KB · 4 pad voices, 6 bells, a bass, 3 drums</p></div>
-    </article>
-    <article class="card">
-      <img src="media/screen_fomni.png" alt="FoMni's screen: the chord C, the strings, the chord buttons F C G Dm Am Em E7 D7 Bb A7" loading="lazy">
-      <div><h3>FoMni</h3><p class="by">Charles Vestal</p>
-        <p>A chord harp after the Omnichord: chords on the black keys, strummed on the white ones, a chord section, a bass
-          and a rhythm box. Ported unchanged from <a href="https://charlesvestal.github.io/fm1-fomni/">FoMni</a>; not in the package: <a href="#install">add it</a>.</p>
-        <p class="meta">added module · 139 KB · 16 strings, a 3-note chord, a bass</p></div>
-    </article>
-    <article class="card">
-      <img src="media/screen_sine.png" alt="SINE's screen: a sine to build on, the note C4" loading="lazy">
-      <div><h3>SINE</h3><p class="by">built in</p>
-        <p>Dinghy's 4-voice sine, always there: the fallback when a module fails, and the smallest module to copy.</p>
-        <p class="meta">built in · in the host · 4 voices</p></div>
-    </article>
+<section id="sid" aria-labelledby="sid-h">
+  <h2 id="sid-h">FM-1 SID on your FM-1</h2>
+  <div class="extras">
+    <div>
+      <h3>The tunes from the video</h3>
+      <p class="dim">Straight to FM-1 SID in your fm1-dock, over USB: each comes from the High Voltage SID Collection when you
+        press it (none are kept here), goes into FM-1 SID's C64 memory and plays. Nothing is written to flash.</p>
+      <div data-fm1-tunes></div>
+      <p class="dim small">More: any of HVSC's 61 000 tunes on <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/">FM-1 SID's
+        page</a>, with <b>Play on my FM-1</b>.</p>
+    </div>
+    <div>
+      <h3>Write your own chiptune</h3>
+      <p class="dim">FM-1 SID has GoatTracker 2's editor built in, the tracker C64 musicians use, on the FM-1's knobs and keys
+        while the song plays. <a href="https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step">Your first
+        chiptune, step by step</a>: a pulsing bass, arpeggio chords and drums made of noise, from an empty song in about 15
+        minutes, saved in the FM-1's flash.</p>
+    </div>
   </div>
 </section>
 
-<section id="play" class="split">
+<section id="dock" aria-labelledby="dock-h">
+  <h2 id="dock-h">What's in the dock</h2>
+  <p class="sub">Around every module: the same settings, MIDI and safety nets. On the device: hold HOME, past the last module, <b>OPTIONS</b>.</p>
+  <div class="features">
+    <div class="feat"><h3>EQ</h3><p>Three bands on whatever plays: a 150 Hz shelf, a 1 kHz peak and a 6 kHz shelf, ±12 dB each, in the chip's hardware EQ. KNOB1–3 turn them.</p></div>
+    <div class="feat"><h3>MIDI CH</h3><p>ALL, or one channel 1–16: the module hears it as channel 1, and the keys send on it.</p></div>
+    <div class="feat"><h3>LOCAL</h3><p>OFF: the keys only send MIDI, so a computer playing them back gives no doubled notes.</p></div>
+    <div class="feat"><h3>KNOBS CC</h3><p>KNOB1–4 send CC 74, 71, 73 and 72 (cutoff, resonance, attack, release) over USB and BLE-MIDI.</p></div>
+    <div class="feat"><h3>MIDI THRU</h3><p>What comes in on the TRS MIDI jack goes on to USB-MIDI and BLE-MIDI, and the module plays it too.</p></div>
+    <div class="feat"><h3>CC7</h3><p>CC 7 sets the level of any module on top of MASTER; MASTER can send CC 7 itself.</p></div>
+    <div class="feat"><h3>BLE-MIDI</h3><p>Off by default. On, a computer, phone or controller connects to <code>FM1-DOCK xxxx</code> without pairing; notes go both ways.</p></div>
+    <div class="feat"><h3>Second core</h3><p>A module can run part of its sound on the chip's second CPU: FM-106 plays three of its six voices there.</p></div>
+    <div class="feat"><h3>Safety nets</h3><p>OCT+ at power-on: the sine only. OCT−: the USB rescue. A module that crashes twice, or runs too slow, is set aside and the sine plays.</p></div>
+    <div class="feat"><h3>SMK-37</h3><p>The same fm1-dock and modules on the M-Vave SMK-37 Pro, Elite, MKE-P37 and Starrykey 37 Play: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/SMK37.md">read this first</a>.</p></div>
+  </div>
+</section>
+
+<section id="play" class="split" aria-labelledby="play-h">
   <div>
-    <h2>Playing it</h2>
+    <h2 id="play-h">Playing it</h2>
     <dl class="keys">
       <dt>HOME</dt><dd>opens the picker. For a module that owns the whole panel, hold HOME alone for 1.5 s.</dd>
       <dt>SELECT / PRESETS</dt><dd>move in the picker; <b>PLAY</b>, <b>SEL</b> or <b>HOME</b> load the module.</dd>
+      <dt>OPTIONS</dt><dd>past the picker's last module: <b>SEL</b> changes the option, <b>HOME</b> goes back.</dd>
       <dt>OCT+ at power-on</dt><dd>safe start: fm1-dock plays the sine only.</dd>
       <dt>OCT− at power-on</dt><dd>the USB rescue: no sound, only the updater, for any install.</dd>
       <dt>HOME at power-on</dt><dd>fm1-dock stays, even with a boot firmware in its slot.</dd>
@@ -159,8 +154,12 @@
     <p>fm1-dock starts whatever played last. A module that crashes, or hangs into the watchdog, twice in a row is skipped at
       boot until you pick it again. One that renders slower than real time for 64 blocks (0.4 s) is stopped and the sine
       plays, so USB and the updater keep working.</p>
+    <img src="media/screen_picker.png" width="480" height="480" alt="The picker: SINE, CS-1, SCINTILLA, OBERVAVE, FM-1 SID with their sizes" class="screen-lg" loading="lazy">
   </div>
-  <figure><img src="media/screen_picker.png" alt="The picker: SINE, CS-1, SCINTILLA, OBERVAVE, FM-1 SID with their sizes" class="screen-lg"></figure>
+  <figure class="video">
+    <video src="media/fm1-dock.mp4" poster="media/fm1-dock_poster.jpg" controls playsinline preload="none" aria-label="fm1-dock on a real FM-1 and in the emulator"></video>
+    <figcaption>A real FM-1 and the emulator, running the same firmware and the same flash.</figcaption>
+  </figure>
 </section>
 
 <section id="console">
@@ -345,7 +344,7 @@ uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock
 <span class="c">7D: non-commercial id; 48 42: "HB". pack7: 8-to-7 bits, LSB first.
 A reply: cmd | 0x40 (0x7F: refused), the same seq; its payload
 starts with a status byte (0 done). Little-endian words.</span></pre>
-      <table class="proto">
+      <div class="table-scroll"><table class="proto">
         <tr><th>cmd</th><th>name</th><th>payload → reply</th></tr>
         <tr><td>01</td><td>HELLO</td><td>— → proto, abi, modules, current, receiving; free, largest gap, max file, crash PC, crash module, worst, overruns, log length, block ticks</td></tr>
         <tr><td>02</td><td>LIST</td><td>— → one reply per module: index, state, kind, version, size, address, name[24]; index FF ends</td></tr>
@@ -359,7 +358,7 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
         <tr><td>22</td><td>SELECT</td><td>name[24] → status</td></tr>
         <tr><td>30</td><td>RUN</td><td>run id, argument (after BEGIN / DATA) → status, then the result</td></tr>
         <tr><td>31</td><td>RESULT</td><td>from → state, id, rc, ticks, length, PC, at, output</td></tr>
-      </table>
+      </table></div>
     </div>
     <div>
       <h3>Status codes</h3>
@@ -391,17 +390,14 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
 </section>
 </main>
 
+<dialog class="ask" id="ask" aria-labelledby="ask-text">
+  <form method="dialog">
+    <p id="ask-text"></p>
+    <div class="row"><button class="btn" value="no">Cancel</button><button class="btn primary" value="yes" id="ask-yes">Yes</button></div>
+  </form>
+</dialog>
+
 <script type="module" src="console.js"></script>
-<script type="module">
-  import { installButton, addButton, tuneButtons } from "./install/fm1install.js";
-  for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install, { buttonClass: "btn primary" });
-  for (const el of document.querySelectorAll("[data-fm1-add]")) addButton(el, el.dataset.fm1Add, { buttonClass: "btn primary" });
-  const VIDEO = [   // the tunes in the video, as FM-1 SID played them there
-    { title: "Arkanoid", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Arkanoid.sid" },
-    { title: "Wizball", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Wizball.sid", song: 7 },
-    { title: "Commando", by: "Rob Hubbard", path: "MUSICIANS/H/Hubbard_Rob/Commando.sid" },
-  ];
-  for (const el of document.querySelectorAll("[data-fm1-tunes]")) tuneButtons(el, VIDEO, { buttonClass: "btn" });
-</script>
+<script type="module" src="hub.js"></script>
 </body>
 </html>
