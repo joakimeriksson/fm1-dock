@@ -51,7 +51,7 @@ void sc_prep(sc_prep_t *p, const sc_layer_t *L, const sc_perf_t *perf);
 
 typedef struct { int8_t stage; int32_t level; int32_t rel_mul; } sc_env_t;
 typedef struct { uint32_t ph, rng; int32_t sh, sh_next, smooth, ramp; } sc_lfo_t;
-typedef struct { uint32_t ph; int32_t z; uint8_t wrapped; } sc_osc_t;
+typedef struct { uint32_t ph; int32_t pend, tau; uint8_t after, wrapped; } sc_osc_t;   /* tau: a pending sync, Q16, or -1; pend / after: the residual owed to the sample after a sync */
 typedef struct { int32_t ic1, ic2; } sc_svf_t;
 typedef struct { uint32_t w, counter; int32_t bands[16], sum; } sc_pink_t;
 

@@ -62,6 +62,8 @@ static uint32_t env_inc(int32_t dist_q30, int32_t t_q16)       /* dist / (max(t,
 
 static int32_t q16_to_q30(int32_t v) { return v >= SC_ONE16 ? SC_ONE30 : v <= 0 ? 0 : v << 14; }
 
+static int32_t sqrt16(int32_t x);           /* below, with the oscillators' helpers */
+
 #define ENV_FLOOR 107374                                       /* 1e-4 in Q30: the release ends here */
 static int32_t rel_mul(int32_t r_q16)                          /* e^(-ln10 / (max(r, 1e-4) fs)), Q30 */
 {
@@ -138,9 +140,11 @@ void sc_prep(sc_prep_t *p, const sc_layer_t *L, const sc_perf_t *jp)
     p->kc_vel = 60 * m[SC_MM_VEL_CUT];
     p->kc_key = L->key_track;
 
-    /* Q = 0.5 + res^2 * 24.5; the SVF takes k = 1/Q */
-    int32_t r2 = sc_mul(L->reso, L->reso, 16);
-    uint32_t q = (uint32_t)(SC_ONE16 / 2 + sc_mul(r2, SC_Q16(24.5), 16));
+    /* Q = 0.5 + 2.2 r^0.75 + 22 r^8 (VoiceCore, 2026-10-31: a flat middle, Q 2-3 for the knob between
+     * 0.2 and 0.6 as the recording has it, and a steep end that still self-oscillates); k = 1/Q */
+    int32_t r2 = sc_mul(L->reso, L->reso, 16), r4 = sc_mul(r2, r2, 16), r8 = sc_mul(r4, r4, 16);
+    int32_t r075 = sqrt16(sc_mul(L->reso, sqrt16(L->reso), 16));
+    uint32_t q = (uint32_t)(SC_ONE16 / 2 + sc_mul(r075, SC_Q16(2.2), 16) + sc_mul(r8, SC_Q16(22.0), 16));
     p->k_q28 = (int32_t)sc_udiv64((uint64_t)1 << 44, q);
     p->atten = SC_ONE16 - sc_mul(L->reso, SC_Q16(0.6), 16);
 
@@ -316,6 +320,20 @@ static void lfo_trigger(sc_lfo_t *l)
     l->sh_next = sc_rand20(&l->rng);
 }
 
+/* sqrt of a Q16 value in Q16 (bitwise integer square root of x << 16) */
+static int32_t sqrt16(int32_t x)
+{
+    if (x <= 0) return 0;
+    uint64_t n = (uint64_t)(uint32_t)x << 16, res = 0, bit = (uint64_t)1 << 46;
+    while (bit > n) bit >>= 2;
+    while (bit) {
+        if (n >= res + bit) { n -= res + bit; res = (res >> 1) + bit; }
+        else res >>= 1;
+        bit >>= 2;
+    }
+    return (int32_t)res;
+}
+
 /* a / b in Q16 for 0 <= a < b, by a 32-bit division on both scaled to 16 bits */
 static inline int32_t frac16(uint32_t a, uint32_t b)
 {
@@ -323,20 +341,80 @@ static inline int32_t frac16(uint32_t a, uint32_t b)
     return (int32_t)((a << 16) / b);
 }
 
-/* polyBlep(t, dt), Q20 */
-static inline int32_t blep(uint32_t t, uint32_t dt)
+/* PolyBLEP residuals, Q20 for a step of 2 (the saw's and the square's), as fractions in Q16 of the
+ * sample: the sample before a step tau samples away gets (1 - tau)^2 / 2 per unit of step, the
+ * sample t after it -(1 - t)^2 / 2; a slope change gets the integrated forms (1 - tau)^3 / 6 and
+ * -(1 - t)^3 / 6 (PolyBLAMP: the triangle's corners, and every sync reset). */
+static inline int32_t sq16(int32_t x) { return (int32_t)(((int64_t)x * x) >> 16); }
+static inline int32_t cube16(int32_t x) { return (int32_t)(((int64_t)sq16(x) * x) >> 16); }
+/* the wrap's +2 step seen from the sample before it: u = 1 - phase (Q32) */
+static inline int32_t blep_before(uint32_t u, uint32_t dt)
 {
-    if (t < dt) {
-        int32_t x = frac16(t, dt);                                   /* 2x - x^2 - 1 */
-        return (2 * x - (int32_t)(((int64_t)x * x) >> 16) - SC_ONE16) * 16;
-    }
-    uint32_t u = 0u - t;                                             /* 1 - t */
-    if (u < dt) {
-        int32_t x = frac16(u, dt);                                   /* x = -(t - 1)/dt: x^2 - 2x + 1 */
-        return ((int32_t)(((int64_t)x * x) >> 16) - 2 * x + SC_ONE16) * 16;
-    }
-    return 0;
+    if (u >= dt) return 0;
+    return sq16(SC_ONE16 - frac16(u, dt)) * 16;                      /* (1 - tau)^2 */
 }
+/* the wrap's +2 step seen from the sample after it: t = phase (Q32) */
+static inline int32_t blep_after(uint32_t t, uint32_t dt)
+{
+    if (t >= dt) return 0;
+    return -sq16(SC_ONE16 - frac16(t, dt)) * 16;                     /* -(1 - t)^2 */
+}
+/* a slope change of s (Q20 per sample), seen from the sample before (u = 1 - phase) / after */
+static inline int32_t blamp_before(int32_t s, uint32_t u, uint32_t dt)
+{
+    if (u >= dt) return 0;
+    return (int32_t)(((int64_t)s * cube16(SC_ONE16 - frac16(u, dt)) / 6) >> 16);
+}
+static inline int32_t blamp_after(int32_t s, uint32_t t, uint32_t dt)
+{
+    if (t >= dt) return 0;
+    return -(int32_t)(((int64_t)s * cube16(SC_ONE16 - frac16(t, dt)) / 6) >> 16);
+}
+
+/* the classic polyBlep(t, dt) for a +2 step at the wrap, both sides (fm1/prim.h's primitive test) */
+static inline int32_t blep(uint32_t t, uint32_t dt) { return blep_after(t, dt) + blep_before(0u - t, dt); }
+
+/* the waveforms as functions of the phase (Q32 -> Q20), and the triangle's slope change per sample */
+static inline int32_t saw_at(uint32_t ph) { return (int32_t)(ph >> 11) - SC_ONE20; }
+static inline int32_t tri_at(uint32_t ph)
+{
+    uint32_t d = ph < 0x80000000u ? 0x80000000u - ph : ph - 0x80000000u;   /* |phase - 1/2| */
+    return SC_ONE20 - (int32_t)(d >> 10);                             /* 1 - 4 |phase - 1/2| */
+}
+static inline int32_t tri_bend(uint32_t dt) { return (int32_t)(dt >> 9); }    /* 8 dt, Q20 per sample */
+static inline int32_t sine_at(uint32_t ph)
+{
+    uint32_t i = ph >> 22, fr = (ph >> 6) & 0xFFFFu;
+    int32_t a = SC_SINE[i], b = SC_SINE[i + 1];
+    return a * 32 + (int32_t)(((int64_t)(b - a) * fr) >> 11);
+}
+
+/* Hard sync (PhaseOsc.sync): the master wrapped tau samples (Q16) after this sample. The slave plays
+ * this sample as it is, restarts its cycle so that the next sample is (1 - tau) dt into it, and
+ * spreads the step a (Q20) and the slope change s (Q20 per sample) of the restart over the two
+ * samples. Returns this sample's residual; o->pend holds the next one's, and o->after tells it to
+ * skip its own wrap residual (the restart is that wrap). */
+static inline int32_t sync_now(sc_osc_t *o, uint32_t dt, int32_t tau, int32_t a, int32_t s)
+{
+    int32_t u = SC_ONE16 - tau;
+    int32_t t2 = sq16(tau), t3 = cube16(tau), u2 = sq16(u), u3 = cube16(u);
+    o->pend = -(int32_t)(((int64_t)a * t2) >> 17) - (int32_t)(((int64_t)s * t3 / 6) >> 16);
+    o->after = 1;
+    o->tau = -1;
+    o->ph = (uint32_t)(((uint64_t)(uint32_t)u * dt) >> 16);
+    o->wrapped = 0;
+    return (int32_t)(((int64_t)a * u2) >> 17) + (int32_t)(((int64_t)s * u3 / 6) >> 16);
+}
+/* where the free-running cycle would have been at the reset */
+static inline uint32_t at_reset(uint32_t ph, uint32_t dt, int32_t tau) { return ph + (uint32_t)(((uint64_t)(uint32_t)tau * dt) >> 16); }
+
+/* the per-sample oscillators: inlined into render_general's two call sites, or out of line where code
+ * size matters more than the call (SC_SMALL_OSC) */
+#ifdef SC_SMALL_OSC
+#define SC_OSC_FN static __attribute__((noinline))
+#else
+#define SC_OSC_FN static inline
+#endif
 
 static inline void advance(sc_osc_t *o, uint32_t dt)
 {
@@ -345,39 +423,81 @@ static inline void advance(sc_osc_t *o, uint32_t dt)
     o->wrapped = o->ph < ph;
 }
 
-static inline int32_t osc_saw(sc_osc_t *o, uint32_t dt)
+SC_OSC_FN int32_t osc_saw(sc_osc_t *o, uint32_t dt)
 {
-    int32_t s = (int32_t)(o->ph >> 11) - SC_ONE20 - blep(o->ph, dt);
-    advance(o, dt);
+    const uint32_t ph = o->ph, u = 0u - ph;
+    const int32_t tau = o->tau;
+    int32_t s = saw_at(ph);
+    if (tau < 0 && !o->after) {                 /* free-running: the plain two-sided BLEP */
+        s -= blep_before(u, dt) + blep_after(ph, dt);
+        advance(o, dt);
+        return s;
+    }
+    if (tau < 0 || (u < dt && frac16(u, dt) < tau)) s -= blep_before(u, dt);   /* own wrap, unless the reset comes first */
+    if (o->after) { s += o->pend; o->after = 0; }
+    else s -= blep_after(ph, dt);
+    if (tau >= 0) s += sync_now(o, dt, tau, -SC_ONE20 - saw_at(at_reset(ph, dt, tau)), 0);
+    else advance(o, dt);
     return s;
 }
 
-static inline int32_t osc_square(sc_osc_t *o, uint32_t dt, uint32_t pw)
+SC_OSC_FN int32_t osc_square(sc_osc_t *o, uint32_t dt, uint32_t pw)
 {
-    int32_t s = o->ph < pw ? SC_ONE20 : -SC_ONE20;
-    s += blep(o->ph, dt);
-    s -= blep(o->ph + (0u - pw), dt);                                /* phase + (1 - pwm), wrapped */
-    advance(o, dt);
+    const uint32_t ph = o->ph, u = 0u - ph, ue = pw - ph;             /* to the wrap, to the duty edge */
+    const int32_t tau = o->tau;
+    int32_t s = ph < pw ? SC_ONE20 : -SC_ONE20;
+    if (tau < 0 && !o->after) {
+        s += blep_before(u, dt) + blep_after(ph, dt);
+        s -= ph < pw ? blep_before(ue, dt) : blep_after(ph - pw, dt);   /* the duty edge (ue < dt past the wrap, when pw < dt, is left out, as the web does) */
+        advance(o, dt);
+        return s;
+    }
+    if (tau < 0 || (u < dt && frac16(u, dt) < tau)) s += blep_before(u, dt);
+    if (ph < pw && (tau < 0 || (ue < dt && frac16(ue, dt) < tau))) s -= blep_before(ue, dt);
+    if (o->after) { s += o->pend; o->after = 0; }
+    else s += blep_after(ph, dt);
+    if (ph >= pw) s -= blep_after(ph - pw, dt);
+    if (tau >= 0) s += sync_now(o, dt, tau, at_reset(ph, dt, tau) < pw ? 0 : 2 * SC_ONE20, 0);
+    else advance(o, dt);
     return s;
 }
 
-/* PolyBlepTriangle: a leaky integrator (0.999) of a band-limited square, gain 4 dt */
-static inline int32_t osc_triangle(sc_osc_t *o, uint32_t dt)
+/* PolyBlepTriangle: -1 at the start of the cycle, +1 at the middle, its corners PolyBLAMP-corrected;
+ * a sync restarts it from -1 with a step, as the hardware's folded saw does */
+SC_OSC_FN int32_t osc_triangle(sc_osc_t *o, uint32_t dt)
 {
-    int32_t sq = osc_square(o, dt, 0x80000000u);
-    o->z = sc_mul(o->z, 1072668082, 30) + (int32_t)(((int64_t)sq * dt) >> 30);
-    return o->z;
+    const uint32_t ph = o->ph, u = 0u - ph, up = 0x80000000u - ph;    /* to the trough, to the peak */
+    const int32_t tau = o->tau, bend = tri_bend(dt);
+    int32_t s = tri_at(ph);
+    if (tau < 0 && !o->after) {
+        s += blamp_before(bend, u, dt) + blamp_after(bend, ph, dt);
+        s -= ph < 0x80000000u ? blamp_before(bend, up, dt) : blamp_after(bend, ph - 0x80000000u, dt);   /* the peak */
+        advance(o, dt);
+        return s;
+    }
+    if (tau < 0 || (u < dt && frac16(u, dt) < tau)) s += blamp_before(bend, u, dt);
+    if (ph < 0x80000000u && (tau < 0 || (up < dt && frac16(up, dt) < tau))) s -= blamp_before(bend, up, dt);
+    if (o->after) { s += o->pend; o->after = 0; }
+    else s += blamp_after(bend, ph, dt);
+    if (ph >= 0x80000000u) s -= blamp_after(bend, ph - 0x80000000u, dt);
+    if (tau >= 0) {
+        uint32_t r = at_reset(ph, dt, tau);
+        s += sync_now(o, dt, tau, -SC_ONE20 - tri_at(r), r < 0x80000000u ? 0 : bend);
+    } else advance(o, dt);
+    return s;
 }
 
-static inline int32_t osc_sine(sc_osc_t *o, uint32_t dt)
+SC_OSC_FN int32_t osc_sine(sc_osc_t *o, uint32_t dt)
 {
-    uint32_t i = o->ph >> 22, fr = (o->ph >> 6) & 0xFFFFu;
-    int32_t a = SC_SINE[i], b = SC_SINE[i + 1];
-    advance(o, dt);
-    return a * 32 + (int32_t)(((int64_t)(b - a) * fr) >> 11);
+    const int32_t tau = o->tau;
+    int32_t s = sine_at(o->ph);
+    if (o->after) { s += o->pend; o->after = 0; }
+    if (tau >= 0) s += sync_now(o, dt, tau, -sine_at(at_reset(o->ph, dt, tau)), 0);
+    else advance(o, dt);
+    return s;
 }
 
-static inline int32_t osc_tick(sc_osc_t *o, int wave, uint32_t dt, uint32_t pw, uint32_t *noise)
+SC_OSC_FN int32_t osc_tick(sc_osc_t *o, int wave, uint32_t dt, uint32_t pw, uint32_t *noise)
 {
     switch (wave) {
     case SC_WAVE_SAW:   return osc_saw(o, dt);
@@ -388,7 +508,9 @@ static inline int32_t osc_tick(sc_osc_t *o, int wave, uint32_t dt, uint32_t pw, 
     }
 }
 
-static void osc_reset(sc_osc_t *o) { o->ph = 0; o->z = 0; o->wrapped = 0; }
+static void osc_reset(sc_osc_t *o) { o->ph = 0; o->pend = 0; o->after = 0; o->tau = -1; o->wrapped = 0; }
+/* the master wrapped during the sample it just played: how far (Q16) after that sample */
+static inline int32_t wrap_tau(const sc_osc_t *o, uint32_t dt) { return SC_ONE16 - frac16(o->ph, dt); }
 
 /* PinkNoise: Voss-McCartney, 16 bands, the sum / 8 */
 static void pink_init(sc_pink_t *p, uint32_t seed)
@@ -439,6 +561,8 @@ void sc_voice_init(sc_voice_t *v, uint32_t seed)
     v->vel = SC_ONE16;
     v->a1 = SC_ONE30;                           /* filled in at the first block */
     v->cn = -(1 << 30);                         /* no cutoff yet */
+    osc_reset(&v->o1);                          /* no sync pending (tau = -1) */
+    osc_reset(&v->o2);
 }
 
 void sc_voice_note_on(sc_voice_t *v, const sc_prep_t *p, int32_t note, int32_t vel_q16)
@@ -667,7 +791,7 @@ static void render_general(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint
                                      + (int64_t)v->prev1 * p->cross) >> 20), PW_LO, PW_HI) << 16;
 
         int32_t s1 = osc_tick(&v->o1, w1, dt1, pw1, &v->noise1);
-        if (L->o2_sync && w1 != SC_WAVE_NOISE && v->o1.wrapped) v->o2.ph = 0;
+        if (L->o2_sync && w1 != SC_WAVE_NOISE && v->o1.wrapped) v->o2.tau = wrap_tau(&v->o1, dt1);
         int32_t s2 = osc_tick(&v->o2, w2, dt2, pw2, &v->noise2);
         /* white noise shares OSC2's generator, as noiseW2 does */
         int32_t nz = 0;
@@ -710,7 +834,7 @@ static const int32_t S_zero[256];              /* an LFO that is not routed read
 static uint32_t S_dt1[256], S_dt2[256], S_pw1[256];
 static int32_t  S_key[256];                     /* the portamento pitch per sample, for key tracking */
 static int64_t  S_pw2[256];                     /* OSC2's PWM sum before OSC1's cross-mod term */
-static uint8_t  S_wrap[256];
+static int32_t  S_wrap[256];                    /* OSC1's wrap per sample, as the sync's tau (Q16), or -1 */
 
 /* one oscillator over the block, its waveform a constant so each case compiles to its own loop.
  * reset: OSC1's wraps (hard sync) or 0. pwacc / xs / xk / pwbase: OSC2's pulse width with OSC1 ->
@@ -723,34 +847,37 @@ typedef struct {
     int32_t xk, pwbase;
     uint32_t *noise;
     int32_t *s, *nz;
-    uint8_t *wrap;
-    const uint8_t *reset;
+    int32_t *wrap;
+    const int32_t *reset;
 } osc_io_t;
 
 static inline __attribute__((always_inline))
-void osc_loop(sc_osc_t *o, const int wave, const osc_io_t *io, uint32_t n)
+void osc_loop(sc_osc_t *o, const int wave, const int synced, const osc_io_t *io, uint32_t n)
 {
     uint32_t ph = o->ph;
-    int32_t z = o->z;
-    uint8_t w = o->wrapped;
+    int32_t pend = o->pend, tau = synced ? o->tau : -1;       /* !synced: nothing pending, by osc_run's choice */
+    uint8_t after = synced ? o->after : 0, w = o->wrapped;
     const uint32_t *dt = io->dt;
     int32_t *s = io->s;
-    uint8_t *wrap = io->wrap;
-    const uint8_t *reset = io->reset;
+    int32_t *wrap = io->wrap;
+    const int32_t *reset = io->reset;
     if (wave == SC_WAVE_NOISE) {                /* the phase does not run */
         for (uint32_t i = 0; i < n; i++) {
             s[i] = sc_rand20(io->noise);
             if (io->nz) io->nz[i] = sc_rand20(io->noise);
-            if (wrap) wrap[i] = 0;
+            if (wrap) wrap[i] = -1;
         }
         return;
     }
     for (uint32_t i = 0; i < n; i++) {
-        uint32_t d = dt[i];
-        if (reset && reset[i]) ph = 0;
-        int32_t y;
+        const uint32_t d = dt[i], u = 0u - ph;
+        if (synced && reset) tau = reset[i];
+        int32_t y, a = 0, bend = 0;             /* a, bend: the restart's step and slope change */
         if (wave == SC_WAVE_SAW) {
-            y = (int32_t)(ph >> 11) - SC_ONE20 - blep(ph, d);
+            y = saw_at(ph);
+            if (tau < 0 || (u < d && frac16(u, d) < tau)) y -= blep_before(u, d);
+            if (after) y += pend; else y -= blep_after(ph, d);
+            if (tau >= 0) a = -SC_ONE20 - saw_at(at_reset(ph, d, tau));
         } else if (wave == SC_WAVE_SQR) {
             uint32_t q;
             if (io->pwacc)                      /* OSC2 with OSC1 -> OSC2 cross-mod */
@@ -758,36 +885,77 @@ void osc_loop(sc_osc_t *o, const int wave, const osc_io_t *io, uint32_t n)
                                        PW_LO, PW_HI) << 16;
             else
                 q = io->pw ? io->pw[i] : 0x80000000u;
-            y = (ph < q ? SC_ONE20 : -SC_ONE20) + blep(ph, d) - blep(ph + (0u - q), d);
+            const uint32_t ue = q - ph;
+            y = ph < q ? SC_ONE20 : -SC_ONE20;
+            if (tau < 0 || (u < d && frac16(u, d) < tau)) y += blep_before(u, d);
+            if (ph < q && (tau < 0 || (ue < d && frac16(ue, d) < tau))) y -= blep_before(ue, d);
+            if (after) y += pend; else y += blep_after(ph, d);
+            if (ph >= q) y -= blep_after(ph - q, d);
+            if (tau >= 0) a = at_reset(ph, d, tau) < q ? 0 : 2 * SC_ONE20;
         } else if (wave == SC_WAVE_TRI) {
-            int32_t sq = (ph < 0x80000000u ? SC_ONE20 : -SC_ONE20) + blep(ph, d) - blep(ph + 0x80000000u, d);
-            z = sc_mul(z, 1072668082, 30) + (int32_t)(((int64_t)sq * d) >> 30);
-            y = z;
+            const uint32_t up = 0x80000000u - ph;
+            const int32_t b = tri_bend(d);
+            y = tri_at(ph);
+            if (tau < 0 || (u < d && frac16(u, d) < tau)) y += blamp_before(b, u, d);
+            if (ph < 0x80000000u && (tau < 0 || (up < d && frac16(up, d) < tau))) y -= blamp_before(b, up, d);
+            if (after) y += pend; else y += blamp_after(b, ph, d);
+            if (ph >= 0x80000000u) y -= blamp_after(b, ph - 0x80000000u, d);
+            if (tau >= 0) { uint32_t r = at_reset(ph, d, tau); a = -SC_ONE20 - tri_at(r); bend = r < 0x80000000u ? 0 : b; }
         } else {
-            uint32_t k = ph >> 22, fr = (ph >> 6) & 0xFFFFu;
-            int32_t a = SC_SINE[k], b = SC_SINE[k + 1];
-            y = a * 32 + (int32_t)(((int64_t)(b - a) * fr) >> 11);
+            y = sine_at(ph);
+            if (after) y += pend;
+            if (tau >= 0) a = -sine_at(at_reset(ph, d, tau));
+        }
+        after = 0;
+        if (tau >= 0) {                         /* sync_now, on the loop's registers */
+            const int32_t uu = SC_ONE16 - tau;
+            const int32_t t2 = sq16(tau), t3 = cube16(tau), u2 = sq16(uu), u3 = cube16(uu);
+            y += (int32_t)(((int64_t)a * u2) >> 17) + (int32_t)(((int64_t)bend * u3 / 6) >> 16);
+            pend = -(int32_t)(((int64_t)a * t2) >> 17) - (int32_t)(((int64_t)bend * t3 / 6) >> 16);
+            after = 1;
+            ph = (uint32_t)(((uint64_t)(uint32_t)uu * d) >> 16);
+            w = 0;
+            if (wrap) wrap[i] = -1;
+            tau = -1;
+        } else {
+            uint32_t np = ph + d;
+            w = np < ph;
+            if (wrap) wrap[i] = w ? SC_ONE16 - frac16(np, d) : -1;
+            ph = np;
         }
         s[i] = y;
-        uint32_t np = ph + d;
-        w = np < ph;
-        if (wrap) wrap[i] = w;
-        ph = np;
     }
     o->ph = ph;
-    o->z = z;
+    o->pend = pend;
+    o->after = after;
+    o->tau = tau;
     o->wrapped = w;
 }
 
 static void osc_run(sc_osc_t *o, int wave, const osc_io_t *io, uint32_t n)
 {
-    switch (wave) {
-    case SC_WAVE_SAW: osc_loop(o, SC_WAVE_SAW, io, n); break;
-    case SC_WAVE_SQR: osc_loop(o, SC_WAVE_SQR, io, n); break;
-    case SC_WAVE_TRI: osc_loop(o, SC_WAVE_TRI, io, n); break;
-    case SC_WAVE_SIN: osc_loop(o, SC_WAVE_SIN, io, n); break;
-    default:          osc_loop(o, SC_WAVE_NOISE, io, n); break;
-    }
+    /* the synced build only where a sync can happen or one is still owed; the other is the plain loop
+     * (SC_SMALL_OSC: the synced build for everything, the same samples, less code: fm1-dock's module) */
+#ifdef SC_SMALL_OSC
+    if (1)
+#else
+    if (io->reset || o->after || o->tau >= 0)
+#endif
+        switch (wave) {
+        case SC_WAVE_SAW: osc_loop(o, SC_WAVE_SAW, 1, io, n); break;
+        case SC_WAVE_SQR: osc_loop(o, SC_WAVE_SQR, 1, io, n); break;
+        case SC_WAVE_TRI: osc_loop(o, SC_WAVE_TRI, 1, io, n); break;
+        case SC_WAVE_SIN: osc_loop(o, SC_WAVE_SIN, 1, io, n); break;
+        default:          osc_loop(o, SC_WAVE_NOISE, 1, io, n); break;
+        }
+    else
+        switch (wave) {
+        case SC_WAVE_SAW: osc_loop(o, SC_WAVE_SAW, 0, io, n); break;
+        case SC_WAVE_SQR: osc_loop(o, SC_WAVE_SQR, 0, io, n); break;
+        case SC_WAVE_TRI: osc_loop(o, SC_WAVE_TRI, 0, io, n); break;
+        case SC_WAVE_SIN: osc_loop(o, SC_WAVE_SIN, 0, io, n); break;
+        default:          osc_loop(o, SC_WAVE_NOISE, 0, io, n); break;
+        }
 }
 
 /* mix, filter and gain over [a, b), in passes over S_mix: one loop doing all of it held more
