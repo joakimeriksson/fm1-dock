@@ -28,7 +28,7 @@
 <header class="top">
   <a class="brand" href="#top" aria-label="fm1-dock, to the top"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></a>
   <nav aria-label="Sections">
-    <a href="#install">Install</a><a href="#modules">Modules</a><a href="#dock">In the dock</a><a href="#play">Play</a>
+    <a href="#install">Install</a><a href="#new">New</a><a href="#modules">Modules</a><a href="#dock">In the dock</a><a href="#play">Play</a>
     <a href="#console">Console</a><a href="#emulator">Emulator</a><a href="#debug">Debug</a><a href="#build">Build a module</a><a href="#protocol">Protocol</a>
   </nav>
 </header>
@@ -37,13 +37,13 @@
 <section class="hero" id="top">
   <div class="hero-text">
     <div class="hero-logo"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></div>
-    <p class="kicker">for the M-VAVE FM-1 and SMK-37</p>
+    <p class="kicker">for the M-VAVE FM-1 and SMK-37 · <a href="#new">new in 0.7</a></p>
     <h1>One firmware.<br><span>Many synths.</span></h1>
     <p class="lede">fm1-dock is installed once. The synths are modules in its flash: hold HOME and pick another one, no
       reinstall. Add the ones you want from this page and take them out again; your settings and presets stay.</p>
     <ol class="how">
       <li><span class="n">1</span><span><b>Install fm1-dock</b> over USB, from this page in Chrome or Edge. CS-1, Scintilla, OberVave and a sine come with it.</span></li>
-      <li><span class="n">2</span><span><b>Add modules</b> from <a href="#modules">the catalog</a>: FM-1 SID, AMB-1, FoMni and more go into its flash with one click.</span></li>
+      <li><span class="n">2</span><span><b>Add modules</b> from <a href="#modules">the catalog</a>: FM-106, MONK-1, FiMba-1, GATOR, DUB-1, FM-1 SID, AMB-1 and FoMni go into its flash with one click.</span></li>
       <li><span class="n">3</span><span><b>Hold HOME</b> on the device, pick a synth and play. Your own module deploys the same way.</span></li>
     </ol>
     <p class="hero-links"><a href="#play">See it play</a><a href="#console">Open the console</a><a href="#build">Write a module</a>
@@ -74,6 +74,19 @@
       </li>
     </ol>
   </aside>
+</section>
+
+<section id="new" aria-labelledby="new-h">
+  <h2 id="new-h">New in 0.7</h2>
+  <p class="sub">31 October 2026. <a href="https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.7">The release and its notes</a>: built and signed on GitHub, with a build attestation.</p>
+  <div class="features">
+    <div class="feat"><h3>Bluetooth MIDI that connects</h3><p>The radio now calibrates itself at every start, so a Mac, phone or controller connects and stays connected, with both CPU cores running. On a Mac: Audio MIDI Setup, MIDI Studio, the Bluetooth button, <b>Connect</b>.</p></div>
+    <div class="feat"><h3>Five new modules</h3><p>FM-106 (the Juno-106), MONK-1's twelve singers, FiMba-1's kalimba, GATOR's Plaits-style macro oscillator and DUB-1's self-playing dub machine, each its author's own code: <a href="#modules">the catalog</a>.</p></div>
+    <div class="feat"><h3>The second core</h3><p>Modules can play voices on the chip's second CPU (CS-1, FM-106). The top line shows 1CPU or 2CPU; after a crash with both, one core until power-off.</p></div>
+    <div class="feat"><h3>A master EQ</h3><p>Low, mid and high on whatever plays, in the chip's hardware EQ, heard while you set it.</p></div>
+    <div class="feat"><h3>MIDI options</h3><p>MIDI CH, LOCAL, MIDI THRU, KNOBS CC and CC 7 volume, for every module.</p></div>
+    <div class="feat"><h3>This page</h3><p>Connect, install or update fm1-dock, then add and remove modules, with a meter for the 296 KiB they share.</p></div>
+  </div>
 </section>
 
 <section id="modules" aria-labelledby="mods-h">
@@ -133,8 +146,8 @@
     <div class="feat"><h3>KNOBS CC</h3><p>KNOB1–4 send CC 74, 71, 73 and 72 (cutoff, resonance, attack, release) over USB and BLE-MIDI.</p></div>
     <div class="feat"><h3>MIDI THRU</h3><p>What comes in on the TRS MIDI jack goes on to USB-MIDI and BLE-MIDI, and the module plays it too.</p></div>
     <div class="feat"><h3>CC7</h3><p>CC 7 sets the level of any module on top of MASTER; MASTER can send CC 7 itself.</p></div>
-    <div class="feat"><h3>BLE-MIDI</h3><p>Off by default. On, a computer, phone or controller connects to <code>FM1-DOCK xxxx</code> without pairing; notes go both ways.</p></div>
-    <div class="feat"><h3>Second core</h3><p>A module can run part of its sound on the chip's second CPU: FM-106 plays three of its six voices there.</p></div>
+    <div class="feat"><h3>BLE-MIDI</h3><p>Off by default. On, a computer, phone or controller connects to <code>FM1-DOCK xxxx</code> without pairing; notes go both ways. The radio calibrates itself when it starts (the sound pauses for a moment).</p></div>
+    <div class="feat"><h3>Second core</h3><p>A module can run part of its sound on the chip's second CPU, Bluetooth on or off: CS-1 plays half its voices there, FM-106 three of its six.</p></div>
     <div class="feat"><h3>Safety nets</h3><p>OCT+ at power-on: the sine only. OCT−: the USB rescue. A module that crashes twice, or runs too slow, is set aside and the sine plays.</p></div>
     <div class="feat"><h3>SMK-37</h3><p>The same fm1-dock and modules on the M-Vave SMK-37 Pro, Elite, MKE-P37 and Starrykey 37 Play: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/SMK37.md">read this first</a>.</p></div>
   </div>
