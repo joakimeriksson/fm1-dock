@@ -299,6 +299,19 @@ def main():
               peak(s, 2.5, 2.9) > 1000 and " 0 overruns" in log and worst < 40,
               f"GATOR (Plaits) plays a key, then its SPEECH model; worst {worst} % of a block")
 
+    if "DUB-1" in names:
+        # DUB-1 plays by itself once its launch screen is over (~1.4 s): PRESETS a click, Chamber (among its heaviest
+        # pieces, root A); a key (G3) takes its note out of the scale (the project's pool, bit 10), PLAY rests it
+        s, log = run("dub", pick("DUB-1") + ",3000:e6:1,4000:16,4200:16^,6000:12,6100:12^", 9500)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        ram = (OUT / "dub" / "ram.bin").read_bytes()
+        p = ram.find(b"DUB1" + struct.pack("<I", 36))   # (project_t: magic, format 36, par[170], pool, leds, piece)
+        pool, piece = struct.unpack_from("<HxB", ram, p + 348) if p >= 0 else (0, 0)
+        check("dub", "dub: DUB-1" in log and peak(s, 0.0, 1.0) == 0 and peak(s, 3.0, 5.5) > 1000 and
+              peak(s, 8.5, 9.2) < peak(s, 3.0, 5.5) // 20 and piece == 1 and pool == 0x1AD and " 0 overruns" in log
+              and worst < 75, f"DUB-1 plays by itself, a key changes its scale (pool {pool:#x}), PLAY rests it; "
+              f"worst {worst} % of a block")
+
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
     s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
