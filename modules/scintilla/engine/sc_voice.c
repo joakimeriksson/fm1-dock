@@ -408,6 +408,14 @@ static inline int32_t sync_now(sc_osc_t *o, uint32_t dt, int32_t tau, int32_t a,
 /* where the free-running cycle would have been at the reset */
 static inline uint32_t at_reset(uint32_t ph, uint32_t dt, int32_t tau) { return ph + (uint32_t)(((uint64_t)(uint32_t)tau * dt) >> 16); }
 
+/* the per-sample oscillators: inlined into render_general's two call sites, or out of line where code
+ * size matters more than the call (SC_SMALL_OSC) */
+#ifdef SC_SMALL_OSC
+#define SC_OSC_FN static __attribute__((noinline))
+#else
+#define SC_OSC_FN static inline
+#endif
+
 static inline void advance(sc_osc_t *o, uint32_t dt)
 {
     uint32_t ph = o->ph;
@@ -415,7 +423,7 @@ static inline void advance(sc_osc_t *o, uint32_t dt)
     o->wrapped = o->ph < ph;
 }
 
-static inline int32_t osc_saw(sc_osc_t *o, uint32_t dt)
+SC_OSC_FN int32_t osc_saw(sc_osc_t *o, uint32_t dt)
 {
     const uint32_t ph = o->ph, u = 0u - ph;
     const int32_t tau = o->tau;
@@ -433,7 +441,7 @@ static inline int32_t osc_saw(sc_osc_t *o, uint32_t dt)
     return s;
 }
 
-static inline int32_t osc_square(sc_osc_t *o, uint32_t dt, uint32_t pw)
+SC_OSC_FN int32_t osc_square(sc_osc_t *o, uint32_t dt, uint32_t pw)
 {
     const uint32_t ph = o->ph, u = 0u - ph, ue = pw - ph;             /* to the wrap, to the duty edge */
     const int32_t tau = o->tau;
@@ -456,7 +464,7 @@ static inline int32_t osc_square(sc_osc_t *o, uint32_t dt, uint32_t pw)
 
 /* PolyBlepTriangle: -1 at the start of the cycle, +1 at the middle, its corners PolyBLAMP-corrected;
  * a sync restarts it from -1 with a step, as the hardware's folded saw does */
-static inline int32_t osc_triangle(sc_osc_t *o, uint32_t dt)
+SC_OSC_FN int32_t osc_triangle(sc_osc_t *o, uint32_t dt)
 {
     const uint32_t ph = o->ph, u = 0u - ph, up = 0x80000000u - ph;    /* to the trough, to the peak */
     const int32_t tau = o->tau, bend = tri_bend(dt);
@@ -479,7 +487,7 @@ static inline int32_t osc_triangle(sc_osc_t *o, uint32_t dt)
     return s;
 }
 
-static inline int32_t osc_sine(sc_osc_t *o, uint32_t dt)
+SC_OSC_FN int32_t osc_sine(sc_osc_t *o, uint32_t dt)
 {
     const int32_t tau = o->tau;
     int32_t s = sine_at(o->ph);
@@ -489,7 +497,7 @@ static inline int32_t osc_sine(sc_osc_t *o, uint32_t dt)
     return s;
 }
 
-static inline int32_t osc_tick(sc_osc_t *o, int wave, uint32_t dt, uint32_t pw, uint32_t *noise)
+SC_OSC_FN int32_t osc_tick(sc_osc_t *o, int wave, uint32_t dt, uint32_t pw, uint32_t *noise)
 {
     switch (wave) {
     case SC_WAVE_SAW:   return osc_saw(o, dt);
@@ -926,8 +934,13 @@ void osc_loop(sc_osc_t *o, const int wave, const int synced, const osc_io_t *io,
 
 static void osc_run(sc_osc_t *o, int wave, const osc_io_t *io, uint32_t n)
 {
-    /* the synced build only where a sync can happen or one is still owed; the other is the plain loop */
+    /* the synced build only where a sync can happen or one is still owed; the other is the plain loop
+     * (SC_SMALL_OSC: the synced build for everything, the same samples, less code: fm1-dock's module) */
+#ifdef SC_SMALL_OSC
+    if (1)
+#else
     if (io->reset || o->after || o->tau >= 0)
+#endif
         switch (wave) {
         case SC_WAVE_SAW: osc_loop(o, SC_WAVE_SAW, 1, io, n); break;
         case SC_WAVE_SQR: osc_loop(o, SC_WAVE_SQR, 1, io, n); break;
