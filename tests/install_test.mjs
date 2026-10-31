@@ -2,7 +2,7 @@
 // docs/install/fm1install.js on node: the package checks (on the real packages in DIR, from
 // tools/site_packages.py), and the whole update against a fake FM-1 (after Felucca's web/test_web.mjs FakeFM1,
 // by Leo Kuroshita, Hügelton Instruments, GPL-3.0).
-//   node tests/install_test.mjs [DIR]
+//   node tests/install_test.mjs [DIR [TRYIT_DIR]]      (TRYIT_DIR: tools/tryit.py's OUT)
 import { readFileSync, existsSync } from "node:fs";
 import { checkPackage, packageDamage, logicalImage, productOf, installOn, entryFor, addModule, playTune, tuneSteps,
   inspectDevice, removeModule } from "../docs/install/fm1install.js";
@@ -356,6 +356,65 @@ if (dir && existsSync(`${dir}/index.json`)) {
   const got = await installOn(stock.access, pkg, "fm1-dock", yes, () => {});
   const s1 = await inspectDevice(stock.access);
   ok(got === "FM-1_922" && s1.dock && s1.dock.version === "0.6", "demo: fm1-dock installed over the stock firmware, and it answers");
+}
+
+// ------------------------------------------------------------------ Try it (docs/tryit.js, tools/tryit.py) ---
+{
+  const { emulatorUrl, tryOutNews, tryIndex } = await import("../docs/tryit.js");
+  const page = "https://joakimeriksson.github.io/fm1-dock/#modules";
+  const idx = { firmware: "fm1dock", modules: { monk: { flash: "monk.flash", script: "monk.txt" }, cs1: { script: "cs1.txt" } } };
+  const u = emulatorUrl(page, idx, "monk");
+  ok(u.origin === "https://joakimeriksson.github.io" && u.pathname === "/fm1-emu/" && u.searchParams.get("embed") === "1"
+    && u.searchParams.get("fw") === "fm1dock" && u.searchParams.get("flash") === "/fm1-dock/tryit/monk.flash"
+    && u.searchParams.get("script") === "/fm1-dock/tryit/monk.txt", `try it: the emulator beside the page, its files by path (${u})`);
+  const b = emulatorUrl("http://localhost:8642/fm1-dock/", idx, "cs1", { embed: false });
+  ok(b.href === "http://localhost:8642/fm1-emu/?fw=fm1dock&script=%2Ffm1-dock%2Ftryit%2Fcs1.txt", "try it: a built-in has a script only; the full page without embed");
+  ok(emulatorUrl(page, idx, "gator") === null && emulatorUrl(page, null, "monk") === null, "try it: none for a module without files");
+  const frameWin = {}, msg = (o) => ({ origin: "https://joakimeriksson.github.io", source: frameWin, data: { source: "fm1-emu", type: "tryout", ...o } });
+  ok(tryOutNews(msg({ state: "playing" }), frameWin, "https://joakimeriksson.github.io").state === "playing", "try it: the emulator's news is read");
+  ok(tryOutNews({ ...msg({ state: "playing" }), origin: "https://example.com" }, frameWin, "https://joakimeriksson.github.io") === null
+    && tryOutNews({ ...msg({ state: "playing" }), source: {} }, frameWin, "https://joakimeriksson.github.io") === null
+    && tryOutNews(msg({ state: "pwned" }), frameWin, "https://joakimeriksson.github.io") === null, "try it: news from elsewhere, another window or of another kind is not");
+  ok(await tryIndex(async () => ({ ok: false })) === null && await tryIndex(async () => { throw new Error("offline"); }) === null,
+    "try it: no tryit/index.json, no Try it");
+
+  // the generated files (tools/tryit.py OUT): each script a SELECT (SAFE: the sine) of the module's name; each
+  // add-on's flash the table and the module as a deploy leaves them in an empty deploy area
+  const tdir = process.argv[3];
+  if (tdir && existsSync(`${tdir}/index.json`)) {
+    const index = JSON.parse(readFileSync(`${tdir}/index.json`, "utf8"));
+    const XIP = (off) => 0x02000000 + off - 0x4000, DP_LO = 0x96000, DT_A = 0x93000;
+    const dv = (b) => new DataView(b.buffer, b.byteOffset, b.byteLength);
+    for (const [id, e] of Object.entries(index.modules)) {
+      const sc = readFileSync(`${tdir}/${e.script}`, "utf8").trim();
+      const m = /^(\d+):m([0-9a-f]+)$/.exec(sc);
+      const f = m && parse(Uint8Array.from(m[2].match(/../g), (h) => parseInt(h, 16)));
+      const name = f && new TextDecoder().decode(f.d.subarray(0, 24)).replace(/\0.*$/s, "");
+      ok(f && (f.cmd === CMD.SELECT ? name === e.module : f.cmd === CMD.SAFE && id === "sine"),
+        `try it ${id}: ${f && f.cmd === CMD.SAFE ? "SAFE" : `SELECT ${name}`} at ${m && m[1]} ms`);
+      if (!e.flash) continue;
+      const raw = new Uint8Array(readFileSync(`${tdir}/${e.flash}`));
+      const secs = new Map();
+      for (let o = 0; o + 4100 <= raw.length; o += 4100) secs.set(dv(raw).getUint32(o, true), raw.subarray(o + 4, o + 4100));
+      const t = secs.get(DT_A), tv = t && dv(t);
+      const slot = t && t.subarray(16, 32), sv = slot && dv(slot);
+      const tableOk = t && tv.getUint32(0, true) === 0x54444248 && tv.getUint32(4, true) === 1 && tv.getUint32(8, true) === 1
+        && tv.getUint32(12, true) === crc32(Uint8Array.from([...t.subarray(4, 12), ...slot]))
+        && sv.getUint32(0, true) === 0x544f4c53 && sv.getUint32(4, true) === XIP(DP_LO);
+      const size = tableOk ? sv.getUint32(8, true) : 0;
+      const mod = new Uint8Array(Math.ceil(size / 4096) * 4096);
+      let all = tableOk;
+      for (let at = 0; at < mod.length; at += 4096) { const s = secs.get(DP_LO + at); if (s) mod.set(s, at); else all = false; }
+      const head = all && moduleInfo(mod), mv = dv(mod);
+      const n = all ? mv.getUint32(68, true) : 0, io = (80 + 4 * n + 255) & ~255;
+      const isz = head ? head.code + head.data + head.rt : 0;
+      const crcOk = all && crc32(Uint8Array.from([...mod.subarray(0, 76), ...mod.subarray(80, 80 + 4 * n), ...mod.subarray(io, io + isz)])) === mv.getUint32(76, true)
+        && mv.getUint32(76, true) === sv.getUint32(12, true);
+      ok(tableOk && all && head.name === e.module && mv.getUint32(64, true) === XIP(DP_LO) + io && crcOk && io + isz === size
+        && secs.get(0x94000) && secs.get(0x94000).every((x) => x === 0xff),
+        `try it ${id}: ${e.flash}, ${head && head.name} at ${(XIP(DP_LO)).toString(16)}, ${size} B, its table and CRC`);
+    }
+  } else console.log("(no tryit dir: its files are not checked)");
 }
 
 console.log(failed ? `INSTALL TESTS FAILED (${failed})` : "install tests passed");

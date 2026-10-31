@@ -98,7 +98,7 @@
     <div class="feat"><h3>The second core</h3><p>Modules can play voices on the chip's second CPU (CS-1, FM-106). The top line shows 1CPU or 2CPU; after a crash with both, one core until power-off.</p></div>
     <div class="feat"><h3>A master EQ</h3><p>Low, mid and high on whatever plays, in the chip's hardware EQ, heard while you set it.</p></div>
     <div class="feat"><h3>MIDI options</h3><p>MIDI CH, LOCAL, MIDI THRU, KNOBS CC and CC 7 volume, for every module.</p></div>
-    <div class="feat"><h3>This page</h3><p>Connect, install or update fm1-dock, then add and remove modules, with a meter for the 296 KiB they share.</p></div>
+    <div class="feat"><h3>This page</h3><p>Connect, install or update fm1-dock, then add and remove modules, with a meter for the 296 KiB they share. Try any of them in the emulator first.</p></div>
   </div>
 </section>
 
@@ -270,7 +270,9 @@
     <h2>The same firmware in the emulator</h2>
     <p><a href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a> runs FM-1 firmware unchanged: the same package, and with
       <code>--flash</code> the same flash contents, deployed modules and banks included. Below it runs fm1-dock 0.7 in your
-      browser: press Start, then hold HOME (the 7 key) to pick CS-1, Scintilla or OberVave.</p>
+      browser: press Start, then hold HOME (the 7 key) to pick CS-1, Scintilla or OberVave. Or press <b>Try it</b> on a
+      module's card above: the emulator starts with that module, an add-on installed in its flash, nothing to set up and
+      nothing saved.</p>
     <pre class="code"><span class="c"># a window: the panel, your computer's keys and MIDI</span>
 fm1-live --fwsc fm1-dock.fwsc --flash flash.bin
 
@@ -280,8 +282,11 @@ tools/dock.py emu --fwsc build/fm1-dock.fwsc --deploy fm1sid.dock --ms 6000
 <span class="c"># closer to the chip's speed and rules</span>
 FM1_STRICT=1 fm1-live --fwsc fm1-dock.fwsc --mhz 960</pre>
   </div>
-  <div class="emu-frame">
-    <iframe src="https://joakimeriksson.github.io/fm1-emu/?embed=1&amp;fw=fm1dock" title="fm1-emu: the FM-1 in the browser" loading="lazy" allow="midi; autoplay"></iframe>
+  <div class="emu-col">
+    <p class="say emu-say" id="emu-say" role="status" aria-live="polite" hidden></p>
+    <div class="emu-frame">
+      <iframe src="https://joakimeriksson.github.io/fm1-emu/?embed=1&amp;fw=fm1dock" title="fm1-emu: the FM-1 in the browser" loading="lazy" allow="midi; autoplay"></iframe>
+    </div>
   </div>
 </section>
 

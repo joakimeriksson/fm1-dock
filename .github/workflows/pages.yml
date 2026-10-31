@@ -3,6 +3,8 @@
 # latest releases of fm1-dock, FM-1 SID and Scintilla, and the FM-1 SID module it adds to fm1-dock (docs/modules, or a
 # .dock on FM-1 SID's release), copied into fw/ and checked (tools/site_packages.py). The
 # pages of FM-1 SID (fm1-emu's site) and Scintilla use them too: the same origin, joakimeriksson.github.io.
+# The catalog's Try it (docs/tryit.js): every module's files for fm1-emu's page on that origin (tools/tryit.py: an
+# add-on's flash as a deploy leaves it, the script that picks it), made from the .dock files the site serves.
 # Published from the Actions artifact (Settings -> Pages -> Source: GitHub Actions). FM-1 SID's and Scintilla's
 # releases reach it with the next run: every six hours, or by hand (Actions -> pages -> Run workflow).
 
@@ -42,8 +44,11 @@ jobs:
           cp -r docs _site
           python3 tools/site_packages.py _site/fw fm1-dock=joakimeriksson/fm1-dock \
               fm1-sid=joakimeriksson/fm1-sid scintilla=joakimeriksson/scintilla-fm1 --modules docs/modules
-      - name: Test the installer (the packages, and the update against a fake FM-1)
-        run: node tests/install_test.mjs _site/fw
+          python3 tools/tryit.py _site/tryit --fw _site/fw --modules docs/modules
+      - name: Test the installer (the packages, the update against a fake FM-1, the Try it files)
+        run: |
+          node tests/install_test.mjs _site/fw _site/tryit
+          python3 tests/tryit_test.py
       - if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
       - if: github.event_name != 'pull_request'
