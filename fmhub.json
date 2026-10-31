@@ -1,5 +1,5 @@
 {
-  "what": "One firmware, many synths: hold HOME and pick CS-1, Scintilla (the Elka Synthex), OberVave or a sine, no reflashing. Add FM-1 SID, AMB-1 or FoMni from the page with one click, and your own modules over USB. BLE-MIDI, and the log and crash record in the browser.",
+  "what": "One firmware, many synths: hold HOME and pick CS-1, Scintilla (the Elka Synthex), OberVave or a sine, no reflashing. Add FM-106, FM-1 SID, AMB-1, FoMni, MONK-1, FiMba-1, GATOR or DUB-1 from the page with one click, and your own modules over USB. A master EQ, MIDI options, BLE-MIDI, the second core, and the log and crash record in the browser.",
   "kinds": [
     "synth"
   ],
