@@ -4,7 +4,8 @@
 // by Leo Kuroshita, Hügelton Instruments, GPL-3.0).
 //   node tests/install_test.mjs [DIR]
 import { readFileSync, existsSync } from "node:fs";
-import { checkPackage, packageDamage, logicalImage, productOf, installOn, entryFor, addModule, playTune, tuneSteps } from "../docs/install/fm1install.js";
+import { checkPackage, packageDamage, logicalImage, productOf, installOn, entryFor, addModule, playTune, tuneSteps,
+  inspectDevice, removeModule } from "../docs/install/fm1install.js";
 import { pack7, unpack7, Updater, sameKeyboard } from "../docs/install/fm1ota.js";
 import { frame, parse, moduleInfo, crc32, CMD } from "../docs/dock.js";
 
@@ -201,13 +202,14 @@ class FakeDock {
     this.input = { name, state: "connected", addEventListener: (_, f) => listeners.add(f), removeEventListener: (_, f) => listeners.delete(f) };
     this.output = { name, state: "connected", send: (f) => { this.frames++; setTimeout(() => this.rx(f), 0); } };
     this.reply = (cmd, seq, d) => { const m = frame(cmd | 0x40, seq, Uint8Array.from(d)); setTimeout(() => listeners.forEach((f) => f({ data: m })), 0); };
-    const map = (p) => ({ forEach: (fn) => fn(p) });
+    const map = (p) => ({ forEach: (fn) => fn(p), values: () => [p].values() });
+    this.logText = "10 fm1-dock 0.6 boot, reset 00000001\n20 started SINE\n30 fm1-dock 0.7 boot, reset 00000001\n";
     this.access = { inputs: map(this.input), outputs: map(this.output) };
   }
   rx(f) {
     const r = parse(Uint8Array.from(f)), d = r.d;
     const u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
-    if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, this.cur, 0, 0, 0, ...u32(this.largest), ...u32(500000), ...u32(300000), ...new Array(24).fill(0)]);
+    if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, this.cur, 0, 0, 0, ...u32(this.largest), ...u32(500000), ...u32(300000), ...new Array(16).fill(0), ...u32(this.logText.length), ...new Array(4).fill(0)]);
     else if (r.cmd === CMD.LIST) {
       this.mods.forEach((n, i) => this.reply(r.cmd, r.seq, [0, i, 0, 2, ...u32(1), ...u32(1000), ...u32(0), ...new TextEncoder().encode(n.padEnd(24, "\0"))]));
       this.reply(r.cmd, r.seq, [0, 0xff]);
@@ -232,6 +234,14 @@ class FakeDock {
       else if (d[0] === 0x44) this.tune.bytes.set(d.subarray(5), rd(1));
       else if (d[0] === 0x45) this.played = this.tune;
       this.reply(r.cmd, r.seq, [0]);
+    } else if (r.cmd === CMD.LOG) {
+      const from = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24), w = this.logText.length;
+      const chunk = [...new TextEncoder().encode(this.logText.slice(from, from + 180))];
+      this.reply(r.cmd, r.seq, [0, 0, 0, 0, ...u32(w), ...u32(from), ...chunk]);
+    } else if (r.cmd === CMD.DELETE) {
+      const name = new TextDecoder().decode(d.subarray(0, 24)).split("\0")[0], i = this.mods.indexOf(name);
+      if (i >= 0) { this.mods = this.mods.filter((m) => m !== name); this.deleted = name; }
+      this.reply(r.cmd, r.seq, [i >= 0 ? 0 : 9]);
     } else if (r.cmd === CMD.COMMIT) {
       const good = crc32(this.got) === this.crc;
       if (good) this.committed = this.got;
@@ -289,6 +299,63 @@ if (dir && existsSync(`${dir}/index.json`)) {
   const blob = new Uint8Array(100);
   const e = await reject(addModule({ inputs: { forEach() {} }, outputs: { forEach() {} } }, { blob, info: { abi: 2, name: "X" } }, yes, () => {}));
   ok(e && e.code === "nodock", "no FM-1 running fm1-dock: nodock");
+}
+
+// ------------------------------------------------------------------ the catalog on fm1-dock's page ---
+{
+  const dev = new FakeDock({ modules: ["SINE", "FM-1 SID"] });
+  const got = await inspectDevice(dev.access);
+  ok(got.dock && got.dock.version === "0.7" && got.dock.modules.length === 2 && got.dock.hello.largest === 400000 && !got.ota,
+    `inspectDevice: fm1-dock's HELLO, its modules, its version from the log's last boot line (${got.dock && got.dock.version})`);
+  const frames = dev.frames;
+  ok(await removeModule(dev.access, "FM-1 SID", no) === null && dev.mods.includes("FM-1 SID") && dev.frames > frames,
+    "removeModule: Cancel at the question: nothing removed");
+  ok(await removeModule(dev.access, "FM-1 SID", yes) === "done" && dev.deleted === "FM-1 SID" && !dev.mods.includes("FM-1 SID"),
+    "removeModule: DELETE, the module is gone");
+  const e = await reject(removeModule(dev.access, "CS-1", yes));
+  ok(e && e.code === "notadded", "removeModule: a name fm1-dock has not added: refused, nothing sent");
+  const v = await inspectDevice(new FakeDock().access, { log: false });
+  ok(v.dock && v.dock.version === null, "inspectDevice { log: false }: no log read");
+}
+{
+  const ota = await inspectDevice(new FakeFM1(image, "ota-FM-1_900", "FM-1_921").access);
+  ok(ota.ota && ota.board === "fm1" && !ota.dock && ota.identity === "ota-FM-1_900", "inspectDevice: an FM-1 in update mode, nothing more asked");
+  const none = await inspectDevice({ inputs: new Map(), outputs: new Map() });
+  ok(!none.identity && !none.dock, "inspectDevice: no device");
+}
+
+// ?demo's simulated device (docs/demo.js) behaves as the real one for the page's flows
+{
+  const { Device, SCENES } = await import("../docs/demo.js");
+  const docks = {};
+  if (dir && existsSync(`${dir}/index.json`)) {
+    const index = JSON.parse(readFileSync(`${dir}/index.json`, "utf8"));
+    for (const [id, entry] of Object.entries(index.modules || {})) {
+      const blob = new Uint8Array(readFileSync(`${dir}/${entry.file}`));
+      docks[id] = { blob, info: moduleInfo(blob) };
+    }
+  }
+  const dev = new Device(SCENES.fm1, image.length, "0.6", "FM-1_922");
+  const seen = await inspectDevice(dev.access);
+  ok(seen.identity === "FM-1_921" && seen.board === "fm1" && seen.dock && seen.dock.version === "0.5" &&
+    seen.dock.modules.some((m) => m.name === "FM-1 SID" && m.kind === "deployed"),
+    `demo: an FM-1 with fm1-dock 0.5 and FM-1 SID (free ${seen.dock && seen.dock.hello.free} B, of 296 KiB)`);
+  if (docks.amb && docks.fomni) {
+    const e = await reject(addModule(dev.access, docks.amb, yes, () => {}));
+    ok(e && e.code === "space", "demo: AMB-1 beside FM-1 SID does not fit (space)");
+    ok(await removeModule(dev.access, "FM-1 SID", yes) === "done", "demo: FM-1 SID removed");
+    ok(await addModule(dev.access, docks.amb, yes, () => {}) === "AMB-1" && await addModule(dev.access, docks.fomni, yes, () => {}) === "FOMNI",
+      "demo: then AMB-1 and FoMni both go in");
+    const after = await inspectDevice(dev.access, { log: false });
+    ok(after.dock.modules.filter((m) => m.kind === "deployed").map((m) => m.name).join() === "AMB-1,FOMNI",
+      `demo: its list says so (free ${after.dock.hello.free} B, largest ${after.dock.hello.largest} B)`);
+  }
+  const stock = new Device(SCENES.stock, image.length, "0.6", "FM-1_922");
+  const s0 = await inspectDevice(stock.access, { log: false });
+  ok(s0.identity === "FM-1_015" && !s0.dock, "demo: stock firmware, no fm1-dock");
+  const got = await installOn(stock.access, pkg, "fm1-dock", yes, () => {});
+  const s1 = await inspectDevice(stock.access);
+  ok(got === "FM-1_922" && s1.dock && s1.dock.version === "0.6", "demo: fm1-dock installed over the stock firmware, and it answers");
 }
 
 console.log(failed ? `INSTALL TESTS FAILED (${failed})` : "install tests passed");

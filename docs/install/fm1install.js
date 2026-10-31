@@ -11,6 +11,9 @@
 //   <div data-fm1-install="fm1-sid"></div>             a whole firmware
 //   <div data-fm1-add="fm1-sid"></div>                 a module into the fm1-dock on the FM-1 (addButton)
 //   <div data-fm1-tunes></div>                         C64 tunes to FM-1 SID on the FM-1 (tuneButtons)
+// installButton and addButton take opts.ask (text -> Promise<bool>; confirm() when not given) and opts.onDone; while an
+// install runs, its element has data-busy="1". The catalog on fm1-dock's page uses inspectDevice, addModule and
+// removeModule with its own buttons.
 //   <script type="module">
 //     import { installButton } from "/fm1-dock/install/fm1install.js";
 //     for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install);
@@ -188,7 +191,7 @@ export async function installOn(midi, pkg, name, ask, step) {
 }
 
 // the FM-1 on midi that runs fm1-dock (it answers HELLO): { dock, hello } or null; MIDI ports of other names are left alone
-async function findDock(midi) {
+export async function findDock(midi) {
   const ins = [], outs = [];
   midi.inputs.forEach((p) => ins.push(p));
   midi.outputs.forEach((p) => outs.push(p));
@@ -217,6 +220,48 @@ export async function addModule(midi, mod, ask, progress) {
     await dock.deploy(mod.blob, progress);
     return mod.info.name;
   } finally { dock.close(); }
+}
+
+// a module out of the fm1-dock on the FM-1 (ask(text) confirms it first): DELETE, as the console's Delete; its flash is
+// free again, its banks stay. -> "done" (or the status fm1-dock gave), or null when cancelled
+export async function removeModule(midi, name, ask) {
+  const found = await findDock(midi);
+  if (!found) throw fail("nodock", "");
+  const { dock } = found;
+  try {
+    const m = (await dock.modules()).find((x) => x.name === name);
+    if (!m || m.kind !== "deployed") throw fail("notadded", name);
+    if (!await ask(`Remove ${name} from the fm1-dock on the FM-1? Its flash is freed; its presets in the banks stay.`)) return null;
+    return await dock.command(CMD.DELETE, name);
+  } finally { dock.close(); }
+}
+
+const BOOT_LINE = /fm1-dock (\S+) boot/g;     // dock.c's first log line at every start: "<ms> fm1-dock 0.6 boot, reset ..."
+
+// what is on the device on midi, without changing anything: its identity (the updater's handshake: "FM-1_921", an
+// SMK-37's, "ota-..." in update mode), and when it runs fm1-dock its HELLO, its modules and its version (from the
+// log's last boot line, while the 2 KiB log still has it; opts.log false: not read). -> { identity, model, board: "fm1" |
+// "smk37" | null, ota, dock: { hello, modules, version } | null }; identity null: no FM-1 answered
+export async function inspectDevice(midi, opts = {}) {
+  const dev = await new Updater(midi).find();
+  if (dev) dev.link.close();
+  const model = dev ? dev.id.model.replace(/^ota-/i, "") : null;
+  const out = { identity: dev ? dev.id.text : null, model, board: model ? (SMK_FAMILY.test(model) ? "smk37" : "fm1") : null,
+    ota: !!dev && IS_OTA(dev.id), dock: null };
+  if (out.ota) return out;
+  const found = await findDock(midi);
+  if (!found) return out;
+  const { dock, hello } = found;
+  try {
+    const modules = await dock.modules();
+    let version = null;
+    if (opts.log !== false) try {
+      const boots = [...(await dock.log()).text.matchAll(BOOT_LINE)];
+      if (boots.length) version = boots.at(-1)[1];
+    } catch (_) { /* an older fm1-dock, or the log is busy: no version */ }
+    out.dock = { hello, modules, version };
+  } finally { dock.close(); }
+  return out;
 }
 
 // ------------------------------------------------------------------ a tune to FM-1 SID ---
@@ -289,9 +334,10 @@ const SAY = {
   badpkg: "The package on this page failed its check, nothing was written. Reload the page. ",
   badreq: "The FM-1 asked for something outside the package; nothing more was sent. ",
   nodock: "No FM-1 running fm1-dock found. Install fm1-dock first (above), plug the FM-1 in with a USB data cable, close other apps that use MIDI, and press again.",
+  notadded: "fm1-dock has no added module of that name: ",
   abi: "This fm1-dock is too old or too new for the module: install the latest fm1-dock first. ",
   nosid: "FM-1 SID is not in the fm1-dock on the FM-1: add it first (Add FM-1 SID, above).",
-  space: "Not enough room in fm1-dock for it: remove another added synth first (the Console on fm1-dock's page: its module list, DELETE). ",
+  space: "Not enough room in fm1-dock for it: remove another added synth first (Remove on its card on fm1-dock's page, or the Console's module list). ",
   select: "fm1-dock did not switch to FM-1 SID: ",
   refused: "FM-1 SID did not take it: ",
   hvsc: "Could not fetch the tune from the High Voltage SID Collection: ",
@@ -299,7 +345,17 @@ const SAY = {
   write: "Writing: do not unplug the FM-1", reboot: "Restarting",
 };
 
-// a button, a progress bar and a status line in el, for the firmware id (FIRMWARES); opts.buttonClass
+const DETAIL = ["badpkg", "badreq", "abi", "space", "select", "refused", "hvsc", "notadded"];
+// an error of the functions above in words for the page
+export function explain(e) {
+  if (!SAY[e.code]) return `Error: ${e.message}`;
+  return SAY[e.code] + (e.code === "mismatch" ? e.detail || "" : DETAIL.includes(e.code) ? e.message : "");
+}
+
+const confirmAsk = async (q) => confirm(q);
+
+// a button, a progress bar and a status line in el, for the firmware id (FIRMWARES); opts.buttonClass, opts.ask,
+// opts.onDone(product)
 export function installButton(el, id, opts = {}) {
   const fw = FIRMWARES[id];
   if (!fw) throw new Error(`fm1install: no firmware ${id}`);
@@ -332,7 +388,7 @@ export function installButton(el, id, opts = {}) {
   addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = ""; } });
   btn.addEventListener("click", async () => {
     if (writing || !entry) return;
-    writing = true; btn.disabled = true;
+    writing = true; btn.disabled = true; el.dataset.busy = "1";
     try {
       let midi;
       try { midi = await navigator.requestMIDIAccess({ sysex: true }); } catch (_) { throw fail("denied", ""); }
@@ -346,19 +402,20 @@ export function installButton(el, id, opts = {}) {
         if (k === "done") { bar.value = 100; return; }
         if (SAY[k]) say(SAY[k] + (k === "write" ? ` (${Math.round(bar.value)} %)` : ""));
       };
-      const got = await installOn(midi, pkg, `${fw.name} ${entry.version}`, async (q) => confirm(q), step);
+      const got = await installOn(midi, pkg, `${fw.name} ${entry.version}`, opts.ask || confirmAsk, step);
       if (got === null) say("Cancelled: nothing was written.");
-      else say(`Done: the FM-1 runs ${fw.name} ${entry.version} (${got}).`);
+      else { say(`Done: the FM-1 runs ${fw.name} ${entry.version} (${got}).`); if (opts.onDone) opts.onDone(got); }
     } catch (e) {
       say(SAY[e.code] ? SAY[e.code] + (e.code === "mismatch" ? e.detail : e.code === "badpkg" || e.code === "badreq" ? e.message : "")
         : `Error: ${e.message}`);
       console.error(e);
     }
-    writing = false; btn.disabled = false;
+    writing = false; btn.disabled = false; delete el.dataset.busy;
   });
 }
 
-// "Add FM-1 SID to my fm1-dock": a button, a progress bar and a status line in el, for the module id (index.json's modules)
+// "Add FM-1 SID to my fm1-dock": a button, a progress bar and a status line in el, for the module id (index.json's
+// modules); opts.buttonClass, opts.ask, opts.onDone(name)
 export function addButton(el, id, opts = {}) {
   el.classList.add("fm1-install");
   el.innerHTML = "";
@@ -394,11 +451,11 @@ export function addButton(el, id, opts = {}) {
       let midi;
       try { midi = await navigator.requestMIDIAccess({ sysex: true }); } catch (_) { throw fail("denied", ""); }
       say("Looking for fm1-dock on the FM-1 …");
-      const got = await addModule(midi, mod, async (q) => confirm(q), (x, t) => {
+      const got = await addModule(midi, mod, opts.ask || confirmAsk, (x, t) => {
         bar.hidden = false; bar.value = Math.round(x * 100); say(`Sending: ${t}`);
       });
       if (got === null) say("Cancelled: nothing was sent.");
-      else { bar.value = 100; say(`Done: ${got} is in fm1-dock. Hold HOME on the FM-1 and pick it.`); }
+      else { bar.value = 100; say(`Done: ${got} is in fm1-dock. Hold HOME on the FM-1 and pick it.`); if (opts.onDone) opts.onDone(got); }
     } catch (e) {
       say(SAY[e.code] ? SAY[e.code] + (["badpkg", "abi", "space"].includes(e.code) ? e.message : "") : `Error: ${e.message}`);
       console.error(e);

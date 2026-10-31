@@ -11,8 +11,10 @@ tools/fm1_install.py checks a package before it installs one (identity, update l
 A release may carry the SMK-37's packages beside the FM-1's (fm1-dock: NAME-X.Y-smk37.fwsc, -smk37-elite, -smk37-mke):
 those go into the firmware's "variants", by the model their identity names, for the page to pick by the keyboard.
 
-The modules the page adds to an fm1-dock (FM-1 SID): a .dock attached to that firmware's latest release when there is
-one, else DIR's copy (DIR/modules.json says what it is). Each is checked as tools/hbdeploy.py checks one (its header).
+The modules the page adds to an fm1-dock (FM-1 SID, AMB-1, ...): a .dock attached to that firmware's latest release when
+there is one, else DIR's copy (DIR/modules.json says what it is; the page's catalog reads the rest of it). Each is checked
+as tools/hbdeploy.py checks one (its header). An entry "packaged" (in fm1-dock's package) has no file; an entry whose
+.dock is not in DIR yet is left out of index.json, and the page shows it without its button.
 """
 import hashlib
 import json
@@ -45,8 +47,13 @@ def modules(out, index, mdir, releases):
     """the modules (mdir/modules.json) into out, preferring a .dock on that firmware's latest release"""
     index["modules"] = {}
     for fid, m in json.loads((mdir / "modules.json").read_text()).items():
+        if m.get("packaged"):                   # in fm1-dock's package: nothing to add, the page only shows it
+            continue
         rel = releases.get(fid)
         docks = [a for a in rel["assets"] if a["name"].endswith(".dock")] if rel else []
+        if len(docks) != 1 and not (mdir / m["file"]).exists():
+            print(f"{fid:10} {m['file']:28} not here yet: the page shows it without its button")
+            continue
         if len(docks) == 1:
             a = docks[0]
             subprocess.run(["gh", "release", "download", rel["tag_name"], "-R", rel["repo"], "-p", a["name"], "-D",
