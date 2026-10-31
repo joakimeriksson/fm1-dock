@@ -288,6 +288,17 @@ def main():
               f"FiMba-1 plucks at the key's velocity (peak {peak(a, 1.5, 2.2)} soft, {peak(b, 1.5, 2.2)} hard); its "
               f"pressure moves the wah from {first:.2f} s")
 
+    if "GATOR" in names:
+        # preset 1 (VIRTUAL ANLG) plays a held key; then HOME held + note key 15 picks the SPEECH model, HARM,
+        # TIMBRE and MORPH turned up (a word, the heaviest of its 24 models here), and the key again says it
+        keys = pick("GATOR") + ",1800:21,2300:8,2350:29,2400:29^,2450:8^,2500:e2:60,2510:e3:60,2520:e4:60,2600:21^," \
+            "2650:21,3300:21^"
+        s, log = run("gator", keys, 3500)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("gator", "gator: GATOR" in log and peak(s, 0.0, 1.5) == 0 and peak(s, 1.7, 2.1) > 1000 and
+              peak(s, 2.5, 2.9) > 1000 and " 0 overruns" in log and worst < 40,
+              f"GATOR (Plaits) plays a key, then its SPEECH model; worst {worst} % of a block")
+
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
     s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
