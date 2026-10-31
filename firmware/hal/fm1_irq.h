@@ -29,6 +29,12 @@
 #define FM1_DBG_MSG (*(volatile uint32_t *)0x1EEE244u)
 #define FM1_DBG_MSG_CLR (*(volatile uint32_t *)0x1EEE248u)
 #define FM1_DBG_EN (*(volatile uint32_t *)0x1EEE340u)
+/* (fm1-dock) DBG_MSG's sources by core, as Melodee 1.6's fm1_irq.h has them (SDK cpu/wl82/debug.c): the MMU's read and
+ * write, the PC and write limits, bus-invalid fetch / read / write; bits 4, 5 are either's.
+ * fm1_dbg_cores(dbg): bit 0 core 0's, bit 1 core 1's */
+#define FM1_DBG_C1 ((1u << 6) | (1u << 8) | (1u << 10) | (1u << 11) | (7u << 16))
+#define FM1_DBG_C0 ((1u << 7) | (1u << 9) | (1u << 12) | (1u << 13) | (7u << 19))
+static inline uint32_t fm1_dbg_cores(uint32_t dbg) { return (dbg & FM1_DBG_C0 ? 1u : 0u) | (dbg & FM1_DBG_C1 ? 2u : 0u); }
 
 enum { FM1_IRQ_EXCEPTION = 1, FM1_IRQ_ALNK0 = 11, FM1_IRQ_SPI1 = 16, FM1_IRQ_UART1 = 20,
        FM1_IRQ_SARADC = 24, FM1_IRQ_SPI2 = 37, FM1_IRQ_TIMER5 = 63, FM1_IRQ_SOFT0 = 120 };

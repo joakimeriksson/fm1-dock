@@ -1,4 +1,7 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Optimist's (w0ts, github.com/w0ts/optimist, 5b06939). The calibration's hooks (fm1_rf_cal_mode, fm1_rfc_*): Melodee
+ * integration changes Copyright (C) 2026 Kerem Kilic (Ellic Studio) (github.com/keremimo/melodee, hal/fm1_ble_rf.h,
+ * 89b746c / 5320bc0); mode 1 (stock's quick start with the measured banks) Copyright (C) 2026 Joakim Eriksson */
 /* FM-1 (AC791N / WL82) radio start-up, the part before the BT block: the shared Wi-Fi front end that the BT RF
  * init runs first (docs/BLE-HW-FACTS.md §5.2, §16; branch feat/ble-facts d907ce3, "HW §n" below). Included by
  * hal/fm1_ble.h in a BLE build with the real driver.
@@ -55,6 +58,7 @@
 #define FM1_RFSPI_WAIT    (*(volatile uint32_t *)0x14034u)   /* written 0 while waiting (HW §5.2) */
 #define FM1_WL_A00        0x11900u                          /* HW §16.2: bit 14 kept */
 #define FM1_WL_VCO_EN     (*(volatile uint32_t *)0x11934u)   /* HW §16.1 group 7: bit 24 pulsed per step */
+#define FM1_WL_VCO_BAND_A 0x11938u
 #define FM1_WL_VCO_BAND   (*(volatile uint32_t *)0x11938u)   /* [25:19] the band; bits 16, 18 pulsed per step */
 #define FM1_WL_VCO_FINE   (*(volatile uint32_t *)0x1193Cu)
 #define FM1_WL_CAL_START  (*(volatile uint32_t *)0x11968u)   /* bit 28: start a comparator measurement */
@@ -198,6 +202,52 @@ static void fm1_rfspi(uint32_t addr, uint32_t cmd, uint32_t data)   /* HW §5.2:
         FM1_RFSPI_CTL &= ~0x10u;
 }
 
+/* The radio's own measurements, fm1_rf_cal.h (JieLi's AC79 SDK calibration in C, Apache-2.0; RF-CALIBRATION.md in
+ * fm1-base / Melodee "§n"). What stock V15 measures at EVERY start and stores nowhere (RF-CALIBRATION.md §1): the VCO
+ * bank scan (§3.2) and with it the bank of each RF-die frequency entry (word 1 of entries 0-127, §6). The captured
+ * program carries the EMULATOR's banks there (60 .. 48 over 2400-2480 MHz; a real unit: fbds 121 -> bank 0x33, the
+ * capture 54) and RX DC 0x200 / 0x200 (none) in word 0 of entries 128-223, where stock puts VM 187's rx_dc_tune.
+ * fm1_rf_cal_mode, set before fm1_ble_rf_run:
+ *   0  the capture as it is (Optimist's start)
+ *   1  stock's second start (quick_start_wifi_trim): the stock scan at group 7's op, its bank at fbds 121 in 0x11938,
+ *      the RF-die banks from it; VM 187 (the x187 given) at its true field widths (fm1_rf_cal_reg / _win), its RX DC
+ *      in the RF-die table, the BT TX trims from it (hal/fm1_ble.h). Nothing else measured
+ *   2  everything measured (Melodee's fm1_rf_cal_on, fm1-base's every start): mode 1 with a 187 measured by
+ *      fm1_rf_cal_trim before the first write that carries a 187 field; the x187 given is ignored */
+#include "fm1_rf_cal.h"
+static uint8_t fm1_rf_cal_mode;
+static struct fm1_rf_cal fm1_rfc;                           /* what was measured (the log reads it) */
+static uint8_t fm1_rfc_x187[68];                            /* the record applied: VM 187's (mode 1), measured (2) */
+static uint8_t fm1_rfc_scanned, fm1_rfc_trimmed, fm1_rfc_measured;
+static int fm1_rfc_scan_rc, fm1_rfc_trim_rc;
+
+static int fm1_rfc_is187(const uint8_t *trim, uint32_t nt)  /* a write that carries a field of 187 */
+{
+    uint32_t i;
+    for (i = 0; i < nt; i++)
+        if ((ble_rf_fields[4u * trim[i]] & 3u) == 3u)
+            return 1;
+    return 0;
+}
+static void fm1_rfc_before_187(void)                        /* mode 2: the first 187 field, measure now */
+{
+    if (fm1_rf_cal_mode && !fm1_rfc_trimmed) {
+        fm1_rfc_trimmed = 1;
+        fm1_rfc_measured = 1;
+        fm1_rfc_trim_rc = fm1_rf_cal_trim(&fm1_rfc, fm1_rfc_x187);
+    }
+}
+static uint32_t fm1_rfc_lut(uint32_t entry, uint32_t cmd, uint32_t w)   /* an RF-die word, patched */
+{
+    if (!fm1_rf_cal_mode)
+        return w;
+    if (cmd == 0xDu && entry < 128u && fm1_rfc_scanned)
+        return fm1_rf_cal_rfd_w1(&fm1_rfc, entry, w);
+    if (cmd == 0xEu && entry >= 128u && entry < 224u && fm1_rfc_trimmed)
+        return fm1_rf_cal_rfd_w0(entry, w, fm1_rfc_x187);
+    return w;
+}
+
 /* §16.1 group 7, our own search (not stock's): with the fine code stock starts from, find a band whose comparator
  * reads neither low (bit 17) nor high (bit 18): bisection over FM1_VCO_BANDS, a higher band when low. The step:
  * the band into 0x11938 [25:19], 0x11938 bits 16 / 18 and 0x11934 bit 24 pulsed low then high, 0x11968 bit 28,
@@ -331,10 +381,10 @@ static uint32_t fm1_ble_rf_lut2(const uint8_t *p)
         if (i)
             fm1_ble_rf_tick();
         wa += fm1_rf_u32(da + 4u * ix[2u * i]);
-        fm1_rfspi(p[3] + i, p[1], wa);
+        fm1_rfspi(p[3] + i, p[1], fm1_rfc_lut(p[3] + i, p[1], wa));
         fm1_ble_rf_tick();
         wb += fm1_rf_u32(db + 4u * ix[2u * i + 1u]);
-        fm1_rfspi(p[3] + i, p[2], wb);
+        fm1_rfspi(p[3] + i, p[2], fm1_rfc_lut(p[3] + i, p[2], wb));
     }
     fm1_ble_rf_stat.lut_words += 2u * n;
     return (uint32_t)(ix + 2u * n - p);
@@ -369,15 +419,31 @@ static void fm1_ble_rf_exec(uint32_t pc, uint32_t end, const uint8_t *const rec[
             fm1_ble_bc.addr = a;
             if (a == FM1_WL_A00)
                 v = (v & ~(1u << 14)) | (FM1_RF_REG(a) & 1u << 14);
-            for (i = 0; i < nt; i++)
-                v = fm1_rf_field(v, trim[i], rec);
+            if (fm1_rf_cal_mode && fm1_rfc_is187(trim, nt)) {
+                fm1_rfc_before_187();
+                for (i = 0; i < nt; i++)
+                    if ((ble_rf_fields[4u * trim[i]] & 3u) != 3u)
+                        v = fm1_rf_field(v, trim[i], rec);
+                v = fm1_rf_cal_reg(a, v, fm1_rfc_x187);
+            } else
+                for (i = 0; i < nt; i++)
+                    v = fm1_rf_field(v, trim[i], rec);
+            if (fm1_rf_cal_mode && fm1_rfc_scanned && a == FM1_WL_VCO_BAND_A)
+                v = (v & ~(0x7Fu << 19)) | (uint32_t)fm1_rfc.bank121 << 19;   /* our scan's bank, not the capture's */
             FM1_RF_REG(a) = v;
             nt = rmw = 0;
             pc += 5;
         } else if ((op & 0xFCu) == 0x80u) {                 /* a window write */
             v = rmw ? last : p[pc + 2];
-            for (i = 0; i < nt; i++)
-                v = fm1_rf_field(v, trim[i], rec);
+            if (fm1_rf_cal_mode && fm1_rfc_is187(trim, nt)) {
+                fm1_rfc_before_187();
+                for (i = 0; i < nt; i++)
+                    if ((ble_rf_fields[4u * trim[i]] & 3u) != 3u)
+                        v = fm1_rf_field(v, trim[i], rec);
+                v = fm1_rf_cal_win(op & 3u, p[pc + 1], v, fm1_rfc_x187);
+            } else
+                for (i = 0; i < nt; i++)
+                    v = fm1_rf_field(v, trim[i], rec);
             fm1_bbp_win_wr(op & 3u, p[pc + 1], v);
             nt = rmw = 0;
             pc += 3;
@@ -393,7 +459,7 @@ static void fm1_ble_rf_exec(uint32_t pc, uint32_t end, const uint8_t *const rec[
         } else if (op == 0x8Au) {                           /* LUT words: command, first entry, count, words */
             n = p[pc + 3];
             for (i = 0; i < n; i++)
-                fm1_rfspi(p[pc + 2] + i, p[pc + 1], fm1_rf_u32(p + pc + 4 + 4u * i));
+                fm1_rfspi(p[pc + 2] + i, p[pc + 1], fm1_rfc_lut(p[pc + 2] + i, p[pc + 1], fm1_rf_u32(p + pc + 4 + 4u * i)));
             fm1_ble_rf_stat.lut_words += n;
             pc += 4u + 4u * n;
         } else if (op == 0x8Bu) {                           /* a trim field for the next write */
@@ -410,7 +476,11 @@ static void fm1_ble_rf_exec(uint32_t pc, uint32_t end, const uint8_t *const rec[
             fm1_ble_rf_stat.delay_us += n;
             pc += 3;
         } else if (op == 0x8Du) {
-            fm1_ble_vco_scan(fm1_rf_u32(p + pc + 1));
+            if (fm1_rf_cal_mode) {                          /* the stock scan (fm1_rf_cal.h) */
+                fm1_rfc_scan_rc = fm1_rf_cal_scan(&fm1_rfc);
+                fm1_rfc_scanned = 1;
+            } else
+                fm1_ble_vco_scan(fm1_rf_u32(p + pc + 1));
             pc += 5;
         } else if (op == 0x8Eu) {
             a = p[pc + 1] | p[pc + 2] << 8;
@@ -445,6 +515,17 @@ static void fm1_ble_rf_exec(uint32_t pc, uint32_t end, const uint8_t *const rec[
 static void fm1_ble_rf_run(const uint8_t *x106, const uint8_t *x107, const uint8_t *x108, const uint8_t *x187)
 {
     const uint8_t *const rec[4] = {x106, x107, x108, x187};
+    uint32_t i;
+    fm1_rfc_scanned = fm1_rfc_trimmed = fm1_rfc_measured = 0;
+    if (fm1_rf_cal_mode == 1u) {                            /* VM 187 as the record: nothing to measure */
+        for (i = 0; i < sizeof fm1_rfc_x187; i++)
+            fm1_rfc_x187[i] = x187[i];
+        fm1_rfc_trimmed = 1;
+    }
     fm1_ble_rf_exec(0, sizeof ble_rf_prog, rec, 0);
+    if (fm1_rfc_measured)
+        fm1_rfc_cal_att(0);                                 /* (mode 2) the attenuators as JieLi's trim leaves them (its
+                                                             * last rx_tx_cal_attenuation(0)); the capture is a quick
+                                                             * start, without a trim */
     fm1_ble_rf_stat.ran = 1;
 }

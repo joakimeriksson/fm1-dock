@@ -564,7 +564,6 @@ static uint32_t ble_state(void)
 }
 static void ble_start(uint32_t failed)          /* HX's first code: only once BLUETOOTH is ON */
 {
-    cpu1_radio();                               /* (core 1 held for good first: the radio and two cores crash) */
     fm1_irq_off();                              /* (the radio's start-up: before any BLE interrupt) */
     fm1_guard_unlock_top();                     /* HX attaches its two vectors: the write limit over the vector
                                                  * table (hal/fm1_guard.h) faulted it on an FM-1 (2026-10-25) */
@@ -637,6 +636,35 @@ static void ble_main(void)                      /* the main loop: what HX wants 
 {
     if (hx_live && hx->kept(ble_rec + 4))
         rec_save(BLE_KEY, ble_rec, sizeof ble_rec);
+}
+/* the link's changes in the log, the first 16 of a boot: the state and the CONNECT_INDs (seen <<
+ * 24 | taken << 16 | refused << 8 | why), and after a link the close (count << 24 | by << 20 | reason << 12 | the
+ * longest BLE interrupt / 16 us << 4 | stops that ran out) and the packets received, ours acknowledged: hx.h's diag */
+static void ble_watch(void)
+{
+    static const char *const st[6] = { "BLE off; cind", "BLE nocal; cind", "BLE held; cind", "BLE adv; cind",
+                                       "BLE link; cind", "BLE ready; cind" };
+    static uint32_t said = HX_S_OFF, n, cal_said;
+    uint32_t s, d[HX_DIAG_N];
+    if (!hx_live || n >= 16u)
+        return;
+    s = hx->state();
+    if (s == said || s > HX_S_READY)
+        return;
+    n++;
+    hx->diag(d);
+    if (!cal_said && s >= HX_S_ADV) {           /* the radio's calibration, once: hx.c hx_diag */
+        cal_said = 1;
+        hb_log_u32("BLE rf cal: mode fail mid bank121 ms", d[3]);
+        hb_log_u32("BLE rf cal: trim ms, BT TX 2FC10", d[4]);
+        hb_log_u32("BLE rf cal: limit 0 23 46 top", d[5]);
+    }
+    hb_log_u32(st[s], d[0]);
+    if (said == HX_S_LINK || said == HX_S_READY) {
+        hb_log_u32("BLE closed; n by why isr16 stopsout", d[1]);
+        hb_log_u32("BLE rx good, tx acked", d[2]);
+    }
+    said = s;
 }
 static void ble_stop(void)                      /* before the image area is written (a boot deploy): no more HX */
 {
@@ -998,6 +1026,12 @@ static void hb_fault(const fm1_crash_t *c)
     hb_nv.crash.module = hb_nv.active;
     hb_nv.crash.ms = fm1_ms;
     hb_log_u32("FAULT pc", c->pc);
+    {
+        static const char *const by[4] = { "DBG (no core's bit), EMU", "DBG core 0's, EMU", "DBG core 1's, EMU",
+                                           "DBG both cores', EMU" };
+        hb_log_u32(by[fm1_dbg_cores(c->dbg)], c->emu);   /* which core: DBG_MSG's bits (fm1_irq.h) */
+        hb_log_u32("DBG", c->dbg);
+    }
     if (cpu1_crashed())
         hb_log("with 2 cores: 1 core until power-off");
     if (hb_probe.magic == PR_MAGIC && hb_probe.state == PR_RUNNING) {
@@ -2338,11 +2372,14 @@ static void app_main(void)
     }
     hb_nv.active = 0;
     hb_log_u32("fm1-dock " APP_VER " boot, reset", fm1_boot.p3_rst);
-    hb_log_u32("supplies VDC14 SYSVDD: found, now", fm1_supplies);   /* (fm1_sys.h: 7 / 15 M-VAVE's own) */
-    cpu1_said = cpu1_state == CPU1_NOSTART || cpu1_state == CPU1_BARRED || (cpu1_state == CPU1_FAILED && cpu1_late == 1)
-                ? cpu1_state : CPU1_SCREENING;
+    hb_log_u32("supplies VDC14 SYSVDD: found, now", fm1_supplies);   /* (fm1_power.h: 7 / 15 M-VAVE's own) */
+    if (fm1_power_err)                          /* (P33 as the boot loader left them and after: fm1_power_was / _now) */
+        hb_log_u32("supplies not as stock", fm1_power_err);
+    cpu1_said = cpu1_state == CPU1_NOSTART || cpu1_state == CPU1_BARRED || cpu1_state == CPU1_SUPPLY
+                || (cpu1_state == CPU1_FAILED && cpu1_late == 1) ? cpu1_state : CPU1_SCREENING;
     hb_log(cpu1_said == CPU1_SCREENING ? "cpu1: started" : cpu1_said == CPU1_NOSTART   /* (the screening may */
-           ? "cpu1: did not start, 1 core" : cpu1_said != CPU1_BARRED                  /* have ended already) */
+           ? "cpu1: did not start, 1 core" : cpu1_said == CPU1_SUPPLY                  /* have ended already) */
+           ? "cpu1: supplies not as stock, 1 core" : cpu1_said != CPU1_BARRED
            ? "cpu1: failed its self-test, 1 core" : cpu1_bar_why == 1
            ? "cpu1: the watchdog with 2 cores: 1 core until power-off"
            : "cpu1: off since a crash with 2 cores, until power-off");
@@ -2400,9 +2437,7 @@ static void app_main(void)
         const hb_module_t *m;
         platform_poll();
         if (cpu1_said != cpu1_state) {          /* the second core's changes, each once */
-            if (cpu1_state == CPU1_BLE)
-                hb_log("cpu1: held for Bluetooth, 1 core until power-off");
-            else if (cpu1_said == CPU1_SCREENING)
+            if (cpu1_said == CPU1_SCREENING)
                 hb_log_u32(cpu1_state == CPU1_OK ? "cpu1: 2 cores, screened in us" : cpu1_state == CPU1_MISREAD
                            ? "cpu1: misread RAM, 1 core; screened us" : "cpu1: late in its screening, 1 core; us",
                            cpu1_screen_ticks / 24u);
@@ -2706,6 +2741,7 @@ static void app_main(void)
             full = 0;                           /* (the picker gone: full, all of it again) */
 
         ble_main();
+        ble_watch();
         if (st_dirty && !held_any && fm1_ms - st_changed > 2000u && fm1_ms - t_notes > 2000u)
             store_flush();                      /* (interrupts are off while the flash is busy: no module code runs) */
     }

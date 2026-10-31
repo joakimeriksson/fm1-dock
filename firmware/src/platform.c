@@ -36,6 +36,7 @@ enum { ENC_SELECT = 0, ENC_ALGORITHM = 1, ENC_KNOB1 = 2, ENC_KNOB2 = 3, ENC_KNOB
 #include <stdint.h>
 #include "fm1_time.h"
 #include "fm1_sys.h"
+#include "fm1_power.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
 #if BOARD_SMK37
@@ -387,8 +388,8 @@ void fm1_cstart(void)
     extern uint32_t _c1_start[], _c1_end[], _c1_load[];
     uint32_t *s, *d, p3, boot_mode;
     fm1_time_init();
-    fm1_supplies_stock();                       /* VDC14 1.60 V, SYSVDD 1.38 V, as M-VAVE's firmware: both cores read
-                                                 * the flash and SRAM right on every unit (fm1_sys.h, SLOOP 2.7) */
+    fm1_power_init();                           /* the supplies as M-VAVE's firmware starts them, VDC14 1.60 V and
+                                                 * SYSVDD 1.38 V with them (fm1_power.h: Melodee's, Optimist's) */
     fm1_reset_reason();
     p3 = fm1_boot.p3_rst;
     fm1_wdt_arm(0x0D);
