@@ -204,7 +204,7 @@ def status(d):
 
 
 CPU1 = ("off", "did not start", "failed: wrong or late (self-test, screening or a job)", "2 cores", "held after a misread",
-        "being screened")
+        "being screened", "off since a crash with 2 cores, until power-off", "held for Bluetooth, until power-off")
 
 
 def hello(p):

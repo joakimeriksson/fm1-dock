@@ -564,6 +564,7 @@ static uint32_t ble_state(void)
 }
 static void ble_start(uint32_t failed)          /* HX's first code: only once BLUETOOTH is ON */
 {
+    cpu1_radio();                               /* (core 1 held for good first: the radio and two cores crash) */
     fm1_irq_off();                              /* (the radio's start-up: before any BLE interrupt) */
     fm1_guard_unlock_top();                     /* HX attaches its two vectors: the write limit over the vector
                                                  * table (hal/fm1_guard.h) faulted it on an FM-1 (2026-10-25) */
@@ -997,6 +998,8 @@ static void hb_fault(const fm1_crash_t *c)
     hb_nv.crash.module = hb_nv.active;
     hb_nv.crash.ms = fm1_ms;
     hb_log_u32("FAULT pc", c->pc);
+    if (cpu1_crashed())
+        hb_log("with 2 cores: 1 core until power-off");
     if (hb_probe.magic == PR_MAGIC && hb_probe.state == PR_RUNNING) {
         hb_probe.state = PR_CRASHED;            /* a probe's: the host is fine */
         hb_probe.pc = c->pc;
@@ -1092,13 +1095,15 @@ static int din_get(uint8_t *st_, uint8_t *d1, uint8_t *d2)
 /* ---- the screen: the host's line at the top, the picker */
 static void draw_top(int32_t oct)
 {
-    char s[12] = "OCT +0", c[12] = "CPU  0%";
+    char s[12] = "OCT +0", c[12] = "1CPU  0%";   /* (2CPU: the second core runs, or is being screened) */
     uint32_t pct = hb_nv.stats.last * 100u / BLOCK_TICKS;
     if (pct > 99u) pct = 99u;
     s[4] = oct < 0 ? '-' : '+';
     s[5] = (char)('0' + (oct < 0 ? -oct : oct));
-    c[4] = pct >= 10u ? (char)('0' + pct / 10u) : ' ';
-    c[5] = (char)('0' + pct % 10u);
+    if (cpu1_state == CPU1_OK || cpu1_state == CPU1_SCREENING)
+        c[0] = '2';
+    c[5] = pct >= 10u ? (char)('0' + pct / 10u) : ' ';
+    c[6] = (char)('0' + pct % 10u);
     cv_begin(240, 20, C_BLACK);
     cv_text(4, 2, &FONT_S, mods[cur].name, C_ACC);
     cv_text(236 - text_w(&FONT_S, s) - 12 - text_w(&FONT_S, c), 2, &FONT_S, c, C_OFF);
@@ -2333,9 +2338,14 @@ static void app_main(void)
     }
     hb_nv.active = 0;
     hb_log_u32("fm1-dock " APP_VER " boot, reset", fm1_boot.p3_rst);
-    cpu1_said = cpu1_state == CPU1_NOSTART || (cpu1_state == CPU1_FAILED && cpu1_late == 1) ? cpu1_state : CPU1_SCREENING;
+    hb_log_u32("supplies VDC14 SYSVDD: found, now", fm1_supplies);   /* (fm1_sys.h: 7 / 15 M-VAVE's own) */
+    cpu1_said = cpu1_state == CPU1_NOSTART || cpu1_state == CPU1_BARRED || (cpu1_state == CPU1_FAILED && cpu1_late == 1)
+                ? cpu1_state : CPU1_SCREENING;
     hb_log(cpu1_said == CPU1_SCREENING ? "cpu1: started" : cpu1_said == CPU1_NOSTART   /* (the screening may */
-           ? "cpu1: did not start, 1 core" : "cpu1: failed its self-test, 1 core");    /* have ended already) */
+           ? "cpu1: did not start, 1 core" : cpu1_said != CPU1_BARRED                  /* have ended already) */
+           ? "cpu1: failed its self-test, 1 core" : cpu1_bar_why == 1
+           ? "cpu1: the watchdog with 2 cores: 1 core until power-off"
+           : "cpu1: off since a crash with 2 cores, until power-off");
     if (hb_nv.crash.magic == CRASH_MAGIC)
         hb_log_u32("last crash pc", hb_nv.crash.pc);
 
@@ -2390,7 +2400,9 @@ static void app_main(void)
         const hb_module_t *m;
         platform_poll();
         if (cpu1_said != cpu1_state) {          /* the second core's changes, each once */
-            if (cpu1_said == CPU1_SCREENING)
+            if (cpu1_state == CPU1_BLE)
+                hb_log("cpu1: held for Bluetooth, 1 core until power-off");
+            else if (cpu1_said == CPU1_SCREENING)
                 hb_log_u32(cpu1_state == CPU1_OK ? "cpu1: 2 cores, screened in us" : cpu1_state == CPU1_MISREAD
                            ? "cpu1: misread RAM, 1 core; screened us" : "cpu1: late in its screening, 1 core; us",
                            cpu1_screen_ticks / 24u);

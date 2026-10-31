@@ -25,6 +25,8 @@
 #define FM1_C1_CLK (*(volatile uint32_t *)0x00010008u)
 #define FM1_C1_T4 (*(volatile uint32_t *)0x10804u)       /* TIMER4, 24 MHz */
 #define FM1_C1_SYNC() __asm__ volatile("csync" ::: "memory")
+static inline __attribute__((always_inline)) uint32_t fm1_c1_ticks(void) { return FM1_C1_T4; }   /* (fm1-dock: for
+                                                 * core 1's code in RAM, no call into the flash) */
 
 extern void fm1_c1_entry(void);
 extern uint32_t _c1_ustack[];
@@ -34,6 +36,11 @@ static volatile uint32_t fm1_c1_alive, fm1_c1_job, fm1_c1_done, fm1_c1_arg;
 volatile uint32_t fm1_c1_trace;                 /* breadcrumbs (fm1_cpu1.S, fm1_c1_main) */
 static void (*volatile fm1_c1_fn)(uint32_t);
 static uint8_t fm1_c1_on;                       /* started and answering: core 0 may hand it work */
+#ifndef FM1_C1_IDLE_SPIN
+#define FM1_C1_IDLE_SPIN 256u                   /* (fm1-dock) the idle loop's pause between polls, ~1 us, in
+                                                 * registers: an idle core 1 loads its job word ~100 times less
+                                                 * often (Felucca's idle pacing, kmplngj/Felucca#557) */
+#endif
 
 void fm1_c1_main(void);
 void __attribute__((section(".c1_text"), noreturn, used)) fm1_c1_main(void)
@@ -49,6 +56,10 @@ void __attribute__((section(".c1_text"), noreturn, used)) fm1_c1_main(void)
             FM1_C1_SYNC();
             fm1_c1_done = j;
             FM1_C1_SYNC();
+        } else {
+            uint32_t k;
+            for (k = 0; k < FM1_C1_IDLE_SPIN; k++)
+                __asm__ volatile("");           /* (fm1-dock) paced: in registers, no load, no csync */
         }
     }
 }
@@ -59,6 +70,7 @@ static void fm1_cpu1_hold(void)
     FM1_C1_CON &= ~0x8u;
     FM1_C1_SYNC();
     fm1_c1_on = 0;
+    fm1_c1_ran = 0;                             /* (fm1-dock: fm1_sys.h) */
 }
 
 /* 0 = core 1 runs and answered; else it is held again. The top of RAM must be writable

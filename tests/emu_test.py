@@ -390,9 +390,10 @@ def main():
 
         res = {}
         for case, n in (("knobs_cc", 1), ("knobs_off", 0)):   # KNOBS CC: KNOB1 up 5 detents, KNOB2 down 3, slowly;
-            keys, t = options([(O_KNOBS, n)])   # then KNOB1 down fast (4 steps a detent); OFF: nothing goes out
+            keys, t = options([(O_KNOBS, n)])   # then KNOB1 down fast, 30 ms apart (4 steps a detent; fm1-live
+            # drops one of two clicks 10 ms apart); OFF: nothing goes out
             turns = "".join(f",{t + 300 + 100 * i}:e2:1" for i in range(5)) + \
-                "".join(f",{t + 900 + 100 * i}:e3:-1" for i in range(3)) + "".join(f",{t + 1300 + 10 * i}:e2:-1" for i in range(3))
+                "".join(f",{t + 900 + 100 * i}:e3:-1" for i in range(3)) + "".join(f",{t + 1300 + 30 * i}:e2:-1" for i in range(3))
             s, log = run(case, keys + turns, t + 1500, extra=("--usb",))
             res[case] = [m for m in midi_out(case) if m[0] == 0xB0]
         out, out2 = res["knobs_cc"], res["knobs_off"]

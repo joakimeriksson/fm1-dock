@@ -19,13 +19,27 @@
  * block. These checks are statistical: a misread elsewhere goes unseen, and a block's results are kept.
  * Its idle loop (fm1_c1_main) runs a job when the job word differs from its done word, so a misread of
  * either one runs the job again: between jobs the job is a no-op in RAM (cpu1_park), so such a run
- * touches nothing and fetches nothing from the flash (a flash write, a module switch). */
+ * touches nothing and fetches nothing from the flash (a flash write, a module switch).
+ *
+ * On some units a core goes to a wrong address while core 1 runs: code addresses read with bits 23 / 24 set
+ * (0x038405DC for 0x020405DC; fm1-x0x#21, Melodee's 0x03801494), or an unmapped one (DBG bit 4 / 19), at M-VAVE's
+ * own supply levels (fm1_supplies_stock), where no check of core 1's sees it. On one FM-1 (2026-10-30) it came
+ * with the BLE radio running and core 1 working (screening or a job), within ~0.3 s; with the radio off, two cores
+ * ran clean. So the radio holds core 1 (cpu1_radio), and a crash or the watchdog while core 1 runs keeps it off
+ * until power-off (cpu1_bar, as Melodee and X0X do): the next boots run on one core instead of crashing again
+ * into the boot guard's USB rescue. */
 #include "fm1_cpu1.h"
 
-enum { CPU1_OFF, CPU1_NOSTART, CPU1_FAILED, CPU1_OK, CPU1_MISREAD, CPU1_SCREENING };   /* not started / did not
-                                                 * report in / self-test or screening wrong or late / running /
-                                                 * held after a misread / being screened */
+enum { CPU1_OFF, CPU1_NOSTART, CPU1_FAILED, CPU1_OK, CPU1_MISREAD, CPU1_SCREENING, CPU1_BARRED, CPU1_BLE };   /* not
+                                                 * started / did not report in / self-test or screening wrong or
+                                                 * late / running / held after a misread / being screened / not
+                                                 * started: a crash with two cores since power-on / held: the radio
+                                                 * runs (cpu1_radio) */
 static volatile uint8_t cpu1_state = CPU1_OFF;   /* (the main loop reads it: dock.c) */
+#define CPU1_BAR_MAGIC 0x52414231u               /* "1BAR" */
+static uint32_t cpu1_bar __attribute__((section(".noinit")));   /* CPU1_BAR_MAGIC: one core until power-off */
+static uint8_t cpu1_bar_why;                     /* CPU1_BARRED: 1 the watchdog while core 1 ran (this boot's reset),
+                                                 * 2 a crash or that, since power-on */
 static uint32_t cpu1_timeouts;                   /* jobs core 1 did not finish in time */
 static volatile uint32_t cpu1_test_out;
 #define CPU1_ZERO_WORDS 256u
@@ -53,6 +67,33 @@ static void cpu1_park(void)                      /* after a job: core 1's job wo
     fm1_c1_fn = cpu1_idle;
 }
 
+static void cpu1_stop(uint8_t state)             /* core 1 held (or never started): one core from here on */
+{
+    fm1_c1_ran = 0;
+    cpu1_state = state;
+}
+
+/* the radio is about to start (dock.c ble_start, the main loop's: no job is out between audio blocks): core 1 held
+ * until the next power-on (it cannot be started again). On this unit, with the radio running and core 1 working,
+ * one core or the other went to an unmapped address within ~0.3 s (core 1 idle while the radio started did not
+ * help); with the radio off two cores ran clean, with one core the radio did */
+static void cpu1_radio(void)
+{
+    if (cpu1_state != CPU1_OK && cpu1_state != CPU1_SCREENING)
+        return;
+    fm1_cpu1_hold();
+    cpu1_stop(CPU1_BLE);
+}
+
+static int cpu1_crashed(void)                    /* core 0's fault (core 1 already held): 1 when core 1 ran: one
+                                                  * core until power-off */
+{
+    if (cpu1_state != CPU1_OK && cpu1_state != CPU1_SCREENING)
+        return 0;
+    cpu1_bar = CPU1_BAR_MAGIC;
+    return 1;
+}
+
 static uint32_t cpu1_lcg(uint32_t x)             /* 64 steps of an LCG: the self-test's work */
 {
     uint32_t i;
@@ -66,7 +107,8 @@ static void cpu1_selftest(uint32_t arg)          /* runs on core 1, from the fla
     cpu1_test_out = cpu1_lcg(arg);
 }
 
-static uint32_t cpu1_zeros(void)                 /* on core 1: 0 when every check word read as stored */
+static inline __attribute__((always_inline)) uint32_t cpu1_zeros(void)   /* on core 1: 0 when every check word read
+                                                 * as stored (inline: in the RAM code below) */
 {
     uint32_t i, x = 0;
     for (i = 0; i < CPU1_ZERO_WORDS; i += 8u)     /* 8 a turn: the loop's own work a fraction of the loads */
@@ -75,23 +117,26 @@ static uint32_t cpu1_zeros(void)                 /* on core 1: 0 when every chec
     return x;
 }
 
-static void cpu1_screen(uint32_t arg)            /* on core 1: the check words, over and over */
+/* the screening and the job's wrapper run from RAM (.c1_text), as its idle loop: core 1 fetches from the flash only
+ * for the module's own job (the crashes above fell in the screening's time at first, with the radio on) */
+static void __attribute__((section(".c1_text"), used)) cpu1_screen(uint32_t arg)   /* on core 1: the check words */
 {
-    uint32_t i, x = 0, t0 = fm1_ticks();
+    uint32_t i, x = 0, t0 = fm1_c1_ticks();      /* (inline: no call into the flash) */
     for (i = 0; i < arg; i++)
         x |= cpu1_zeros();
     cpu1_test_out = x;
-    cpu1_job_ticks = fm1_ticks() - t0;
+    cpu1_job_ticks = fm1_c1_ticks() - t0;
 }
 
-static void cpu1_job(uint32_t arg)               /* on core 1: the module's job between two checks */
+static void __attribute__((section(".c1_text"), used)) cpu1_job(uint32_t arg)   /* on core 1: the module's job
+                                                 * between two checks */
 {
-    uint32_t t0 = fm1_ticks(), x = cpu1_zeros();
+    uint32_t t0 = fm1_c1_ticks(), x = cpu1_zeros();
     cpu1_fn(arg);
     x |= cpu1_zeros();
     if (x)
         cpu1_misreads++;
-    cpu1_job_ticks = fm1_ticks() - t0;
+    cpu1_job_ticks = fm1_c1_ticks() - t0;
 }
 
 /* at power-on, before the audio and the timers (X0X: started later, core 1 never reached its entry), with
@@ -99,10 +144,22 @@ static void cpu1_job(uint32_t arg)               /* on core 1: the module's job 
  * The PC limits are opened for the start (it boots through the chip's ROM) and armed again after. */
 static void cpu1_boot(void)
 {
+    uint32_t p3 = fm1_boot.p3_rst;
+    cpu1_bar_why = 2;
+    if ((p3 & 1u) && !(p3 & (4u | 0x40u))) {    /* power-on: core 1 gets its chance again (as the boot guard) */
+        cpu1_bar = 0;
+    } else if ((p3 & 4u) && fm1_c1_ran == FM1_C1_RAN) {
+        cpu1_bar = CPU1_BAR_MAGIC;               /* the watchdog while core 1 ran (a reboot or an update holds it */
+        cpu1_bar_why = 1;                        /* and clears fm1_c1_ran first: fm1_sys.h) */
+    }
+    if (cpu1_bar == CPU1_BAR_MAGIC) {
+        cpu1_stop(CPU1_BARRED);
+        return;
+    }
     fm1_guard_pc_open();
     if (fm1_cpu1_start() != 0) {
         fm1_guard_enable(FM1_GUARD_PC);
-        cpu1_state = CPU1_NOSTART;
+        cpu1_stop(CPU1_NOSTART);
         return;
     }
     fm1_guard_enable(FM1_GUARD_PC);
@@ -110,10 +167,11 @@ static void cpu1_boot(void)
     if (!fm1_cpu1_run(cpu1_selftest, 20261028u) || fm1_cpu1_wait() != 0 || cpu1_test_out != cpu1_lcg(20261028u)) {
         fm1_cpu1_hold();                         /* answered, but wrong or late: one core from here on */
         cpu1_late = 1;
-        cpu1_state = CPU1_FAILED;
+        cpu1_stop(CPU1_FAILED);
         return;
     }
     cpu1_park();
+    fm1_c1_ran = FM1_C1_RAN;
     cpu1_state = CPU1_SCREENING;
 }
 
@@ -135,7 +193,7 @@ static void cpu1_screen_end(void)
     if (fm1_cpu1_wait() != 0) {
         cpu1_timeouts++;
         cpu1_late = 2;
-        cpu1_state = CPU1_FAILED;
+        cpu1_stop(CPU1_FAILED);
         return;
     }
     cpu1_park();
@@ -143,7 +201,7 @@ static void cpu1_screen_end(void)
     cpu1_job_ticks = 0;                          /* (a module's job, for the stats) */
     if (cpu1_test_out) {
         fm1_cpu1_hold();                         /* a word read wrong: this unit keeps one core */
-        cpu1_state = CPU1_MISREAD;
+        cpu1_stop(CPU1_MISREAD);
     } else if (++cpu1_screened == CPU1_SCREEN_JOBS) {
         cpu1_state = CPU1_OK;
     }
@@ -169,7 +227,7 @@ static int cpu1_wait(void)
     if (fm1_cpu1_wait() != 0) {
         cpu1_timeouts++;
         cpu1_late = 3;
-        cpu1_state = CPU1_FAILED;
+        cpu1_stop(CPU1_FAILED);
         return -1;
     }
     cpu1_park();
@@ -177,7 +235,7 @@ static int cpu1_wait(void)
         cpu1_job_worst = cpu1_job_ticks;
     if (cpu1_misreads && cpu1_state == CPU1_OK) {
         fm1_cpu1_hold();                         /* this block is done; the next ones on one core */
-        cpu1_state = CPU1_MISREAD;
+        cpu1_stop(CPU1_MISREAD);
     }
     return 0;
 }
