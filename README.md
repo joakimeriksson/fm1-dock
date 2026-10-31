@@ -23,7 +23,7 @@
 
 fm1-dock is installed once. The synths are modules in its flash: hold HOME, pick another one, play. No reinstall.
 Twelve modules so far, each its author's own code: four come with it, eight more go in from the page with one click,
-and out again. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
+and out again. Every one can be tried first, without an FM-1: its card's **Try it** runs it in the emulator on the page. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
 crash record and the render load are one click away in the browser. It also runs on the M-Vave SMK-37 keyboards.
 
 <p align="center">
@@ -217,6 +217,11 @@ In the emulator, without an FM-1 (the same package, and with `--flash` the same 
 fm1-live --fwsc build/fm1-dock.fwsc --flash flash.bin
 tools/dock.py emu --fwsc build/fm1-dock.fwsc --deploy fm1sid.dock --ms 6000
 ```
+
+The catalog's Try it runs fm1-emu's browser emulator with the module installed and picked: `tools/tryit.py` makes, from
+each `.dock` the site serves, the flash a deploy leaves (so a 266 KiB module is there at boot, not after 100 s of SysEx
+through the DIN jack) and the SELECT that picks it, for fm1-emu's page on the same origin (`?flash=`, `?script=`);
+`tests/tryit_test.py` checks them against `dock.c` and in fm1-live, `--deploy` against a real deploy, sector for sector.
 
 The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `platform.c` gives), [docs/RULES.md](docs/RULES.md)
 (the chip's rules and what the build checks), [docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md).

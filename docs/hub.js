@@ -3,6 +3,7 @@
 // (modules/modules.json: cards, filters, add to and remove from the fm1-dock on the device, the deploy area's meter).
 // Over WebMIDI with install/fm1install.js and dock.js, the same protocols as the console and tools/dock.py.
 // Nothing is sent before a button is pressed, and nothing is written before the question under it is answered.
+// Try it (tryit.js): any module in the emulator further down the page, fm1-emu's, with no device at all.
 // ?demo[=fm1|fresh|smk|stock|none]: a simulated device instead of WebMIDI (demo.js), for trying and testing the page.
 //
 // A module in modules/modules.json (the key is its id; fw/index.json's modules, from tools/site_packages.py, use it):
@@ -14,6 +15,7 @@
 //   else file (the .dock next to modules.json), version, source, songs; pending: why the file is not here yet.
 import { catalog, installButton, tuneButtons, inspectDevice, addModule, removeModule, loadModule, explain } from "./install/fm1install.js";
 import { moduleInfo } from "./dock.js";
+import { tryIndex, emulatorUrl, tryOutNews } from "./tryit.js";
 
 const DEMO = new URLSearchParams(location.search).get("demo");
 if (DEMO !== null) await (await import("./demo.js")).start(DEMO);
@@ -48,7 +50,7 @@ const fail = (code) => Object.assign(new Error(code), { code });
 
 const S = {
   mods: [], index: null, midi: null, dev: null, devErr: null, connecting: false, gone: false,
-  busy: null, msg: {}, filter: "all", q: "", hover: null,
+  busy: null, msg: {}, filter: "all", q: "", hover: null, tryit: null, trying: null,
 };
 
 // ------------------------------------------------------------------ the inline question ---
@@ -68,11 +70,13 @@ export function ask(text, yes = "Yes") {
 // ------------------------------------------------------------------ the catalog's data ---
 
 async function load() {
-  const [mods, index] = await Promise.all([
+  const [mods, index, tryit] = await Promise.all([
     fetch("modules/modules.json", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`modules.json: HTTP ${r.status}`); return r.json(); }),
     catalog().catch(() => null),              // fw/index.json: on the published site (tools/site_packages.py)
+    tryIndex(),                               // tryit/index.json: on the published site (tools/tryit.py)
   ]);
   S.index = index;
+  S.tryit = tryit;
   S.mods = Object.entries(mods).map(([id, m]) => ({ id, ...m, addon: !m.packaged, tags: m.tags || [] }));
   await Promise.all(S.mods.filter((m) => m.addon).map(async (m) => {
     const e = index && index.modules && index.modules[m.id];
@@ -350,8 +354,15 @@ function node(tag, cls, text) { return Object.assign(document.createElement(tag)
 function actions(m) {
   const out = [], msg = S.msg[m.id], name = devName(), d = dock(), here = onDevice(m);
   const row = node("div", "row2", "");
+  const tryBtn = () => {
+    const b = button(S.trying === m.id ? "Try again" : "Try it", "try", () => tryIt(m));
+    b.title = `${m.title} in the emulator on this page: no ${name} needed`;
+    return b;
+  };
+  const canTry = !!emulatorUrl(location.href, S.tryit, m.id);
   if (!m.addon) {
     row.append(node("span", `state${here ? " ok" : ""}`, here ? `✓ On your ${name}` : "Comes with fm1-dock"));
+    if (canTry) row.append(tryBtn());
     out.push(row);
   } else if (!m.available) {
     row.append(node("span", "state", "Not on this page yet"));
@@ -360,12 +371,15 @@ function actions(m) {
     const busy = S.busy === m.id, other = S.busy && !busy;
     if (here && here.kind === "deployed") {
       row.append(node("span", "state ok", "✓ Installed"), button(busy ? "Removing…" : "Remove", "danger", () => remove(m), !!S.busy));
+      if (canTry) row.append(tryBtn());
     } else if (here) {
       row.append(node("span", "state ok", `✓ On your ${name} (in its package)`));
+      if (canTry) row.append(tryBtn());
     } else {
       const fits = !d || !m.size || sectors(m.size) <= d.hello.largest;
       const blocked = !navigator.requestMIDIAccess || (S.dev && !d) || !fits || other || busy;
       row.append(button(busy ? "Adding…" : `Add to my ${name}`, "primary wide", () => add(m), blocked));
+      if (canTry) row.append(tryBtn());
       if (!msg) {
         const large = m.tags.includes(LARGE_TAG);
         if (S.dev && !d) out.push(node("p", "note", "Install fm1-dock first (above)."));
@@ -387,7 +401,8 @@ function actions(m) {
 }
 
 function say(m, text, cls = "", x = null) {
-  S.msg[m.id] = { text, cls, x };
+  if (text === null) delete S.msg[m.id];
+  else S.msg[m.id] = { text, cls, x };
   const a = document.querySelector(`.mod[data-id="${CSS.escape(m.id)}"]`);
   if (!a) return;
   const act = a.querySelector(".act"), p = act.querySelector("progress"), note = act.querySelector('[role="status"]');
@@ -450,6 +465,56 @@ async function remove(m) {
   S.busy = null;
   await connect({ log: !(dock() && dock().version) });
 }
+
+// ------------------------------------------------------------------ try it, in the emulator ---
+
+const emuFrame = $("#emulator iframe"), emuSay = $("#emu-say");
+let emuWait = 0;
+
+function emuNews(m, text, cls = "") {
+  emuSay.hidden = false;
+  emuSay.className = `say emu-say${cls ? ` ${cls}` : ""}`;
+  const full = emulatorUrl(location.href, S.tryit, m.id, { embed: false });
+  emuSay.replaceChildren(text, " ", Object.assign(document.createElement("a"), {
+    href: full.href, target: "_blank", rel: "noopener", textContent: "Full page ↗" }));
+}
+
+// the emulator below, reloaded with fm1-dock and the module (installed: an add-on's flash from tools/tryit.py), picked
+function tryIt(m) {
+  const url = emulatorUrl(location.href, S.tryit, m.id);
+  if (!url) return;
+  if (S.trying && S.trying !== m.id) { delete S.msg[S.trying]; const prev = S.mods.find((x) => x.id === S.trying); if (prev) say(prev, null); }
+  S.trying = m.id;
+  const doing = m.addon ? `Installing ${m.title} in the emulator…` : `Starting ${m.title} in the emulator…`;
+  say(m, doing);
+  emuNews(m, doing);
+  emuFrame.src = url.href;
+  $(".emu-col").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  clearTimeout(emuWait);                       // (an emulator page that does not tell: an older one)
+  emuWait = setTimeout(() => emuNews(m, `If the emulator has not started ${m.title}, press its Start.`), 20000);
+}
+
+addEventListener("message", (e) => {
+  const n = tryOutNews(e, emuFrame.contentWindow, location.origin);
+  const m = n && S.mods.find((x) => x.id === S.trying);
+  if (!m) return;
+  clearTimeout(emuWait);
+  const what = m.addon ? `${m.title}, installed in its flash` : m.title;
+  if (n.state === "loading") emuNews(m, `Fetching fm1-dock${m.addon ? ` and ${m.title}` : ""} for the emulator…`);
+  else if (n.state === "booting") emuNews(m, `fm1-dock is starting in the emulator, with ${what}…`);
+  else if (n.state === "start") {
+    emuNews(m, `Press Start on the emulator: your browser wants a click before a page plays sound. ${m.title} comes up as it starts.`);
+    say(m, "Press Start on the emulator below.");
+  } else if (n.state === "error") {
+    emuNews(m, `The emulator could not start ${m.title}: ${n.text || "an error"}.`, "bad");
+    say(m, `The emulator could not start it: ${n.text || "an error"}.`, "bad");
+  } else if (n.state === "playing") {
+    emuNews(m, `${m.title} is playing in the emulator: the keys on its panel, or A W S E D F T G Y H U J on your
+      keyboard (Z X: octave). HOME (the 7 key) opens the picker. Nothing here is saved.`.replace(/\s+/g, " "), "ok");
+    say(m, "✓ Playing in the emulator below.", "ok");
+    emuFrame.focus();                          // (the computer's keys to the emulator)
+  }
+});
 
 // ------------------------------------------------------------------ start ---
 
