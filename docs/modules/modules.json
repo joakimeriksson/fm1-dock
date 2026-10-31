@@ -12,6 +12,7 @@
   "description": "A CS-80-style polysynth: two layers, its tone bars, effects and user presets, with velocity and aftertouch from the keys.",
   "tags": ["synth", "poly", "vintage"],
   "screenshot": "media/screen_cs1.png",
+  "accent": "#e8b923",
   "alt": "CS-1's screen: its tone bars and the preset BLADE BRASS"
  },
  "scintilla": {
@@ -28,6 +29,7 @@
   "description": "The 1981 Elka Synthex with all 80 factory patches, the laser harp among them, checked sample by sample against its browser original.",
   "tags": ["synth", "poly", "vintage"],
   "screenshot": "media/screen_scintilla.png",
+  "accent": "#ff8a2a",
   "alt": "Scintilla's screen: the patch RING MOD., the laser harp"
  },
  "obervave": {
@@ -43,6 +45,7 @@
   "description": "A four-track analog-style poly with arpeggiator, sequencer and effects; its pages, presets and patterns live in fm1-dock's banks.",
   "tags": ["synth", "poly", "sequencer"],
   "screenshot": "media/screen_obervave.png",
+  "accent": "#4fa3e6",
   "alt": "OberVave's PERFORM page: cutoff, resonance, envelope, release"
  },
  "fm1-sid": {
@@ -62,6 +65,7 @@
   "description": "C64 music: a cycle-exact 6510 and reSID, GoatTracker 2 songs with their editor on the knobs, and any .sid from its page plays at once.",
   "tags": ["chiptune", "tracker", "synth"],
   "screenshot": "media/screen_fm1sid.png",
+  "accent": "#8f86ff",
   "alt": "FM-1 SID's screen: Arkanoid by Martin Galway, three voices, the filter, the scope"
  },
  "amb": {
@@ -81,6 +85,7 @@
   "description": "A generative ambient machine after Music for Airports: pads, bells on tape loops and a gliding bass play themselves while you tend them.",
   "tags": ["ambient", "generative"],
   "screenshot": "media/screen_amb.png",
+  "accent": "#b5c45a",
   "alt": "AMB-1's screen: the Garden, D Dorian on Dm7, the four layers' levels"
  },
  "fomni": {
@@ -99,6 +104,7 @@
   "description": "A chord harp after the Omnichord: chords on the black keys, strummed on the white ones, with a bass and a rhythm box.",
   "tags": ["chords", "rhythm"],
   "screenshot": "media/screen_fomni.png",
+  "accent": "#4fb8a8",
   "alt": "FoMni's screen: the chord C, the strings and the chord buttons"
  },
  "fm106": {
@@ -117,6 +123,7 @@
   "description": "The Roland Juno-106: six voices, the 128 factory presets, its BBD chorus, arpeggiator and sequencer; three voices run on the chip's second core.",
   "tags": ["synth", "poly", "vintage"],
   "screenshot": "media/screen_fm106.png",
+  "accent": "#f0503c",
   "alt": "FM-106's screen: the preset A85 Rocket Men, three voices playing, the VCF's sliders and the oscilloscope"
  },
  "monk": {
@@ -136,6 +143,7 @@
   "description": "Twelve singers on MonkSynth's formant voice, each on its own stage: the mouth follows the vowel, and the keys give velocity and pressure.",
   "tags": ["synth", "vocal"],
   "screenshot": "media/screen_monk.png",
+  "accent": "#f2a03d",
   "alt": "MONK-1's screen: Jerry the monk singing with his mouth wide open, Vowel, Head, Breath and Glide below"
  },
  "fimba": {
@@ -154,6 +162,7 @@
   "description": "A kalimba by modal synthesis: tines on the white keys, thumb-roll chords on the black, with its body, buzzers, a sound hole's wah, delay and reverb.",
   "tags": ["chords", "physical model"],
   "screenshot": "media/screen_fimba.png",
+  "accent": "#c98a4a",
   "alt": "FiMba-1's screen: three tines ringing in C major, the chord keys, Material Steel, Hardness, Decay and Tone"
  },
  "gator": {
@@ -173,6 +182,7 @@
   "description": "A macro-oscillator on Emilie Gillet's Plaits DSP: 24 models in 3 banks, a low-pass gate, two LFOs and an 8-slot modulation matrix.",
   "tags": ["synth", "mono"],
   "screenshot": "media/screen_gator.png",
+  "accent": "#46d07a",
   "alt": "GATOR's screen: the model WAVETABLE, its harmonics, timbre and morph, the wave under them"
  },
  "dub": {
@@ -192,6 +202,7 @@
   "description": "A generative dub techno machine, AMB-1's fork: chord stabs dissolve in a tape echo over a steady kick, in eight pieces it plays by itself.",
   "tags": ["generative", "rhythm"],
   "screenshot": "media/screen_dub.png",
+  "accent": "#2fc4c4",
   "alt": "DUB-1's screen: the Form page, the chord Fm7 in its ripples, the lanes of the phrase, Energy, Vary, Motion and Drift"
  },
  "sine": {
@@ -207,6 +218,7 @@
   "description": "Dinghy's sine, always there: the fallback when a module fails, and the smallest module to copy when you write your own.",
   "tags": ["starter"],
   "screenshot": "media/screen_sine.png",
+  "accent": "#9a8cff",
   "alt": "SINE's screen: a sine to build on, the note C4"
  }
 }
