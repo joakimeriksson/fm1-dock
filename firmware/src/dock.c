@@ -554,6 +554,7 @@ static const hx_host_t hx_host = {ble_flash_read, ble_midi_in};
 static void ble_out(uint32_t pkt) { if (hx_live) hx->out(pkt); }
 static void ble_poll(void) { if (hx_live) hx->poll(); }
 static uint8_t ble_held;                        /* ON saved, but this boot does not start it (safe boot, a failed boot) */
+static uint8_t eq_held;                         /* the EQ saved ON, but this boot does not run it (the same two cases) */
 static uint32_t ble_state(void)
 {
     if (!hx)
@@ -1194,6 +1195,7 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
     case O_LOCAL: if (!(lit = opt & OPT_LOCAL_OFF)) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
     case O_EQ:                                  /* OFF >, ON >, FAILED (SEL: its page) */
         if (eq_failed) { memcpy(v, "FAILED", 7); break; }
+        if (eq_held) { memcpy(v, "HELD", 5); break; }
         if ((lit = st.spare[2] & EQ_ON) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0;
         memcpy(v + (lit ? 2 : 3), " >", 3);
         break;
@@ -1220,8 +1222,8 @@ static void draw_eq_page(uint32_t row)
         uint32_t lit;
         cv_begin(240, 28, r == row ? RGB(40, 30, 60) : C_BLACK);
         if (r == 0) {
-            lit = (st.spare[2] & EQ_ON) && !eq_failed;
-            v = eq_failed ? "FAILED" : lit ? "ON" : "OFF";
+            lit = (st.spare[2] & EQ_ON) && !eq_failed && !eq_held;
+            v = eq_failed ? "FAILED" : eq_held ? "HELD" : lit ? "ON" : "OFF";
             cv_text(12, 6, &FONT_S, "EQ", r == row ? C_ACC : C_WHITE);
         } else {
             int32_t g = eq_db(r - 1u);
@@ -1272,6 +1274,7 @@ static uint32_t eq_page_input(uint32_t *row, const int32_t *en, uint32_t b)   /*
     if (st.spare[2] != was) {
         if ((st.spare[2] ^ was) & ~EQ_ON)
             st.spare[2] |= EQ_ON;               /* (a band turned: the EQ on, to hear it) */
+        eq_held = 0;                            /* (held this boot: the user's own change runs it) */
         eq_apply();
         store_touch();
         moved = 1;
@@ -2388,7 +2391,6 @@ static void app_main(void)
 
     store_load();
     if (st.oct < -2 || st.oct > 2) st.oct = 0;
-    eq_apply();
 #if BOARD_SMK37
     ble_capture();                              /* (the stock VM's region: before anything writes it) */
     sense_mask = (1u << 27) - 1u;               /* (every key: its velocity is the scan's) */
@@ -2411,6 +2413,11 @@ static void app_main(void)
     fm1_delay_ms(60);                           /* the key scan sees what is held at power-on */
     safe = (fm1_in.buttons >> BTN_OCT_UP) & 1u;
     ble_boot(safe);
+    eq_held = (uint8_t)((st.spare[2] & EQ_ON) && (bootguard.failed || safe));   /* (as the radio: a way back from an EQ that misbehaves on the chip) */
+    if (eq_held)
+        hb_log("EQ saved ON, held this boot");
+    else
+        eq_apply();
     lcd_fill(0, 0, 240, 240, C_BLACK);
     if (safe)
         hb_log("safe boot (OCT+): the sine only, the radio not started");
