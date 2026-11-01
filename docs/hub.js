@@ -8,6 +8,7 @@
 //
 // A module in modules/modules.json (the key is its id; fw/index.json's modules, from tools/site_packages.py, use it):
 //   title, module (its name on the device, as in its .dock), by, author_url, original (its own page or repository),
+//   hub (its id on the FM-1 Firmware Hub, for the card's link thefirmwarehub.com/#fw-<hub>),
 //   links [{label, url}], license, voices, description (one line), tags [...] (the page adds "large" to an add-on
 //   over 200 KiB: most of an FM-1's 296 KiB on its own), screenshot (media/...png), alt, accent (a colour from its
 //   screen, for the card's frame);
@@ -238,7 +239,7 @@ function renderRelease() {
       with a <a href="${REPO}/attestations">build attestation</a>.`
     : `From v0.7 on, releases are built from source and signed on GitHub
       (<a href="https://github.com/zvenson/fm1-build">zvenson/fm1-build</a>), with a build attestation.`}
-    SMK-37: <a href="${REPO}/blob/main/SMK37.md">read this first</a>.</span>`;
+    Also on the <a href="https://thefirmwarehub.com/#fw-fm1dock">FM-1 Firmware Hub</a>. SMK-37: <a href="${REPO}/blob/main/SMK37.md">read this first</a>.</span>`;
 }
 
 // ------------------------------------------------------------------ the meter ---
@@ -308,6 +309,7 @@ function card(m) {
   const kind = m.builtin ? "In the host" : m.packaged ? "Built in" : "Add-on";
   const by = m.author_url ? `<a href="${url(m.author_url)}">${esc(m.by)}</a>` : esc(m.by);
   const links = [m.original && `<a href="${url(m.original)}">original</a>`,
+    m.hub && `<a href="https://thefirmwarehub.com/#fw-${encodeURIComponent(m.hub)}" title="its own firmware on the FM-1 Firmware Hub">the Hub</a>`,
     ...(m.links || []).map((l) => url(l.url) && `<a href="${url(l.url)}">${esc(l.label)}</a>`)].filter(Boolean);
   const size = m.addon ? (m.size ? kib(m.size) : "—") : m.builtin ? "in the host" : m.size_kib ? `${m.size_kib} KiB, in the package` : "in the package";
   const a = document.createElement("article");
