@@ -1,0 +1,95 @@
+{
+    "name": "fm1-dock-debug",
+    "displayName": "fm1-dock Debug",
+    "description": "Diagnostic overlay for fm1-dock over USB-MIDI SysEx",
+    "version": "0.2.0",
+    "publisher": "fm1-dock",
+    "engines": {
+        "vscode": "^1.80.0"
+    },
+    "categories": [
+        "Debuggers"
+    ],
+    "activationEvents": [
+        "onDebugResolve:fm1-dock"
+    ],
+    "main": "./extension.js",
+    "contributes": {
+        "debuggers": [
+            {
+                "type": "fm1-dock",
+                "label": "FM-1 Monitor",
+                "configurationAttributes": {
+                    "launch": {
+                        "properties": {
+                            "emu": {
+                                "type": "boolean",
+                                "description": "Boot fm1-dock in the emulator, then attach",
+                                "default": true
+                            }
+                        }
+                    },
+                    "attach": {
+                        "properties": {
+                            "port": {
+                                "type": "string",
+                                "description": "MIDI port name (leave empty for auto-detect)",
+                                "default": ""
+                            },
+                            "mock": {
+                                "type": "boolean",
+                                "description": "Use synthetic data (no hardware needed)",
+                                "default": false
+                            },
+                            "ram": {
+                                "type": "string",
+                                "description": "Path to emulator RAM dump (e.g. build/emu/ram.bin)",
+                                "default": ""
+                            }
+                        }
+                    }
+                },
+                "initialConfigurations": [
+                    {
+                        "name": "FM-1 Monitor (emulator)",
+                        "type": "fm1-dock",
+                        "request": "launch",
+                        "emu": true
+                    }
+                ],
+                "configurationSnippets": [
+                    {
+                        "label": "fm1-dock: Emulator",
+                        "description": "Boot fm1-dock in the emulator and attach",
+                        "body": {
+                            "name": "FM-1 Monitor (emulator)",
+                            "type": "fm1-dock",
+                            "request": "launch",
+                            "emu": true
+                        }
+                    },
+                    {
+                        "label": "fm1-dock: Live (USB-MIDI)",
+                        "description": "Attach to a running FM-1 over USB-MIDI",
+                        "body": {
+                            "name": "FM-1 Monitor (live)",
+                            "type": "fm1-dock",
+                            "request": "attach",
+                            "port": ""
+                        }
+                    },
+                    {
+                        "label": "fm1-dock: Mock",
+                        "description": "Use synthetic data (no hardware needed)",
+                        "body": {
+                            "name": "FM-1 Monitor (mock)",
+                            "type": "fm1-dock",
+                            "request": "attach",
+                            "mock": true
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}
