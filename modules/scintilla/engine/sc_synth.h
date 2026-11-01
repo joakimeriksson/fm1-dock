@@ -14,6 +14,9 @@
 #ifndef SC_VOICES
 #define SC_VOICES 8                             /* per layer (patch.master.polyphony, capped) */
 #endif
+#if SC_VOICES > 16
+#error "sc_render_split's masks: 2 x SC_VOICES bits"
+#endif
 #define SC_CHORUS_LEN 1024                      /* samples: 23 ms, the chorus reaches ~20 */
 
 enum { SC_EV_NOTE_ON = 1, SC_EV_NOTE_OFF, SC_EV_ALL_OFF, SC_EV_BEND, SC_EV_PATCH,
@@ -75,6 +78,15 @@ void sc_perf_default(sc_perf_t *p);
 int  sc_post(sc_synth_t *s, uint8_t type, uint8_t note, int32_t val);
 /* the audio interrupt: add n (<= 256) stereo frames (L R, Q15) into out */
 void sc_render(sc_synth_t *s, int32_t *out, uint32_t n);
+/* sc_render in three parts, for a render whose voices are split between two cores (fm1-dock's
+ * module): sc_render_begin (the events), then sc_render_voices for each part of sc_render_split's
+ * (the sounding voices, alternately: bit k * SC_VOICES + i is layer k's voice i) at the same time,
+ * each into its own bus and on its own lane (SC_LANES, sc_voice.h), then sc_render_end with the
+ * other part's bus (more; s->bus holds the first). The same samples as sc_render, n <= 256. */
+void sc_render_begin(sc_synth_t *s);
+uint32_t sc_render_split(const sc_synth_t *s, uint32_t *other);
+void sc_render_voices(sc_synth_t *s, int32_t (*bus)[256], uint32_t mask, unsigned lane, uint32_t n);
+void sc_render_end(sc_synth_t *s, const int32_t (*more)[256], int32_t *out, uint32_t n);
 /* the same events, applied at once (only from the context that calls sc_render) */
 void sc_note_on(sc_synth_t *s, int note, int32_t vel_q16);
 void sc_note_off(sc_synth_t *s, int note);

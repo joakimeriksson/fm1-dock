@@ -98,7 +98,7 @@ RAM needs it. The originals are linked; their manuals apply.
 | | by | voices | size | |
 | --- | --- | --- | --- | --- |
 | **CS-1** | twochannels | 8, two layers each | 52 KiB | A CS-80-style polysynth: two layers, its tone bars, effects and user presets, velocity and aftertouch from the keys. Half its voices on the second core. [The original](https://github.com/twochannels/CS-1). |
-| **Scintilla** | Joakim Eriksson | 8 | 87 KiB | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. [Its page](https://joakimeriksson.github.io/scintilla-fm1/). |
+| **Scintilla** | Joakim Eriksson | 8 | 90 KiB | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. Half its voices on the second core. [Its page](https://joakimeriksson.github.io/scintilla-fm1/). |
 | **OberVave** | zvenson | 8, shared by four tracks | 149 KiB | A four-track analog-style poly with arpeggiator, sequencer and effects. [The original](https://github.com/zvenson/obervave). |
 | **SINE** | zvenson (Dinghy) | 4 | in the host | Dinghy's sine: the fallback when a module fails, and the smallest module to copy. |
 
