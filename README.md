@@ -18,7 +18,8 @@
   <a href="https://joakimeriksson.github.io/fm1-dock/#modules">the catalog</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#play">the video</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#console">the console</a> ·
-  <a href="https://joakimeriksson.github.io/fm1-dock/#emulator">the emulator</a>
+  <a href="https://joakimeriksson.github.io/fm1-dock/#emulator">the emulator</a> ·
+  <a href="https://thefirmwarehub.com/#fw-fm1dock">on the FM-1 Firmware Hub</a>
 </p>
 
 fm1-dock is installed once. The synths are modules in its flash: hold HOME, pick another one, play. No reinstall.
@@ -57,6 +58,8 @@ Every release is built from this source and signed on GitHub by the Firmware Hub
 ```sh
 gh attestation verify fm1-dock-0.7.fwsc -R joakimeriksson/fm1-dock --signer-repo zvenson/fm1-build
 ```
+
+fm1-dock is also on the [FM-1 Firmware Hub](https://thefirmwarehub.com/#fw-fm1dock), its card with the current release.
 
 Without a browser, download `fm1-dock-X.Y.fwsc` from the [latest release](https://github.com/joakimeriksson/fm1-dock/releases/latest)
 and install it over USB:

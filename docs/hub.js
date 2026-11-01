@@ -238,7 +238,7 @@ function renderRelease() {
       with a <a href="${REPO}/attestations">build attestation</a>.`
     : `From v0.7 on, releases are built from source and signed on GitHub
       (<a href="https://github.com/zvenson/fm1-build">zvenson/fm1-build</a>), with a build attestation.`}
-    SMK-37: <a href="${REPO}/blob/main/SMK37.md">read this first</a>.</span>`;
+    Also on the <a href="https://thefirmwarehub.com/#fw-fm1dock">FM-1 Firmware Hub</a>. SMK-37: <a href="${REPO}/blob/main/SMK37.md">read this first</a>.</span>`;
 }
 
 // ------------------------------------------------------------------ the meter ---
