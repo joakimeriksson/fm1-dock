@@ -91,6 +91,12 @@ void sc_voice_note_off(sc_voice_t *v, const sc_prep_t *p);
 static inline int sc_voice_idle(const sc_voice_t *v) { return v->env2.stage == 0 && v->amp_gate == 0; }
 /* add n samples of this voice (audio Q20, mono) into out */
 void sc_voice_render(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n);
+/* the same on one lane: the render's buffers (~21 KB each). Voices rendered at the same time (on
+ * two cores) each need their own lane: SC_LANES of them (fm1-dock's module: 2) */
+#ifndef SC_LANES
+#define SC_LANES 1
+#endif
+void sc_voice_render_lane(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n, unsigned lane);
 
 uint32_t sc_pitch_inc(int32_t note_q16);
 

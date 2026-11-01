@@ -51,6 +51,9 @@ static int key_analog_drive(uint32_t col, uint32_t rowbit);
 #endif
 #include "sc_synth.h"
 #include "sc_presets.h"
+#ifndef SC_RENDER                               /* the platform may render otherwise (fm1-dock's module: the voices on two cores) */
+#define SC_RENDER(s, out, n) sc_render(s, out, n)
+#endif
 
 /* ---- MIDI from the DIN jack: UART1 DMAs into a ring filled with 0xFF (a byte MIDI never sends here:
  * it is a reset), read by content (hal/fm1_uart.h; as fm1-harbor). Channel messages only. */
@@ -134,7 +137,7 @@ static void app_audio(int32_t *out, uint32_t n)
     if (!ready)
         return;
     t0 = fm1_ticks();
-    sc_render(&syn, out, n);
+    SC_RENDER(&syn, out, n);
     {
         static int32_t was = 4096;              /* the last block's CC 7 level; a change is spread over the block */
         int32_t g1 = cc7_q12;

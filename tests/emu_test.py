@@ -207,6 +207,27 @@ def main():
         check("cs1_flaky", "cpu1: misread RAM, 1 core" in log and "cs1: CS-1" in log and peak(s, 1.7, 3.0) > 1000
               and " 0 overruns" in log and worst < 90, f"a faulty second core: one core, CS-1 plays on; worst {worst} %")
 
+    if "SCINTILLA" in names:
+        # its heaviest factory patch, High Portamento (MEMORIES 69: program change into the DIN jack), an 8-note chord
+        # struck every 200 ms: each attack sweeps the filter 114 semitones in 5 ms, new coefficients nearly every
+        # sample (fm1-dock 0.7.1 went to 126 % of a block on such chords, and a real FM-1 stopped the module). Half
+        # of the voices on the second core; then on a unit whose core 1 misreads, all of them on core 0
+        chord = (14, 18, 21, 25, 28, 32, 35, 39)
+        keys = pick("SCINTILLA") + ",1300:mc045" + "".join(f",{t}:{k},{t + 120}:{k}^" for t in range(1600, 3700, 200)
+                                                             for k in chord)
+        s, log = run("scintilla", keys, 4000)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("scintilla", "scintilla: SCINTILLA" in log and "cpu1: 2 cores" in log and peak(s, 1.7, 3.6) > 1000
+              and " 0 overruns" in log and worst < 50,
+              f"Scintilla strikes 8-note chords on High Portamento, half the voices on the second core; core 0's worst "
+              f"{worst} % of a block")
+        s1, log = run("scintilla_flaky", keys, 4000, extra=("--flaky-core1", "1e-6", "--seed", "2"))
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        r0, r1 = rms_left(s, 1.7, 3.6), rms_left(s1, 1.7, 3.6)
+        check("scintilla_flaky", "cpu1: misread RAM, 1 core" in log and " 0 overruns" in log and worst < 85
+              and abs(r1 - r0) < 0.02 * r0, f"a faulty second core: all the voices on core 0 (worst {worst} %), as loud "
+              f"({r1:.0f} / {r0:.0f} RMS: the main loop, slower, may post a note a block later)")
+
     if "FM-106" in names:
         # a six-note chord on preset 38 (A57, among the heaviest of the 128 on one core: bank select and program
         # change into the DIN jack); voices 3..5 on the second core, then on a unit whose core 1 misreads, all on core 0

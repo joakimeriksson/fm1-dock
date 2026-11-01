@@ -29,8 +29,8 @@ void sc_reprep(sc_synth_t *s)
 
 void sc_init(sc_synth_t *s, const sc_patch_t *patch)
 {
-    uint8_t *b = (uint8_t *)s;
-    for (uint32_t i = 0; i < sizeof *s; i++) b[i] = 0;
+    uint32_t *w = (uint32_t *)s;                /* (by words: a patch load runs this in the audio interrupt, ~150 KB) */
+    for (uint32_t i = 0; i < sizeof *s / 4; i++) w[i] = 0;
     s->patch = *patch;
     sc_perf_default(&s->perf);
     for (int k = 0; k < 2; k++) {
@@ -459,22 +459,49 @@ static void limit(sc_limiter_t *lm, int32_t *L, int32_t *R, uint32_t n)
     }
 }
 
-void sc_render(sc_synth_t *s, int32_t *out, uint32_t n)
+/* ---- the render: whole (sc_render), or its voices split between two cores ------------------- */
+
+static int nlayers(const sc_synth_t *s) { return s->patch.voice_mode == SC_VM_SINGLE ? 1 : 2; }
+
+void sc_render_begin(sc_synth_t *s) { drain(s); }
+
+uint32_t sc_render_split(const sc_synth_t *s, uint32_t *other)
+{
+    uint32_t m[2] = { 0, 0 }, t = 0;
+    for (int k = 0; k < nlayers(s); k++)
+        for (int i = 0; i < SC_VOICES; i++)
+            if (!sc_voice_idle(&s->layer[k].v[i])) {
+                m[t] |= 1u << (k * SC_VOICES + i);
+                t ^= 1u;
+            }
+    *other = m[1];
+    return m[0];
+}
+
+void sc_render_voices(sc_synth_t *s, int32_t (*bus)[256], uint32_t mask, unsigned lane, uint32_t n)
+{
+    for (int k = 0; k < nlayers(s); k++) {
+        sc_layer_state_t *ls = &s->layer[k];
+        for (uint32_t i = 0; i < n; i++) bus[k][i] = 0;
+        for (int i = 0; i < SC_VOICES; i++)
+            if ((mask >> (k * SC_VOICES + i) & 1u) && !sc_voice_idle(&ls->v[i]))
+                sc_voice_render_lane(&ls->v[i], &ls->prep, bus[k], n, lane);
+    }
+}
+
+void sc_render_end(sc_synth_t *s, const int32_t (*more)[256], int32_t *out, uint32_t n)
 {
     static int32_t L[256], R[256], l2[256], r2[256];
-    if (n > 256) n = 256;
-    drain(s);
     int nv = npoly(s);
     int32_t vol = sc_mul(s->patch.volume, INV_SQRT[nv], 16);        /* the layer mixer and the master */
-    int layers = s->patch.voice_mode == SC_VM_SINGLE ? 1 : 2;
+    int layers = nlayers(s);
 
     for (uint32_t i = 0; i < n; i++) L[i] = R[i] = 0;
     for (int k = 0; k < layers; k++) {
         sc_layer_state_t *ls = &s->layer[k];
         int32_t *bus = s->bus[k];
-        for (uint32_t i = 0; i < n; i++) bus[i] = 0;
-        for (int i = 0; i < SC_VOICES; i++)
-            if (!sc_voice_idle(&ls->v[i])) sc_voice_render(&ls->v[i], &ls->prep, bus, n);
+        if (more)                               /* the other core's voices (integer sums: the same in any order) */
+            for (uint32_t i = 0; i < n; i++) bus[i] += more[k][i];
         chorus(&ls->chorus, &s->patch.fx.chorus, bus, l2, r2, n);
         for (uint32_t i = 0; i < n; i++) { L[i] += l2[i]; R[i] += r2[i]; }
     }
@@ -487,4 +514,12 @@ void sc_render(sc_synth_t *s, int32_t *out, uint32_t n)
         out[2 * i]     += sc_clamp(L[i], -32767, 32767);
         out[2 * i + 1] += sc_clamp(R[i], -32767, 32767);
     }
+}
+
+void sc_render(sc_synth_t *s, int32_t *out, uint32_t n)
+{
+    if (n > 256) n = 256;
+    sc_render_begin(s);
+    sc_render_voices(s, s->bus, ~0u, 0, n);
+    sc_render_end(s, 0, out, n);
 }
