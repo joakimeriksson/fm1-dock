@@ -150,6 +150,84 @@ def decode_check():
               f"unknown to the emulator: {', '.join(bad[:6])}")
 
 
+def p5_frame(name, prog, cutoff):
+    """a Prophet-5/10 native single-program dump (Melodee's prophet_patch.c layout: 133 raw bytes, 7 to a group
+    behind their top bits), a plain saw: what a player's own bank holds, made here (no Sequential data)"""
+    raw = bytearray(133)
+    for i, v in {0: 24, 1: 24, 3: 1, 8: 64, 9: 64, 12: 1, 14: 127, 17: cutoff, 20: 1, 45: 60, 46: 60, 47: 127,
+                 48: 127, 49: 35, 50: 35, 51: 1, 53: 5}.items():
+        raw[i] = v
+    raw[65:85] = name.encode().ljust(20)
+    f = bytearray([0xF0, 0x01, 0x32, 0x02, prog // 40, prog % 40])
+    for g in range(0, 133, 7):
+        part = raw[g:g + 7]
+        f.append(sum((b >> 7) << j for j, b in enumerate(part)))
+        f += bytes(b & 0x7F for b in part)
+    return bytes(f + b"\xf7")
+
+
+def upward(s, t0, t1):
+    """the left channel's upward zero crossings per second between t0 and t1 s: a saw's frequency"""
+    x = s[int(t0 * 44100) * 2:int(t1 * 44100) * 2:2]
+    return sum(1 for a, b in zip(x, x[1:]) if a < 0 <= b) / (t1 - t0)
+
+
+def brightness(s, t0, t1):
+    """the RMS of the left channel's first difference over its RMS: how much of it is high"""
+    x = s[int(t0 * 44100) * 2:int(t1 * 44100) * 2:2]
+    d = [b - a for a, b in zip(x, x[1:])]
+    return (sum(v * v for v in d) / max(1, len(d))) ** 0.5 / max(1.0, (sum(v * v for v in x) / max(1, len(x))) ** 0.5)
+
+
+def prophet_cases():
+    """PROPHET: Melodee's Prophet-5 engine (modules/prophet)"""
+    import hbdeploy
+    chord = "".join(f",1800:{k},3200:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26))
+    # STRINGS (patch 3: pulse and saw, the wheel's PWM, the SSI filter, the heaviest of its own) as an eight-note
+    # chord, four voices on the second core; then a unit whose core 1 misreads: one core, the Prophet's five voices
+    s, log = run("prophet", pick("PROPHET") + ",1300:e6:3" + chord, 4000)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("prophet", "prophet: Melodee" in log and "cpu1: 2 cores" in log and peak(s, 0.0, 1.5) == 0 and
+          peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log and worst < 60,
+          f"PROPHET plays STRINGS, eight voices, four on the second core; core 0's worst {worst} % of a block")
+    s, log = run("prophet_flaky", pick("PROPHET") + ",1300:e6:3" + chord, 4000,
+                 extra=("--flaky-core1", "1e-6", "--seed", "2"))
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("prophet_flaky", "cpu1: misread RAM, 1 core" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log
+          and worst < 80, f"a faulty second core: PROPHET plays five voices on core 0; worst {worst} %")
+
+    # MIDI in: INIT's saw on A4 (440 Hz), bent up to its range (one semitone); program change 2 (BRASS: velocity to
+    # the amplifier and the filter), A4 soft then hard; CC 74 (cutoff) closes INIT's filter
+    m = (pick("PROPHET") + ",1400:m904564,2000:me07f7f,2600:m804500,2650:me00040,2700:mc002,2900:m904514,"
+         "3500:m804500,3800:m90457f,4400:m804500,4700:mc000,4800:m903964,5400:mb04a10,6000:m803900")
+    s, log = run("prophet_midi", m, 6200)
+    t = onset_frames(s)                           # (times from the first note, 1.4 s)
+    f1, f2 = upward(t, 0.15, 0.55), upward(t, 0.75, 1.15)
+    soft, hard = rms_left(t, 1.65, 2.05), rms_left(t, 2.55, 2.95)
+    open_, shut = brightness(t, 3.55, 3.95), brightness(t, 4.25, 4.55)
+    check("prophet_midi", abs(f1 - 440) < 8 and abs(f2 - 466.2) < 8 and hard > 3 * soft > 0 and open_ > 2 * shut > 0,
+          f"PROPHET over MIDI: A4 at {f1:.0f} Hz, bent {f2:.0f} Hz; BRASS by program change, RMS {soft:.0f} soft, "
+          f"{hard:.0f} hard; CC 74 closes the filter (brightness {open_:.2f} -> {shut:.2f})")
+
+    # a player's own bank (tools/dock.py send FILE.syx: MODULE frames, here into the DIN jack): three programs,
+    # kept in the module's flash banks; the next power-on lists them after the module's own nine
+    syx = b"".join(p5_frame(f"HARBOR TEST {i}", i, 100) for i in range(3))
+    steps = [b"B" + struct.pack("<II", len(syx), 0)]
+    steps += [b"D" + struct.pack("<I", a) + syx[a:a + 256] for a in range(0, len(syx), 256)] + [b"E"]
+    k, at = [pick("PROPHET")], 1500
+    for i, st in enumerate(steps):
+        f = hbdeploy.frame(hbdeploy.MODULE, i, st)
+        k.append(f"{at}:m{f.hex()}")
+        at += int(len(f) * hbdeploy.BYTE_MS) + 30
+    flash = OUT / "prophet_flash.bin"
+    flash.unlink(missing_ok=True)
+    s, log = run("prophet_bank", ",".join(k) + f",{at + 400}:21,{at + 900}:21^", at + 1500, extra=("--flash", str(flash)))
+    s2, log2 = run("prophet_bank2", pick("PROPHET") + ",1800:21,2300:21^", 2600, extra=("--flash", str(flash)))
+    check("prophet_bank", "prophet: programs in 00000003" in log and peak(s, at / 1000 - 0.1, at / 1000 + 0.6) > 1000
+          and "programs 0000000c" in log2 and peak(s2, 1.7, 2.2) > 1000,
+          "a bank sent to PROPHET (three programs) plays and is there after a power-on (12 programs)")
+
+
 def main():
     names = [n for n, _, _ in slots()]
     print(f"slots: {', '.join(names)}")
@@ -332,6 +410,9 @@ def main():
               peak(s, 8.5, 9.2) < peak(s, 3.0, 5.5) // 20 and piece == 1 and pool == 0x1AD and " 0 overruns" in log
               and worst < 75, f"DUB-1 plays by itself, a key changes its scale (pool {pool:#x}), PLAY rests it; "
               f"worst {worst} % of a block")
+
+    if "PROPHET" in names:
+        prophet_cases()
 
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
