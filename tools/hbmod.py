@@ -12,7 +12,12 @@ directory: DUB-1's engine -O2, its UI -Os, as DUB-1 builds them), `cxxflags =` (
 elsewhere (relative to the directory),
 `includes =` directories for -I (relative to the directory; a module may live outside fm1-dock's tree, as
 FM-1 SID's fm1-dock/ does in its own repository),
-`libs =` toolchain libraries (`m c` for libm and libc), `kind = probe` for a probe (hb_module.h,
+`libs =` toolchain libraries (`m c` for libm and libc), `ram_text =` functions (by name; a section by its
+name when it starts with a dot: `.rodata.TABLE`) moved into the module's .ram_text (HB_MOD_RT, 16 KiB: inner
+loops away from the flash cache; every file is built with -ffunction-sections -fdata-sections, so a function
+is the section .text.NAME). The functions there may call only each other: a call between flash and RAM is
+beyond the call's reach (the link fails), so code in flash calls into them through HB_FAR, and every function
+listed has to be in .ram_text after the link (one inlined everywhere is not: leave it out). `kind = probe` for a probe (hb_module.h,
 "Probes": probes/probe.ld, flag HB_F_PROBE; a single .c file is a probe by itself). Every module also gets
 modules/lib/hb_lib.c (memcpy, memset, ...) and the toolchain's compiler_rt (division, 64-bit and
 soft-float helpers): it links against nothing of the host's.
@@ -123,7 +128,7 @@ def find_relocs(a, b):
 
 
 def read_cfg(d):
-    cfg = {"name": d.name.upper(), "version": "1", "cflags": "", "cxxflags": "", "sources": "", "includes": "", "libs": "",
+    cfg = {"name": d.name.upper(), "version": "1", "cflags": "", "cxxflags": "", "sources": "", "includes": "", "libs": "", "ram_text": "",
            "kind": "module"}
     if d.is_file():                             # a single .c: a probe (its own flags: /* hbmod-cflags: ... */)
         cfg.update(name=d.stem.upper(), kind="probe")
@@ -217,6 +222,15 @@ def build_module(d):
             raise SystemExit(f"hbmod: module.cfg: cflags for {f}, not one of the module's files")
     build.tc_all(*[("cxx", *flags, *cfg["cxxflags"].split(), *own.get(s, []), "-c", s, "-o", o) if s.suffix == ".cc"
                    else ("cc", *flags, *own.get(s, []), "-c", s, "-o", o) for s, o in zip(srcs, objs)])
+    rt_names = cfg["ram_text"].split()
+    if rt_names:                                # (module.cfg's ram_text: their sections renamed .ram_text.*, by
+        # a relocatable link of each object alone, as the toolchain's objcopy cannot rename a section)
+        secs = [n if n.startswith(".") else f".text.{n}" for n in rt_names]
+        ren = out / "ram_text.ld"
+        ren.write_text("SECTIONS\n{\n" + "".join(f"    .ram_text{x} : {{ *({x}) }}\n" for x in secs) + "}\n")
+        rt_objs = [o.with_suffix(".rt.o") for o in objs]
+        build.tc_all(*[("pi32v2/bin/ld", "-r", "-T", ren, o, "-o", r) for o, r in zip(objs, rt_objs)])
+        objs = rt_objs
     libs = cfg["libs"].split()
     elf_a, img_a, sym, syms, desc, (code, data, rt) = link(objs, out, BASE_A, libs, probe)
     _, img_b, _, _, desc_b, _ = link(objs, out, BASE_B, libs, probe)
@@ -240,6 +254,9 @@ def build_module(d):
         errors.append(f"a probe's file may be {PROBE_FILE} B")
     if rt > MOD_RT_SIZE:
         errors.append(f".ram_text {rt} B > {MOD_RT_SIZE}")
+    for n in rt_names:
+        if not n.startswith(".") and not MOD_RT <= sym.get(n, 0) < MOD_RT + MOD_RT_SIZE:
+            errors.append(f"ram_text: {n} is not in .ram_text (no such function, or inlined where it is used)")
     dis = build.tc("common/bin/objdump", "-d", elf_a)
     (out / "module.dis").write_text(dis)
     for ln in dis.splitlines():                 # as the host: nothing may call or load the chip ROM

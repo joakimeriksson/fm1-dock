@@ -61,7 +61,7 @@ static struct { sc_synth_t *s; uint32_t mask, n; } hb_job;
 static void hb_c1_job(uint32_t arg)            /* on core 1 */
 {
     (void)arg;
-    sc_render_voices(hb_job.s, hb_bus1, hb_job.mask, 1, hb_job.n);
+    HB_FAR(sc_render_voices)(hb_job.s, hb_bus1, hb_job.mask, 1, hb_job.n);
 }
 static void sc_render_hb(sc_synth_t *s, int32_t *out, uint32_t n)
 {
@@ -74,11 +74,11 @@ static void sc_render_hb(sc_synth_t *s, int32_t *out, uint32_t n)
     hb_job.mask = m1;
     hb_job.n = n;
     if (!m1 || !HB_HOST_HAS(H, c1_wait) || !H->c1_run(hb_c1_job, 0)) {
-        sc_render_voices(s, s->bus, m0 | m1, 0, n);
+        HB_FAR(sc_render_voices)(s, s->bus, m0 | m1, 0, n);
         sc_render_end(s, 0, out, n);
         return;
     }
-    sc_render_voices(s, s->bus, m0, 0, n);
+    HB_FAR(sc_render_voices)(s, s->bus, m0, 0, n);
     if (H->c1_wait() != 0)
         hb_c1_job(0);
     sc_render_end(s, (const int32_t (*)[256])hb_bus1, out, n);
