@@ -1,5 +1,6 @@
 {
  "cs1": {
+  "hub": "cs1",
   "title": "CS-1",
   "module": "CS-1",
   "packaged": true,
@@ -16,6 +17,7 @@
   "alt": "CS-1's screen: its tone bars and the preset BLADE BRASS"
  },
  "scintilla": {
+  "hub": "scintilla",
   "title": "Scintilla",
   "module": "SCINTILLA",
   "packaged": true,
@@ -33,6 +35,7 @@
   "alt": "Scintilla's screen: the patch RING MOD., the laser harp"
  },
  "obervave": {
+  "hub": "obervave",
   "title": "OberVave",
   "module": "OBERVAVE",
   "packaged": true,
@@ -49,6 +52,7 @@
   "alt": "OberVave's PERFORM page: cutoff, resonance, envelope, release"
  },
  "fm1-sid": {
+  "hub": "fm1sid",
   "file": "fm1sid.dock",
   "version": "0.3",
   "source": "joakimeriksson/fm1-sid 3210dc1 (FM-1 SID 0.3's code), dock/build.sh with fm1-dock 3cd4e55",
@@ -69,6 +73,7 @@
   "alt": "FM-1 SID's screen: Arkanoid by Martin Galway, three voices, the filter, the scope"
  },
  "amb": {
+  "hub": "amb",
   "file": "amb.dock",
   "version": "1.3+",
   "source": "modules/amb: charlesvestal/fm1-amb 7797f4e (AMB-1 1.3 and one commit), fm1-dock 2037c7b",
@@ -89,6 +94,7 @@
   "alt": "AMB-1's screen: the Garden, D Dorian on Dm7, the four layers' levels"
  },
  "fomni": {
+  "hub": "fomni",
   "file": "fomni.dock",
   "version": "0.4+",
   "source": "modules/fomni: charlesvestal/fm1-fomni 7e7547f (FoMni-1 0.4 and four commits), fm1-dock 2037c7b",
@@ -108,6 +114,7 @@
   "alt": "FoMni's screen: the chord C, the strings and the chord buttons"
  },
  "fm106": {
+  "hub": "fm106",
   "file": "fm106.dock",
   "version": "Beta 6+",
   "source": "modules/fm106: PatttF/fm-106 db59d58 (FM-106 Beta 6 and one commit; modules/fm106/take.py), fm1-dock f3fdddb",
@@ -127,6 +134,7 @@
   "alt": "FM-106's screen: the preset A85 Rocket Men, three voices playing, the VCF's sliders and the oscilloscope"
  },
  "monk": {
+  "hub": "monk",
   "file": "monk.dock",
   "version": "0.9.1+",
   "source": "modules/monk: charlesvestal/fm1-monk a9d368a (MONK-1 0.9.1 and four commits; modules/monk/take.py), fm1-dock 5c44a92",
@@ -147,6 +155,7 @@
   "alt": "MONK-1's screen: Jerry the monk singing with his mouth wide open, Vowel, Head, Breath and Glide below"
  },
  "fimba": {
+  "hub": "fimba",
   "file": "fimba.dock",
   "version": "0.6.1",
   "source": "modules/fimba: jadamsowers/fm1-fimba 0485ed0 (FiMba-1 0.6.1; modules/fimba/take.py), fm1-dock 1c795c6",
@@ -166,6 +175,7 @@
   "alt": "FiMba-1's screen: three tines ringing in C major, the chord keys, Material Steel, Hardness, Decay and Tone"
  },
  "gator": {
+  "hub": "gator",
   "file": "gator.dock",
   "version": "0.6",
   "source": "modules/gator: npi3pak/fm1-gator 92f923e (GATOR 0.6; modules/gator/take.py), fm1-dock 07b1426",
@@ -186,6 +196,7 @@
   "alt": "GATOR's screen: the model WAVETABLE, its harmonics, timbre and morph, the wave under them"
  },
  "dub": {
+  "hub": "dub",
   "file": "dub.dock",
   "version": "1.4.3+",
   "source": "modules/dub: sbegueria/fm1-dub 501c4cf (DUB-1 1.4.3 and five commits; modules/dub/take.py), fm1-dock 9d3aac5",
@@ -206,6 +217,7 @@
   "alt": "DUB-1's screen: the Form page, the chord Fm7 in its ripples, the lanes of the phrase, Energy, Vary, Motion and Drift"
  },
  "sine": {
+  "hub": "dinghy",
   "title": "SINE",
   "module": "SINE",
   "packaged": true,
