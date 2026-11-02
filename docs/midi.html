@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test MIDI · fm1-dock</title>
+<meta name="description" content="Test fm1-dock's MIDI from the browser: play the FM-1 over USB-MIDI or Bluetooth MIDI, watch what it sends, and test its TRS MIDI jack.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0d0c11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f5fb" media="(prefers-color-scheme: light)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="media/fm1-dock-icon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <a class="brand" href="./" aria-label="fm1-dock, its page"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></a>
+  <nav aria-label="Sections">
+    <a href="./">fm1-dock</a><a href="#connect">Connect</a><a href="#keys">Play</a><a href="#monitor">Monitor</a>
+    <a href="#trs">TRS jack</a><a href="#help">Help</a>
+  </nav>
+</header>
+
+<main id="main">
+<section id="connect" class="mt-top" aria-labelledby="connect-h">
+  <h2 id="connect-h">Test MIDI</h2>
+  <p class="sub">Play your FM-1 or SMK-37 from this page over USB or Bluetooth, see what it sends back, and test the FM-1's
+    TRS MIDI jack. Only notes and controllers are sent: nothing is installed or changed on the device.</p>
+  <p class="notice" id="mt-nomidi" hidden>This browser has no WebMIDI: USB and the TRS test need Chrome or Edge on a computer or an Android phone.</p>
+  <p class="notice" id="mt-noble" hidden>This browser has no Web Bluetooth: Bluetooth needs Chrome or Edge on macOS, Windows, ChromeOS or Android.</p>
+  <div class="grid mt-grid">
+    <div class="box">
+      <div class="box-h"><h3>USB-MIDI</h3><span class="pill" id="usb-pill">not connected</span></div>
+      <p class="dim">Plug in the FM-1 with a USB data cable, then Connect. The browser asks once to allow MIDI.</p>
+      <div class="row">
+        <button type="button" class="btn primary" id="usb-connect">Connect over USB</button>
+        <label class="mt-field"><span class="vh">The FM-1's USB port</span><select id="usb-port" disabled><option>no ports yet</option></select></label>
+      </div>
+    </div>
+    <div class="box">
+      <div class="box-h"><h3>Bluetooth MIDI</h3><span class="pill" id="ble-pill">not connected</span></div>
+      <p class="dim">On the FM-1: HOME, OPTIONS, <b>BLUETOOTH</b> ON. Then Connect and pick <code>FM1-DOCK xxxx</code> in the list.</p>
+      <div class="row"><button type="button" class="btn" id="ble-connect">Connect over Bluetooth</button></div>
+    </div>
+  </div>
+</section>
+
+<section id="keys" aria-labelledby="keys-h">
+  <div class="sec-h"><h2 id="keys-h">Play</h2><span class="pill" id="keys-to">to: nothing yet</span></div>
+  <p class="sub">The keys play whatever module runs, over every connection that is on. Computer keys:
+    <code>A W S E D F T G Y H U J K O L P ; '</code>, <code>Z</code> / <code>X</code> an octave down / up.</p>
+  <div class="panel">
+    <div class="row mt-bar">
+      <button type="button" class="btn" id="demo" disabled>Play demo</button>
+      <button type="button" class="btn" id="panic" disabled>All notes off</button>
+      <label class="mt-field">Velocity <input type="range" id="vel" min="1" max="127" value="100"><span class="mono" id="vel-v">100</span></label>
+      <label class="mt-field">Channel <select id="ch"></select></label>
+      <span class="dim small">Octave <b class="mono" id="oct">C4</b></span>
+    </div>
+    <div class="kb" id="kb" aria-label="Keyboard: press to play"></div>
+    <p class="dim small mt-legend"><span class="sw sw-out"></span> played here <span class="sw sw-in"></span> played on the FM-1</p>
+  </div>
+</section>
+
+<section id="monitor" aria-labelledby="mon-h">
+  <div class="sec-h"><h2 id="mon-h">Monitor</h2></div>
+  <p class="sub">What the FM-1 sends: its keys and, with KNOBS CC on, KNOB1–4 as CC 74, 71, 73, 72 (on a module's own
+    screen only: in the picker and OPTIONS the knobs move through the lists); with MIDI THRU on, what comes in on the TRS
+    jack. Times are in ms since the page opened.</p>
+  <div class="panel">
+    <div class="row mt-bar">
+      <label class="mt-field"><input type="checkbox" id="mon-out"> show what this page sends</label>
+      <label class="mt-field"><input type="checkbox" id="mon-clock"> show clock</label>
+      <button type="button" class="btn small" id="mon-clear">Clear</button>
+    </div>
+    <div class="log mt-log" id="mon" role="log" aria-live="off"></div>
+  </div>
+</section>
+
+<section id="trs" aria-labelledby="trs-h">
+  <div class="sec-h"><h2 id="trs-h">The TRS jack</h2><span class="pill">FM-1</span></div>
+  <p class="sub">The FM-1's 3.5 mm MIDI IN, tested from a computer: the page sends notes into the jack and reads them back
+    over USB.</p>
+  <div class="grid mt-grid">
+    <div class="box">
+      <h3>Set it up</h3>
+      <ol class="mt-list">
+        <li>A <b>USB-MIDI interface</b> with a MIDI OUT (or a synth that passes USB-MIDI on to its MIDI OUT) on this computer.</li>
+        <li>Its MIDI OUT into the FM-1's <b>MIDI IN</b> jack, with a 5-pin DIN to 3.5 mm TRS adapter. Adapters come as
+          <b>Type A</b> and <b>Type B</b>: if nothing arrives, try the other kind.</li>
+        <li>The FM-1 on USB too, connected above.</li>
+        <li>On the FM-1: HOME, OPTIONS, <b>MIDI THRU</b> ON (what comes in on the jack goes on to USB), and MIDI CH on ALL.</li>
+      </ol>
+    </div>
+    <div class="box">
+      <h3>Run it</h3>
+      <p class="dim">Eight notes, on and off, 300 ms apart, into the interface. The module plays them too.</p>
+      <div class="row">
+        <label class="mt-field">Interface <select id="trs-port" disabled><option>connect over USB first</option></select></label>
+        <button type="button" class="btn primary" id="trs-run" disabled>Run the test</button>
+      </div>
+      <p class="say mt-verdict" id="trs-verdict" hidden></p>
+    </div>
+  </div>
+  <div class="panel mt-trs" id="trs-out" hidden>
+    <table class="kv mt-table">
+      <thead><tr><th>#</th><th>Sent</th><th>Back after</th><th>Result</th></tr></thead>
+      <tbody id="trs-rows"></tbody>
+    </table>
+  </div>
+</section>
+
+<section id="help" aria-labelledby="help-h">
+  <h2 id="help-h">Help</h2>
+  <div class="features">
+    <div class="feat"><h3>Which browser</h3><p>USB-MIDI (WebMIDI): Chrome or Edge on a computer, Chrome on Android. Bluetooth
+      (Web Bluetooth): Chrome or Edge on macOS, Windows, ChromeOS and Android. Not Safari, not Firefox, nothing on an iPhone or iPad.</p></div>
+    <div class="feat"><h3>Bluetooth not in the list</h3><p>A connected FM-1 stops advertising: disconnect it in Audio MIDI Setup, a DAW
+      or a phone first. Check that BLUETOOTH says ON. A Mac needs Bluetooth allowed for the browser (System Settings,
+      Privacy &amp; Security, Bluetooth).</p></div>
+    <div class="feat"><h3>The BLUETOOTH line</h3><p><b>OFF</b>: switched off. <b>ON</b>: advertising. <b>LINKED</b>: something
+      connected. <b>READY</b>: and it listens to the notes. <b>HELD</b>: this start was a safe start (OCT+) or followed a failed one;
+      switch it OFF and ON. <b>NO CAL</b>: the radio's calibration from the stock firmware is not there; install the stock firmware,
+      switch on once, then fm1-dock again. <b>MISSING</b>: this build has no Bluetooth.</p></div>
+    <div class="feat"><h3>Mac</h3><p>Audio MIDI Setup, Window, Show MIDI Studio, the Bluetooth button, <b>Connect</b> on
+      <code>FM1-DOCK xxxx</code>. Then it is a MIDI port for every app.</p></div>
+    <div class="feat"><h3>iPhone, iPad</h3><p>GarageBand: Settings, Advanced, Bluetooth MIDI Devices, then the FM-1. Many
+      music apps have the same page; once connected, every app sees it.</p></div>
+    <div class="feat"><h3>Android, Windows</h3><p>Android: a BLE-MIDI connect app, then any MIDI app; or this page in Chrome.
+      Windows: most apps do not see Bluetooth MIDI on their own (Windows MIDI Services, KORG's BLE-MIDI driver or MIDIberry
+      bridge it); this page works without them.</p></div>
+    <div class="feat"><h3>TRS: nothing comes back</h3><p>MIDI THRU ON? The interface's port picked, not the FM-1's? Try the other
+      adapter type (A / B). Does the module play the notes? Then the jack works and only MIDI THRU is off.</p></div>
+    <div class="feat"><h3>TRS: one message late</h3><p>A key does nothing until the next one, and the last note hangs: fm1-dock
+      0.6 read the jack that way. Update from <a href="./#install">the page</a>; if it still happens,
+      <a href="https://github.com/joakimeriksson/fm1-dock/issues">open an issue</a> with the test's table.</p></div>
+  </div>
+</section>
+</main>
+
+<script type="module" src="midi.js"></script>
+</body>
+</html>
