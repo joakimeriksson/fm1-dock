@@ -150,6 +150,10 @@ cores keep running. A link that dies is let go and the FM-1 advertises again.
 
 On a Mac: Audio MIDI Setup → Window → Show MIDI Studio → the Bluetooth button → **Connect** on `FM1-DOCK xxxx`.
 
+[Test MIDI](https://joakimeriksson.github.io/fm1-dock/midi.html) plays the FM-1 from Chrome or Edge over USB or Bluetooth
+(no Audio MIDI Setup), shows what it sends back, and tests the TRS jack with MIDI THRU ON: notes out of a USB-MIDI
+interface into the jack, timed as they come back over USB.
+
 ### The second core
 
 The second core starts at power-on and helps the modules that use it: CS-1 plays half its voices there, FM-106 three
