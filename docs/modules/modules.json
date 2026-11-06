@@ -216,6 +216,25 @@
   "accent": "#2fc4c4",
   "alt": "DUB-1's screen: the Form page, the chord Fm7 in its ripples, the lanes of the phrase, Energy, Vary, Motion and Drift"
  },
+ "prophet": {
+  "file": "prophet.dock",
+  "version": "e9b07b4",
+  "source": "modules/prophet: keremimo/melodee e9b07b4 (branch next; modules/prophet/take.py), fm1-dock",
+  "by": "Kerem Kilic (Melodee)",
+  "songs": "",
+  "title": "PROPHET",
+  "module": "PROPHET",
+  "author_url": "https://github.com/keremimo",
+  "original": "https://github.com/keremimo/melodee",
+  "links": [{ "label": "source", "url": "https://github.com/keremimo/melodee" }],
+  "license": "GPL-3.0-only",
+  "voices": "8, half on the second core",
+  "description": "A Prophet-5 Rev 4 on Melodee's engine: Poly-Mod, two filter characters, glide, unison and Vintage; INIT and eight patches of its own, and your own bank if you send one.",
+  "tags": ["synth", "poly", "vintage"],
+  "screenshot": "media/screen_prophet.png",
+  "accent": "#f5a033",
+  "alt": "PROPHET's screen: the patch STRINGS, 3 of 8, its MAIN page with cutoff, resonance, envelope amount and release"
+ },
  "sine": {
   "hub": "dinghy",
   "title": "SINE",
