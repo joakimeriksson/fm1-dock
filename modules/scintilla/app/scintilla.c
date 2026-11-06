@@ -400,7 +400,7 @@ static void load(uint32_t i)
     uint32_t n;
     load_req = 0;                               /* (the interrupt leaves staged alone while it is written) */
     __asm__ volatile("" ::: "memory");
-    staged = SC_PRESETS[i % SC_N_PRESETS];
+    sc_preset_load(i, &staged);
     __asm__ volatile("" ::: "memory");
     load_req = 1;
     for (n = 0; n < 128u; n++) sounding[n] = 0;
@@ -441,9 +441,10 @@ static void draw_head(uint32_t preset, int edited, uint32_t cpu)
 static void draw_name(uint32_t preset)
 {
     char s[32];
+    const char *name = sc_preset_name(preset);
     uint32_t i;
-    for (i = 0; i < 31u && SC_PRESETS[preset].name[i]; i++) {   /* FONT_L has capitals only */
-        char c = SC_PRESETS[preset].name[i];
+    for (i = 0; i < 31u && name[i]; i++) {   /* FONT_L has capitals only */
+        char c = name[i];
         s[i] = c >= 'a' && c <= 'z' ? (char)(c - 32) : c;
     }
     s[i] = 0;
@@ -451,7 +452,7 @@ static void draw_name(uint32_t preset)
     if (text_w(&FONT_L, s) <= 236)
         draw_text_box(0, Y_NAME, 240, &FONT_L, s, C_WHITE, 1);
     else
-        draw_text_box(0, Y_NAME + 8, 240, &FONT_S, SC_PRESETS[preset].name, C_WHITE, 1);
+        draw_text_box(0, Y_NAME + 8, 240, &FONT_S, name, C_WHITE, 1);
 }
 
 static void draw_page(uint32_t page)
