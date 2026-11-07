@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The page's console: fm1-dock on an FM-1 over WebMIDI (dock.js), and the flash map.
 import { Dock, CMD, moduleInfo, probeArg, Syms, hex32, sleep } from "./dock.js";
+import { pairPorts } from "./install/ports.js";
 
 const $ = (id) => document.getElementById(id);
 let access = null, hb = null, syms = null, busy = Promise.resolve(), probeBlob = null, follow = null, lastHello = null;
@@ -63,7 +64,8 @@ function ports() {
   if (!want) { sel.add(new Option("no MIDI outputs")); sel.disabled = true; return null; }
   sel.value = want.id;
   sel.disabled = false;
-  const inp = ins.find((i) => i.name === want.name) || ins.find((i) => /felucca|fm1-dock|dock|fm-?1/i.test(i.name));
+  const pair = pairPorts(access.inputs, access.outputs).find((p) => p.output === want);   // (Windows may name the two apart)
+  const inp = pair ? pair.input : ins.find((i) => /felucca|fm1-dock|dock|fm-?1/i.test(i.name));
   return inp ? { out: want, inp } : null;
 }
 

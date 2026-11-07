@@ -136,8 +136,8 @@ async function midiAccess() {
 }
 
 const ACCESS = {
-  nomidi: "This browser has no WebMIDI: open the page in Chrome or Edge on a computer.",
-  denied: "MIDI (SysEx) was not allowed. Allow MIDI for this site (the icon in the address bar) and press Connect again.",
+  nomidi: "This browser has no Web MIDI: open the page in Chrome or Edge on a computer, or Chrome on Android. No browser on an iPhone or iPad has it.",
+  denied: "MIDI (SysEx) was not allowed. Allow MIDI for this site (the icon at the left of the address bar), reload the page and press Connect again.",
 };
 
 async function connect({ log = true } = {}) {
@@ -194,8 +194,10 @@ function renderDevice() {
   const gone = S.gone ? `<p class="say bad">The device went away or came back (a reset, or the cable): press Check again.</p>` : "";
   if (!dv.identity && !dv.dock) {
     pill.textContent = "no device"; pill.className = "pill bad";
-    info.innerHTML = `<p class="say bad">No FM-1 or SMK-37 answered. Plug it in with a USB data cable (not a charge-only one),
-      close other apps that use MIDI, and press Check again.</p>`;
+    info.innerHTML = `<p class="say bad">No FM-1 or SMK-37 answered. Switch it on and plug it in with a USB data cable (a
+      charge-only cable powers it but carries no data). Close other programs and tabs that use MIDI (the Firmware Hub, a
+      DAW, M-VAVE's app): on Windows only one at a time can have the FM-1. Then press Check again.</p>
+      <p class="dim small">The MIDI ports this browser pairs: the <a href="midi.html">Test MIDI</a> page lists them.</p>`;
     return;
   }
   const name = devName();
