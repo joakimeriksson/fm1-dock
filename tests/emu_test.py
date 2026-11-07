@@ -228,6 +228,45 @@ def prophet_cases():
           "a bank sent to PROPHET (three programs) plays and is there after a power-on (12 programs)")
 
 
+def niagara_cases():
+    """NIAGARA: Evan Yerburgh's Niagara Drift (modules/niagara), two drones"""
+    k = pick("NIAGARA") + ",2000:12,2050:12^"   # PLAY: the drones fade in (its start animation ends on the press)
+    s, log = run("niagara", k, 4500)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("niagara", "niagara: Niagara Drift" in log and peak(s, 0.0, 1.7) == 0 and peak(s, 3.0, 4.2) > 1000 and
+          " 0 overruns" in log, f"NIAGARA plays its drones on PLAY, silent before; worst {worst} % of a block")
+    # the twelve Presets (the scene keys, the lower white keys: F3 .. D5 but the black ones), one after the other
+    scenes = "".join(f",{2600 + 700 * i}:{14 + w},{2700 + 700 * i}:{14 + w}^"
+                     for i, w in enumerate((0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19)))
+    s, log = run("niagara_presets", k + scenes, 11400)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("niagara_presets", peak(s, 10.0, 11.0) > 1000 and " 0 overruns" in log and worst < 70,
+          f"NIAGARA through its twelve Presets; worst {worst} % of a block")
+    # KNOB2 (drone I's cutoff, the Play page), a note on MIDI channel 2 (drone II's pitch), a scene key's pressure:
+    # each changes the sound from where it happens (the WAV starts ~0.2 s after power-on), nothing before
+    a, _ = run("niagara_still", k + ",4000:23@100,5000:23^", 5500)
+    for case, more, t in (("niagara_knob", ",3500:e3:6", 3.5), ("niagara_midi", ",3500:m913c64", 3.5),
+                          ("niagara_pressure", ",4400:23~127", 4.4)):
+        b, _ = run(case, k + more + ",4000:23@100,5000:23^", 5500)
+        n = int((t - 0.3) * 44100) * 2
+        first = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), len(a)) / 88200
+        check(case, a[:n] == b[:n] and t - 0.3 < first < t + 0.3, f"NIAGARA: {case[8:]} changes the drones from {first:.2f} s")
+    # AUTOSAVE (its own: ~4 s after the last change, the drones stopped): KNOB2 turned past the start animation, its
+    # project in the module's bank 1; at the next power-on (NIAGARA again, the last module) it loads back
+    flash = OUT / "niagara_flash.bin"
+    flash.unlink(missing_ok=True)
+    fw = ("--fwsc", str(SRC / "build" / "fm1-dock.fwsc"), "--flash", str(flash))
+    run("niagara_fresh", pick("NIAGARA"), 4500, extra=fw)   # (the host keeps NIAGARA as the last module)
+    fresh = (OUT / "niagara_fresh" / "ram.bin").read_bytes()
+    run("niagara_save", "5500:e3:-20", 12000, extra=fw)
+    _, log = run("niagara_saved", "", 3000, extra=fw)
+    ram = (OUT / "niagara_saved" / "ram.bin").read_bytes()
+    at = fresh.find(b"DRN1")
+    check("niagara_saved", "niagara: Niagara Drift" in log and at >= 0 and ram.find(b"DRN1") == at and
+          ram[at:at + 512] != fresh[at:at + 512], "NIAGARA's sound is there after a power-off (its project autosaved "
+          "to its bank, loaded back)")
+
+
 def main():
     names = [n for n, _, _ in slots()]
     print(f"slots: {', '.join(names)}")
@@ -413,6 +452,9 @@ def main():
 
     if "PROPHET" in names:
         prophet_cases()
+
+    if "NIAGARA" in names:
+        niagara_cases()
 
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
