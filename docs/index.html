@@ -37,7 +37,7 @@
 <section class="hero" id="top">
   <div class="hero-text">
     <div class="hero-logo"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></div>
-    <a class="news" href="#new"><span class="news-tag">New in 0.7</span><span>Bluetooth MIDI, five new modules, the second core</span><span aria-hidden="true">→</span></a>
+    <a class="news" href="#new"><span class="news-tag">New in 0.8</span><span>Prophet, B3 ORGAN, Niagara Drift, ARTIHIVE and a lighter Scintilla</span><span aria-hidden="true">→</span></a>
     <h1>One firmware.<br><span>Many synths.</span></h1>
     <p class="lede">fm1-dock is installed once on your M-VAVE FM-1 or SMK-37. The synths are modules in its flash: hold HOME and
       pick another one, no reinstall. Add the ones you want from this page and take them out again; your settings and presets stay.</p>
@@ -50,14 +50,14 @@
       <li><a href="#mod-cs1"><img src="media/screen_cs1.png" width="480" height="480" alt=""><span>CS-1</span></a></li>
       <li><a href="#mod-scintilla"><img src="media/screen_scintilla.png" width="480" height="480" alt=""><span>Scintilla</span></a></li>
       <li><a href="#mod-obervave"><img src="media/screen_obervave.png" width="480" height="480" alt=""><span>OberVave</span></a></li>
+      <li><a href="#mod-prophet"><img src="media/screen_prophet.png" width="480" height="480" alt=""><span>PROPHET</span></a></li>
+      <li><a href="#mod-b3"><img src="media/screen_b3.png" width="480" height="480" alt=""><span>B3 ORGAN</span></a></li>
       <li><a href="#mod-fm1-sid"><img src="media/screen_fm1sid.png" width="480" height="480" alt=""><span>FM-1 SID</span></a></li>
       <li><a href="#mod-fm106"><img src="media/screen_fm106.png" width="480" height="480" alt=""><span>FM-106</span></a></li>
-      <li><a href="#mod-monk"><img src="media/screen_monk.png" width="480" height="480" alt=""><span>MONK-1</span></a></li>
-      <li><a href="#mod-amb"><img src="media/screen_amb.png" width="480" height="480" alt=""><span>AMB-1</span></a></li>
-      <li><a href="#mod-gator"><img src="media/screen_gator.png" width="480" height="480" alt=""><span>GATOR</span></a></li>
+      <li><a href="#mod-niagara"><img src="media/screen_niagara.png" width="480" height="480" alt=""><span>Niagara</span></a></li>
     </ul>
-    <p class="screens-cap">CS-1, Scintilla, OberVave and a sine come with it. FM-106, MONK-1, FiMba-1, GATOR, DUB-1, FM-1 SID,
-      AMB-1 and FoMni go into its flash with one click, and your own module the same way.</p>
+    <p class="screens-cap">CS-1, Scintilla, OberVave and a sine come with it. Prophet, B3 ORGAN, Niagara Drift, ARTIHIVE, FM-106,
+      MONK-1, FiMba-1, GATOR, DUB-1, FM-1 SID, AMB-1 and FoMni go into its flash with one click, and your own module the same way.</p>
     <p class="hero-links"><a href="#play">See it play</a><a href="#console">Open the console</a><a href="#build">Write a module</a>
       <a href="https://github.com/joakimeriksson/fm1-dock">Source on GitHub</a><a href="https://thefirmwarehub.com/#fw-fm1dock">On the Firmware Hub</a></p>
   </div>
@@ -73,6 +73,8 @@
           nothing is written until you press Install, Add or Remove.</p>
         <div class="dev-row"><button type="button" class="btn" id="dev-connect">Connect over USB</button></div>
         <div class="dev-info" id="dev-info" aria-live="polite"></div>
+        <p class="hint">Chrome or Edge on a computer or an Android phone. iPhone and iPad have no WebMIDI. A charge-only cable
+          shows no device; close other tabs and programs that use the FM-1's MIDI.</p>
       </li>
       <li class="step">
         <h3><span class="n">2</span> Install fm1-dock <span class="pill acc" id="rel-ver" hidden></span></h3>
@@ -86,13 +88,32 @@
         <div class="dev-row"><a class="btn small" href="#modules">Open the catalog ↓</a></div>
       </li>
     </ol>
+    <p class="hint">Bluetooth or TRS MIDI not working? <a href="midi.html">Test MIDI</a> plays the FM-1 over USB or Bluetooth,
+      shows what it sends and checks its TRS jack.</p>
   </aside>
 </section>
 
 <section id="new" aria-labelledby="new-h">
-  <div class="sec-h"><h2 id="new-h">New in 0.7</h2><span class="pill">31 October 2026</span></div>
-  <p class="sub"><a href="https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.7">The release and its notes</a>: built and signed on GitHub, with a build attestation.</p>
+  <div class="sec-h"><h2 id="new-h">New in 0.8</h2><span class="pill">TODO: release date</span></div>
+  <p class="sub"><a href="https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.8">The release and its notes</a>: built and signed on GitHub, with a build attestation.</p>
+  <div class="new-synths">
+    <a class="synth" href="#mod-prophet"><img src="media/screen_prophet.png" width="480" height="480" alt="" loading="lazy">
+      <div><h3>PROPHET</h3><p class="by">Kerem Kilic (Melodee)</p><p>A Prophet-5 Rev 4: Poly-Mod, two filter characters, unison and glide, eight voices with half on the second core.</p><span class="go">Try it or add it →</span></div></a>
+    <a class="synth" href="#mod-b3"><img src="media/screen_b3.png" width="480" height="480" alt="" loading="lazy">
+      <div><h3>B3 ORGAN</h3><p class="by">R-Jeb, after setBfree</p><p>A tonewheel organ: 91 wheels, nine drawbars, percussion, key click, overdrive and a Leslie.</p><span class="go">Try it or add it →</span></div></a>
+    <a class="synth" href="#mod-niagara"><img src="media/screen_niagara.png" width="480" height="480" alt="" loading="lazy">
+      <div><h3>Niagara Drift</h3><p class="by">Evan Yerburgh</p><p>Two drones that breathe and drift, scenes on the white keys that the keys' pressure glides into.</p><span class="go">Try it or add it →</span></div></a>
+    <a class="synth" href="#mod-artihive"><img src="media/screen_artihive.png" width="480" height="480" alt="" loading="lazy">
+      <div><h3>ARTIHIVE</h3><p class="by">KHAV</p><p>Eight FM voices in four pairs: a drone machine, or a poly synth with an arpeggiator.</p><span class="go">Try it or add it →</span></div></a>
+  </div>
   <div class="features news-grid">
+    <div class="feat"><h3>A lighter Scintilla</h3><p>Its engine built for speed: the heaviest factory patches take 5 to 10 points less of the CPU (measured in fm1-emu), and the module is 58 KiB instead of 90, with the factory bank packed.</p></div>
+    <div class="feat"><h3>Test MIDI</h3><p><a href="midi.html">A page</a> that plays the FM-1 over USB or Bluetooth, shows what it sends, and tests its TRS MIDI jack, from Chrome or Edge.</p></div>
+    <div class="feat"><h3>The Firmware Hub</h3><p>Every card links its synth's own firmware on the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>, and fm1-dock's own entry is there too.</p></div>
+  </div>
+  <details class="older">
+    <summary>New in 0.7: Bluetooth MIDI, five modules, the second core, the EQ, the MIDI options</summary>
+  <div class="features">
     <div class="feat"><h3>Bluetooth MIDI that connects</h3><p>The radio now calibrates itself at every start, so a Mac, phone or controller connects and stays connected, with both CPU cores running. On a Mac: Audio MIDI Setup, MIDI Studio, the Bluetooth button, <b>Connect</b>.</p></div>
     <div class="feat"><h3>Five new modules</h3><p>FM-106 (the Juno-106), MONK-1's twelve singers, FiMba-1's kalimba, GATOR's Plaits-style macro oscillator and DUB-1's self-playing dub machine, each its author's own code: <a href="#modules">the catalog</a>.</p></div>
     <div class="feat"><h3>The second core</h3><p>Modules can play voices on the chip's second CPU (CS-1, FM-106). The top line shows 1CPU or 2CPU; after a crash with both, one core until power-off.</p></div>
@@ -100,6 +121,7 @@
     <div class="feat"><h3>MIDI options</h3><p>MIDI CH, LOCAL, MIDI THRU, KNOBS CC and CC 7 volume, for every module.</p></div>
     <div class="feat"><h3>This page</h3><p>Connect, install or update fm1-dock, then add and remove modules, with a meter for the 296 KiB they share. Try any of them in the emulator first.</p></div>
   </div>
+  </details>
 </section>
 
 <section id="modules" aria-labelledby="mods-h">
@@ -116,7 +138,7 @@
       <input type="search" id="q" placeholder="Search modules" aria-label="Search modules" autocomplete="off"></label>
     <div class="kinds" id="kinds" role="group" aria-label="Which modules"></div>
     <span class="count" id="count" aria-live="polite"></span>
-    <div class="chips" id="chips" role="group" aria-label="Filter by tag"></div>
+    <div class="chips" id="chips" role="group" aria-label="Filter by kind of sound"></div>
   </div>
   <div class="meter" id="meter" aria-live="polite"></div>
   <div class="mods-grid" id="catalog">
@@ -160,7 +182,7 @@
     <div class="feat"><h3>KNOBS CC</h3><p>KNOB1–4 send CC 74, 71, 73 and 72 (cutoff, resonance, attack, release) over USB and BLE-MIDI.</p></div>
     <div class="feat"><h3>MIDI THRU</h3><p>What comes in on the TRS MIDI jack goes on to USB-MIDI and BLE-MIDI, and the module plays it too.</p></div>
     <div class="feat"><h3>CC7</h3><p>CC 7 sets the level of any module on top of MASTER; MASTER can send CC 7 itself.</p></div>
-    <div class="feat"><h3>BLE-MIDI</h3><p>Off by default. On, a computer, phone or controller connects to <code>FM1-DOCK xxxx</code> without pairing; notes go both ways. The radio calibrates itself when it starts (the sound pauses for a moment).</p></div>
+    <div class="feat"><h3>BLE-MIDI</h3><p>Off by default. On, a computer, phone or controller connects to <code>FM1-DOCK xxxx</code> without pairing; notes go both ways. The radio calibrates itself when it starts (the sound pauses for a moment). <a href="midi.html">Test it from the browser</a>.</p></div>
     <div class="feat"><h3>Second core</h3><p>A module can run part of its sound on the chip's second CPU, Bluetooth on or off: CS-1 plays half its voices there, FM-106 three of its six.</p></div>
     <div class="feat"><h3>Safety nets</h3><p>OCT+ at power-on: the sine only. OCT−: the USB rescue. A module that crashes twice, or runs too slow, is set aside and the sine plays.</p></div>
     <div class="feat"><h3>SMK-37</h3><p>The same fm1-dock and modules on the M-Vave SMK-37 Pro, Elite, MKE-P37 and Starrykey 37 Play: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/SMK37.md">read this first</a>.</p></div>

@@ -10,8 +10,9 @@
 //   title, module (its name on the device, as in its .dock), by, author_url, original (its own page or repository),
 //   hub (its id on the FM-1 Firmware Hub, for the card's link thefirmwarehub.com/#fw-<hub>),
 //   links [{label, url}], license, voices, description (one line), tags [...] (the page adds "large" to an add-on
-//   over 200 KiB: most of an FM-1's 296 KiB on its own), screenshot (media/...png), alt, accent (a colour from its
-//   screen, for the card's frame);
+//   over 150 KiB: about half of an FM-1's 296 KiB on its own), kind (analog, digital, ambient, keys or utility: the
+//   catalog's second row of filters), untested: true until the module has been played on a real FM-1 (a label on its
+//   card), screenshot (media/...png), alt, accent (a colour from its screen, for the card's frame);
 //   packaged: true for one in fm1-dock's package (no file, no button; size_kib for the card);
 //   else file (the .dock next to modules.json), version, source, songs; pending: why the file is not here yet.
 import { catalog, installButton, tuneButtons, inspectDevice, addModule, removeModule, loadModule, explain } from "./install/fm1install.js";
@@ -29,7 +30,9 @@ const BOARD = {
 };
 const SIGNED_FROM = [0, 7];                     // releases built and attested on GitHub (zvenson/fm1-build)
 const PAGE = 4096;                               // a module takes whole 4 KiB flash sectors
-const LARGE = 200 * 1024, LARGE_TAG = "large";   // an add-on that needs most of an FM-1's deploy area on its own
+const LARGE = 150 * 1024, LARGE_TAG = "large";   // an add-on that needs about half of an FM-1's deploy area on its own
+const KINDS = [["any", "Every kind"], ["analog", "Analog"], ["digital", "Digital & chip"], ["ambient", "Ambient & texture"],
+  ["keys", "Keys & acoustic"]];
 const VIDEO = [   // the tunes in the video, as FM-1 SID played them there
   { title: "Arkanoid", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Arkanoid.sid" },
   { title: "Wizball", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Wizball.sid", song: 7 },
@@ -51,7 +54,7 @@ const fail = (code) => Object.assign(new Error(code), { code });
 
 const S = {
   mods: [], index: null, midi: null, dev: null, devErr: null, connecting: false, gone: false,
-  busy: null, msg: {}, filter: "all", q: "", hover: null, tryit: null, trying: null,
+  busy: null, msg: {}, filter: "all", kind: "any", q: "", hover: null, tryit: null, trying: null,
 };
 
 // ------------------------------------------------------------------ the inline question ---
@@ -272,6 +275,8 @@ function renderMeter() {
     + (g ? `<div class="seg ghost${g.fits ? "" : " nofit"}" style="width:${pct(Math.max(g.w, total * 0.02))}" title="${esc(g.m.title)}: ${kib(g.need)}">${esc(g.m.title)}</div>` : "");
   legend = segs.map((s) => `<li><i class="${s.other ? "other" : ""}"></i>${esc(s.name)} <b>${kib(s.n)}</b></li>`);
   if (g) legend.push(`<li><i class="ghost"></i>${esc(g.m.title)} would take <b>${kib(g.need)}</b>${g.fits ? "" : ": it does not fit"}</li>`);
+  const crowded = noRoom(g, free, largest, total);
+  if (crowded) legend.push(`<li class="crowd">${crowded}</li>`);
   if (d) legend.push(`<li><i class="free"></i>free <b>${kib(free)}</b></li>`);
   else if (!g) legend.push(`<li>Point at an add-on's card to see how much room it takes.</li>`);
   el.innerHTML = `<div class="meter-h">${head}</div>
@@ -279,16 +284,34 @@ function renderMeter() {
     <ul class="legend">${legend.join("")}</ul>`;
 }
 
+// the add-ons that would not fit: with a device, those over its largest free piece now, and with an add-on pointed at, those
+// that fit now but not after it (its room taken from the largest piece: a fair guess, the deploy picks the first gap)
+function noRoom(g, free, largest, total) {
+  const room = largest == null ? total : largest;
+  const out = (left) => S.mods.filter((m) => m.addon && m.available && m.size && !onDevice(m) && (!g || m !== g.m)
+    && sectors(m.size) > left).map((m) => m.title);
+  const names = (l) => l.length > 4 ? `${l.slice(0, 4).map(esc).join(", ")} and ${l.length - 4} more` : l.map(esc).join(", ");
+  if (g && g.fits) {
+    const now = new Set(out(room)), after = out(room - g.need).filter((x) => !now.has(x));
+    if (after.length) return `After ${esc(g.m.title)}, no room left for ${names(after)}`;
+  }
+  if (largest != null && !g) {
+    const l = out(room);
+    if (l.length) return `Too big for the free room now: ${names(l)}`;
+  }
+  return "";
+}
+
 // ------------------------------------------------------------------ the cards ---
 
 function chips() {
-  const tags = [...new Set(S.mods.flatMap((m) => m.tags))].sort();
   const kinds = [["all", "All"], ["builtin", "Built in"], ["addon", "Add-ons"]];
   if (dock()) kinds.push(["here", `On my ${devName()}`]);
-  if (!kinds.some(([k]) => k === S.filter) && !tags.includes(S.filter)) S.filter = "all";
-  const chip = ([k, label]) => `<button type="button" class="chip" data-f="${esc(k)}" aria-pressed="${S.filter === k}">${esc(label)}</button>`;
-  $("#kinds").innerHTML = kinds.map(chip).join("");
-  $("#chips").innerHTML = tags.map((t) => chip([t, t])).join("");
+  if (!kinds.some(([k]) => k === S.filter)) S.filter = "all";
+  const chip = (attr, cur) => ([k, label]) =>
+    `<button type="button" class="chip" ${attr}="${esc(k)}" aria-pressed="${cur === k}">${esc(label)}</button>`;
+  $("#kinds").innerHTML = kinds.map(chip("data-f", S.filter)).join("");
+  $("#chips").innerHTML = KINDS.map(chip("data-k", S.kind)).join("");
 }
 
 function shown(m) {
@@ -296,7 +319,7 @@ function shown(m) {
   if (f === "builtin" && m.addon) return false;
   if (f === "addon" && !m.addon) return false;
   if (f === "here" && !onDevice(m)) return false;
-  if (!["all", "builtin", "addon", "here"].includes(f) && !m.tags.includes(f)) return false;
+  if (S.kind !== "any" && m.kind !== S.kind) return false;
   if (!S.q) return true;
   const hay = [m.title, m.module, m.by, m.description, m.voices, m.license, ...m.tags].join(" ").toLowerCase();
   return S.q.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
@@ -312,13 +335,16 @@ function card(m) {
     m.hub && `<a href="https://thefirmwarehub.com/#fw-${encodeURIComponent(m.hub)}" title="its own firmware on the FM-1 Firmware Hub">the Hub</a>`,
     ...(m.links || []).map((l) => url(l.url) && `<a href="${url(l.url)}">${esc(l.label)}</a>`)].filter(Boolean);
   const size = m.addon ? (m.size ? kib(m.size) : "—") : m.builtin ? "in the host" : m.size_kib ? `${m.size_kib} KiB, in the package` : "in the package";
+  const big = m.addon && m.size && sectors(m.size) > LARGE;
+  const badges = [m.addon && m.size && `<span class="badge size${big ? " big" : ""}" title="${big ? esc(largeNote(m)) : "Its room in the add-on area"}">${kib(sectors(m.size))}${big ? " · big" : ""}</span>`,
+    m.untested && `<span class="badge untested" title="Runs in the emulator and its tests; not yet played on a real FM-1">Not yet tried on hardware</span>`].filter(Boolean);
   const a = document.createElement("article");
   a.className = `mod ${m.addon ? "addon" : "builtin"}`;
   a.dataset.id = m.id;
   a.id = `mod-${m.id}`;
   if (/^#[0-9a-f]{3,8}$/i.test(m.accent || "")) a.style.setProperty("--mod", m.accent);
   a.setAttribute("aria-labelledby", `m-${m.id}`);
-  a.innerHTML = `<div class="shot">${shot}</div>
+  a.innerHTML = `<div class="shot">${shot}${badges.length ? `<div class="badges">${badges.join("")}</div>` : ""}</div>
     <div class="mod-body">
       <div class="mod-head">
         <h3 id="m-${esc(m.id)}">${esc(m.title)}${m.addon && m.available && m.version ? `<span class="ver">${esc(m.version)}</span>` : ""}</h3>
@@ -342,7 +368,7 @@ function card(m) {
 
 // what a large add-on costs: most of an FM-1's deploy area (296 KiB), so little else fits beside it
 function largeNote(m) {
-  return `A large one: it needs ${kib(sectors(m.size))} of the FM-1's ${kib(BOARD.fm1.area)} for add-ons on its own, so little else fits beside it.`;
+  return `A big one: it takes ${kib(sectors(m.size))} of the FM-1's ${kib(BOARD.fm1.area)} for add-ons on its own, so only smaller ones fit beside it.`;
 }
 
 function button(text, cls, fn, disabled = false) {
@@ -387,7 +413,7 @@ function actions(m) {
         if (S.dev && !d) out.push(node("p", "note", "Install fm1-dock first (above)."));
         else if (!fits) out.push(node("p", "note bad", `Needs ${kib(sectors(m.size))}; the largest free piece is ${kib(d.hello.largest)}. Remove another add-on first.`));
         else if (d && m.size) out.push(node("p", `note${large ? " warn" : ""}`, `Takes ${kib(sectors(m.size))} of the ${kib(d.hello.free)} free.`
-          + (large && boardOf() === BOARD.fm1 ? ` A large one: it needs most of the FM-1's ${kib(BOARD.fm1.area)} on its own.` : "")));
+          + (large && boardOf() === BOARD.fm1 ? ` A big one: about half of the FM-1's ${kib(BOARD.fm1.area)} on its own.` : "")));
         else if (large) out.push(node("p", "note warn", largeNote(m)));
       }
     }
@@ -526,12 +552,15 @@ $("#hero-connect").addEventListener("click", () => {
   connect();
 });
 $("#modules .toolbar").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-f]");
+  const b = e.target.closest("[data-f], [data-k]");
   if (!b) return;
-  S.filter = S.filter === b.dataset.f && b.dataset.f !== "all" ? "all" : b.dataset.f;
+  if (b.dataset.f) S.filter = S.filter === b.dataset.f && b.dataset.f !== "all" ? "all" : b.dataset.f;
+  else S.kind = S.kind === b.dataset.k && b.dataset.k !== "any" ? "any" : b.dataset.k;
   renderCatalog();
 });
-$("#catalog").addEventListener("click", (e) => { if (e.target.id === "clear") { S.filter = "all"; S.q = ""; $("#q").value = ""; renderCatalog(); } });
+$("#catalog").addEventListener("click", (e) => {
+  if (e.target.id === "clear") { S.filter = "all"; S.kind = "any"; S.q = ""; $("#q").value = ""; renderCatalog(); }
+});
 $("#q").addEventListener("input", (e) => { S.q = e.target.value.trim(); renderCatalog(); });
 if (!navigator.requestMIDIAccess) {
   $("#nomidi").hidden = false; $("#dev-connect").disabled = true;

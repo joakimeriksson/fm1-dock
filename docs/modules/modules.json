@@ -12,6 +12,7 @@
   "size_kib": 52,
   "description": "A CS-80-style polysynth: two layers, its tone bars, effects and user presets, with velocity and aftertouch from the keys.",
   "tags": ["synth", "poly", "vintage"],
+  "kind": "analog",
   "screenshot": "media/screen_cs1.png",
   "accent": "#e8b923",
   "alt": "CS-1's screen: its tone bars and the preset BLADE BRASS"
@@ -30,6 +31,7 @@
   "size_kib": 58,
   "description": "The 1981 Elka Synthex with all 80 factory patches, the laser harp among them, checked sample by sample against its browser original.",
   "tags": ["synth", "poly", "vintage"],
+  "kind": "analog",
   "screenshot": "media/screen_scintilla.png",
   "accent": "#ff8a2a",
   "alt": "Scintilla's screen: the patch RING MOD., the laser harp"
@@ -47,6 +49,7 @@
   "size_kib": 149,
   "description": "A four-track analog-style poly with arpeggiator, sequencer and effects; its pages, presets and patterns live in fm1-dock's banks.",
   "tags": ["synth", "poly", "sequencer"],
+  "kind": "analog",
   "screenshot": "media/screen_obervave.png",
   "accent": "#4fa3e6",
   "alt": "OberVave's PERFORM page: cutoff, resonance, envelope, release"
@@ -68,6 +71,7 @@
   "voices": "3, the SID's",
   "description": "C64 music: a cycle-exact 6510 and reSID, GoatTracker 2 songs with their editor on the knobs, and any .sid from its page plays at once.",
   "tags": ["chiptune", "tracker", "synth"],
+  "kind": "digital",
   "screenshot": "media/screen_fm1sid.png",
   "accent": "#8f86ff",
   "alt": "FM-1 SID's screen: Arkanoid by Martin Galway, three voices, the filter, the scope"
@@ -89,6 +93,7 @@
   "voices": "4 pads, 6 bells, a bass, 3 drums",
   "description": "A generative ambient machine after Music for Airports: pads, bells on tape loops and a gliding bass play themselves while you tend them.",
   "tags": ["ambient", "generative"],
+  "kind": "ambient",
   "screenshot": "media/screen_amb.png",
   "accent": "#b5c45a",
   "alt": "AMB-1's screen: the Garden, D Dorian on Dm7, the four layers' levels"
@@ -109,6 +114,7 @@
   "voices": "16 strings, a 3-note chord, a bass",
   "description": "A chord harp after the Omnichord: chords on the black keys, strummed on the white ones, with a bass and a rhythm box.",
   "tags": ["chords", "rhythm"],
+  "kind": "ambient",
   "screenshot": "media/screen_fomni.png",
   "accent": "#4fb8a8",
   "alt": "FoMni's screen: the chord C, the strings and the chord buttons"
@@ -129,6 +135,7 @@
   "voices": "6, three on the second core",
   "description": "The Roland Juno-106: six voices, the 128 factory presets, its BBD chorus, arpeggiator and sequencer; three voices run on the chip's second core.",
   "tags": ["synth", "poly", "vintage"],
+  "kind": "analog",
   "screenshot": "media/screen_fm106.png",
   "accent": "#f0503c",
   "alt": "FM-106's screen: the preset A85 Rocket Men, three voices playing, the VCF's sliders and the oscilloscope"
@@ -150,6 +157,7 @@
   "voices": "1, up to 10 in unison",
   "description": "Twelve singers on MonkSynth's formant voice, each on its own stage: the mouth follows the vowel, and the keys give velocity and pressure.",
   "tags": ["synth", "vocal"],
+  "kind": "ambient",
   "screenshot": "media/screen_monk.png",
   "accent": "#f2a03d",
   "alt": "MONK-1's screen: Jerry the monk singing with his mouth wide open, Vowel, Head, Breath and Glide below"
@@ -170,6 +178,7 @@
   "voices": "16 tines",
   "description": "A kalimba by modal synthesis: tines on the white keys, thumb-roll chords on the black, with its body, buzzers, a sound hole's wah, delay and reverb.",
   "tags": ["chords", "physical model"],
+  "kind": "keys",
   "screenshot": "media/screen_fimba.png",
   "accent": "#c98a4a",
   "alt": "FiMba-1's screen: three tines ringing in C major, the chord keys, Material Steel, Hardness, Decay and Tone"
@@ -191,6 +200,7 @@
   "voices": "1 (mono)",
   "description": "A macro-oscillator on Emilie Gillet's Plaits DSP: 24 models in 3 banks, a low-pass gate, two LFOs and an 8-slot modulation matrix.",
   "tags": ["synth", "mono"],
+  "kind": "digital",
   "screenshot": "media/screen_gator.png",
   "accent": "#46d07a",
   "alt": "GATOR's screen: the model WAVETABLE, its harmonics, timbre and morph, the wave under them"
@@ -212,6 +222,7 @@
   "voices": "4 chord voices, 6 pings, a bass, 5 drums",
   "description": "A generative dub techno machine, AMB-1's fork: chord stabs dissolve in a tape echo over a steady kick, in eight pieces it plays by itself.",
   "tags": ["generative", "rhythm"],
+  "kind": "ambient",
   "screenshot": "media/screen_dub.png",
   "accent": "#2fc4c4",
   "alt": "DUB-1's screen: the Form page, the chord Fm7 in its ripples, the lanes of the phrase, Energy, Vary, Motion and Drift"
@@ -231,6 +242,8 @@
   "voices": "8, half on the second core",
   "description": "A Prophet-5 Rev 4 on Melodee's engine: Poly-Mod, two filter characters, glide, unison and Vintage; INIT and eight patches of its own, and your own bank if you send one.",
   "tags": ["synth", "poly", "vintage"],
+  "kind": "analog",
+  "untested": true,
   "screenshot": "media/screen_prophet.png",
   "accent": "#f5a033",
   "alt": "PROPHET's screen: the patch STRINGS, 3 of 8, its MAIN page with cutoff, resonance, envelope amount and release"
@@ -254,6 +267,8 @@
   "voices": "every key, 91 tonewheels",
   "description": "A tonewheel organ modelled on setBfree: nine drawbars, key click, vibrato and chorus, percussion, overdrive, reverb and a Leslie; setBfree's 110 programs and its MIDI controllers.",
   "tags": ["synth", "poly", "vintage"],
+  "kind": "keys",
+  "untested": true,
   "screenshot": "media/screen_b3.png",
   "accent": "#ffbe5a",
   "alt": "B3 ORGAN's screen: the nine drawbars of Standard B (88 8000 000), vibrato, Leslie, percussion, overdrive and reverb under them"
@@ -274,6 +289,8 @@
   "voices": "2 drones",
   "description": "A drone synth after the Lyra-8, the Subharmonicon and the DS-2: two drones that breathe and drift, scenes you press into, gestures, a delay and a reverb. Its delay reaches 270 ms here (450 in the original).",
   "tags": ["synth", "drone", "ambient"],
+  "kind": "ambient",
+  "untested": true,
   "screenshot": "media/screen_niagara.png",
   "accent": "#e8913a",
   "alt": "Niagara Drift's screen: PLAY 1, SWELL, the two drones' waves, their pitch and cutoff"
@@ -294,6 +311,8 @@
   "voices": "8, as four FM pairs",
   "description": "An experimental drone and polyphonic synth: eight voices as four interacting FM pairs, DRONE and POLY modes, a Hyper LFO, stereo motion, a modulated two-line delay (1 s here), distortion, compression, mutation and an arpeggiator.",
   "tags": ["synth", "drone", "poly"],
+  "kind": "digital",
+  "untested": true,
   "screenshot": "media/screen_artihive.png",
   "accent": "#f06f9d",
   "alt": "ARTIHIVE's screen: DRONE, voice 1, the output's wave, four envelopes, TUNE, FINE, SHARP and MOD, the eight voices' tunings"
@@ -311,6 +330,7 @@
   "voices": "4",
   "description": "Dinghy's sine, always there: the fallback when a module fails, and the smallest module to copy when you write your own.",
   "tags": ["starter"],
+  "kind": "utility",
   "screenshot": "media/screen_sine.png",
   "accent": "#9a8cff",
   "alt": "SINE's screen: a sine to build on, the note C4"
