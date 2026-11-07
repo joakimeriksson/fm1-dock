@@ -414,6 +414,24 @@ def main():
     if "PROPHET" in names:
         prophet_cases()
 
+    if "B3 ORGAN" in names:
+        # Standard B (88 8000 000) under ten keys; then over MIDI every drawbar out (CC 70..78 at 0, as setBfree),
+        # percussion, the Leslie fast, overdrive, reverb and vibrato, and a ten-note chord: its heaviest
+        chord = "".join(f",1800:{k},3000:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26, 28, 30))
+        s, log = run("b3", pick("B3 ORGAN") + chord, 3600)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("b3", "b3: B3 ORGAN" in log and peak(s, 0.0, 1.5) == 0 and peak(s, 1.9, 2.9) > 1000 and
+              peak(s, 3.4, 3.6) < peak(s, 1.9, 2.9) // 20 and " 0 overruns" in log and worst < 70,
+              f"B3 ORGAN plays Standard B under ten keys and stops; worst {worst} % of a block")
+        cc = [(70 + i, 0) for i in range(9)] + [(66, 127), (1, 127), (65, 127), (91, 127), (31, 127), (93, 127)]
+        m = "".join(f",{1300 + 10 * j}:mb0{c:02x}{v:02x}" for j, (c, v) in enumerate(cc))
+        m += "".join(f",{1800 + 20 * j}:m90{n:02x}64" for j, n in enumerate(range(48, 68, 2)))
+        s, log = run("b3_full", pick("B3 ORGAN") + m, 3000)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("b3_full", peak(s, 2.1, 2.9) > 1000 and " 0 overruns" in log and worst < 90,
+              f"B3 ORGAN over MIDI: all drawbars, percussion, Leslie fast, overdrive, reverb, vibrato, ten keys; "
+              f"worst {worst} % of a block")
+
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
     s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
