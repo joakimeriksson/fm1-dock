@@ -414,6 +414,24 @@ def main():
     if "PROPHET" in names:
         prophet_cases()
 
+    if "ARTIHIVE" in names:
+        # DRONE: silent until PLAY, which starts all eight drones (four FM pairs, the delay, the compressor);
+        # POLY (HOME on its first page): an eight-note chord on the keys; a MIDI note latches voice 4 (60 & 7)
+        k = pick("ARTIHIVE")
+        s, log = run("artihive", k + ",2000:12,2050:12^", 4500)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("artihive", "artihive: ARTIHIVE" in log and peak(s, 0.5, 1.7) == 0 and peak(s, 2.6, 4.0) > 1000 and
+              " 0 overruns" in log and worst < 80, f"ARTIHIVE: PLAY starts its eight drones; worst {worst} % of a block")
+        s, log = run("artihive_poly", k + ",2000:8,2050:8^," + ",".join(f"2400:{14 + n}" for n in (0, 4, 7, 11, 12, 16, 19, 23)), 4000)
+        check("artihive_poly", peak(s, 0.5, 2.1) == 0 and rms_left(s, 2.6, 3.6) > 300 and " 0 overruns" in log,
+              f"ARTIHIVE in POLY: an eight-note chord on the keys (RMS {rms_left(s, 2.6, 3.6):.0f})")
+        base = k + ",2000:12,2050:12^,2600:12,2650:12^"   # (all drones on, then off: their tails go on)
+        a, _ = run("artihive_nomidi", base, 5000)
+        b, _ = run("artihive_midi", base + ",3600:m903c64", 5000)
+        d = [x - y for x, y in zip(a, b)]
+        check("artihive_midi", rms_left(d, 2.0, 3.35) == 0 and rms_left(d, 3.6, 4.6) > 100,
+              f"ARTIHIVE over MIDI: a note latches its voice (RMS {rms_left(d, 3.6, 4.6):.0f} more than without it)")
+
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
     s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
@@ -515,7 +533,8 @@ def main():
         chord = "".join(f",4000:{k},5200:{k}^" for k in (14, 18, 21, 25, 28, 32))
         for name in names:
             case = "usb_" + re.sub(r"[^a-z0-9]+", "", name.lower())
-            s, log = run(case, pick(name) + chord, 6000, extra=("--usb",))
+            play = ",3000:12,3050:12^" if name == "ARTIHIVE" else ""   # (ARTIHIVE is silent until PLAY)
+            s, log = run(case, pick(name) + play + chord, 6000, extra=("--usb",))
             rate, u = usb_frames(case)
             same, how = usb_same(s, u)
             g = uac_glitches(case)
