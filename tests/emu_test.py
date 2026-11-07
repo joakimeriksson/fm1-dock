@@ -125,28 +125,59 @@ def onset_frames(s):
     return s[first - first % 2:]
 
 
-LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
-NEVER_RUN = {"wfe", "sevl", "sevg", "trigger"}   # (multicore events in library code; the host's debug trigger)
+LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*?(\t.*| +<unknown instruction>)$")
+NEVER_RUN = {"wfe", "sevl", "sevg", "trigger",   # (multicore events in library code; the host's debug trigger;
+             "syscall"}                         # no OS: in a module, text such as GATOR's strings in .text)
+
+
+def check_decode(emu, lines):
+    """fm1-emu --check-decode on hex lines -> [(length, name, status)]"""
+    with tempfile.NamedTemporaryFile("w", suffix=".txt") as f:
+        f.write("\n".join(lines) + "\n")
+        f.flush()
+        out = subprocess.run([str(emu), "--check-decode", f.name], capture_output=True, text=True).stdout.splitlines()
+    if len(out) != len(lines):
+        return None
+    return [(int(o.split("|")[1]), o.split("|")[2], o.split("|")[-1]) for o in out]
 
 
 def decode_check():
     """every instruction of the host and the modules through the emulator's own decoder (fm1-emu
-    --check-decode, next to fm1-live): what it cannot run fails here, not mid-test"""
+    --check-decode, next to fm1-live): what it cannot run fails here, not mid-test. The code is walked by the
+    emulator's own instruction lengths: the disassembler does not know the FPU's instructions (`<unknown
+    instruction>`, two bytes at a time), so its boundaries after one are wrong and would show made-up instructions"""
     emu = Path(os.environ.get("FM1_LIVE", Path.home() / "work/fm1-emu/target/release/fm1-live")).with_name("fm1-emu")
     for dis in [SRC / "build" / "fm1-dock.dis", *sorted((SRC / "build" / "modules").glob("*/module.dis"))]:
-        rows = [(m.group(2).split(), m.group(3).strip()) for m in map(LINE.match, dis.read_text().splitlines())
-                if m and not m.group(3).startswith("<")]
-        text = "\n".join("".join(b + (rows[i + 1][0] if i + 1 < len(rows) else ["00", "00"])) for i, (b, _) in enumerate(rows))
-        with tempfile.NamedTemporaryFile("w", suffix=".txt") as f:
-            f.write(text + "\n")
-            f.flush()
-            out = subprocess.run([str(emu), "--check-decode", f.name], capture_output=True, text=True).stdout.splitlines()
         name = dis.parent.name if dis.parent.name != "build" else "host"
-        if len(out) != len(rows):
+        mem, asm, starts = {}, {}, []           # the bytes by address, the disassembler's text, its row starts
+        for m in map(LINE.match, dis.read_text().splitlines()):
+            if not m:
+                continue
+            at = int(m.group(1), 16)
+            for i, b in enumerate(m.group(2).split()):
+                mem[at + i] = int(b, 16)
+            asm[at] = m.group(3).strip()
+            starts.append(at)
+        lost = {u + d for u in asm if asm[u].startswith("<") for d in range(0, 24, 2)}   # (where the disassembler lost step)
+        even = sorted(a for a in set(starts) | lost if a in mem)
+        res = check_decode(emu, ["".join(f"{mem.get(a + i, 0):02x}" for i in range(8)) for a in even])
+        if res is None:
             check(f"decode {name}", False, f"{emu} has no --check-decode (an fm1-emu older than 2026-10-19?)")
             continue
-        bad = sorted({asm for (b, asm), o in zip(rows, out) if o.split("|")[-1] != "ok" and asm.split()[0] not in NEVER_RUN})
-        check(f"decode {name}", not bad, f"{len(rows)} instructions, all known to the emulator" if not bad else
+        seen = dict(zip(even, res))             # address -> (length, name, status)
+        rows = sorted(set(starts))
+        insns, a = [], rows[0]
+        for s in rows:                          # each run of the disassembler's rows, by the emulator's lengths
+            if s < a:
+                continue
+            a = s
+            while a in seen and seen[a][0]:     # (undecoded: data, on at the disassembler's next row)
+                insns.append(a)
+                a += seen[a][0]
+            a += 2
+        text = lambda a: asm[a] if a in asm and not asm[a].startswith("<") else seen[a][1]
+        bad = sorted({text(a) for a in insns if seen[a][2] != "ok" and text(a).split()[0] not in NEVER_RUN})
+        check(f"decode {name}", not bad, f"{len(insns)} instructions, all known to the emulator" if not bad else
               f"unknown to the emulator: {', '.join(bad[:6])}")
 
 
@@ -654,9 +685,10 @@ def main():
         for case, n in (("knobs_cc", 1), ("knobs_off", 0)):   # KNOBS CC: KNOB1 up 5 detents, KNOB2 down 3, slowly;
             keys, t = options([(O_KNOBS, n)])   # then KNOB1 down fast, 30 ms apart (4 steps a detent; fm1-live
             # drops one of two clicks 10 ms apart); OFF: nothing goes out
-            turns = "".join(f",{t + 300 + 100 * i}:e2:1" for i in range(5)) + \
-                "".join(f",{t + 900 + 100 * i}:e3:-1" for i in range(3)) + "".join(f",{t + 1300 + 30 * i}:e2:-1" for i in range(3))
-            s, log = run(case, keys + turns, t + 1500, extra=("--usb",))
+            # (from 600 ms after OPTIONS: a detent in the picker's last pass, a few hundred ms in fm1-emu, is the list's)
+            turns = "".join(f",{t + 600 + 100 * i}:e2:1" for i in range(5)) + \
+                "".join(f",{t + 1200 + 100 * i}:e3:-1" for i in range(3)) + "".join(f",{t + 1600 + 30 * i}:e2:-1" for i in range(3))
+            s, log = run(case, keys + turns, t + 1800, extra=("--usb",))
             res[case] = [m for m in midi_out(case) if m[0] == 0xB0]
         out, out2 = res["knobs_cc"], res["knobs_off"]
         check("knobs_cc", out == [(0xB0, 74, 65 + i) for i in range(5)] + [(0xB0, 71, 63 - i) for i in range(3)] +
