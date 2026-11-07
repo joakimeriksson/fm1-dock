@@ -123,7 +123,7 @@ RAM needs it. The originals are linked; their manuals apply.
 
 The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas); the page's meter shows what
 fits before you add one. FM-1 SID, MONK-1, DUB-1, GATOR and Niagara Drift are large: with one of them added, only
-smaller ones fit beside it. The modules new in 0.8 are tested in the emulator; TODO: the result on an FM-1.
+smaller ones fit beside it. The new modules of 0.8 have been played on an FM-1, both cores running: at their worst ARTIHIVE took 64 % of a block, PROPHET 53 %, Niagara Drift 33 %, Scintilla 46 % (its second core 35 %), with no overruns. Niagara Drift (156 KiB) leaves too little room in one piece for B3 ORGAN beside it and PROPHET: the free room can be split, and the page's meter shows the largest piece.
 
 ## Play it
 

@@ -243,7 +243,6 @@
   "description": "A Prophet-5 Rev 4 on Melodee's engine: Poly-Mod, two filter characters, glide, unison and Vintage; INIT and eight patches of its own, and your own bank if you send one.",
   "tags": ["synth", "poly", "vintage"],
   "kind": "analog",
-  "untested": true,
   "screenshot": "media/screen_prophet.png",
   "accent": "#f5a033",
   "alt": "PROPHET's screen: the patch STRINGS, 3 of 8, its MAIN page with cutoff, resonance, envelope amount and release"
@@ -268,7 +267,6 @@
   "description": "A tonewheel organ modelled on setBfree: nine drawbars, key click, vibrato and chorus, percussion, overdrive, reverb and a Leslie; setBfree's 110 programs and its MIDI controllers.",
   "tags": ["synth", "poly", "vintage"],
   "kind": "keys",
-  "untested": true,
   "screenshot": "media/screen_b3.png",
   "accent": "#ffbe5a",
   "alt": "B3 ORGAN's screen: the nine drawbars of Standard B (88 8000 000), vibrato, Leslie, percussion, overdrive and reverb under them"
@@ -290,7 +288,6 @@
   "description": "A drone synth after the Lyra-8, the Subharmonicon and the DS-2: two drones that breathe and drift, scenes you press into, gestures, a delay and a reverb. Its delay reaches 270 ms here (450 in the original).",
   "tags": ["synth", "drone", "ambient"],
   "kind": "ambient",
-  "untested": true,
   "screenshot": "media/screen_niagara.png",
   "accent": "#e8913a",
   "alt": "Niagara Drift's screen: PLAY 1, SWELL, the two drones' waves, their pitch and cutoff"
@@ -312,7 +309,6 @@
   "description": "An experimental drone and polyphonic synth: eight voices as four interacting FM pairs, DRONE and POLY modes, a Hyper LFO, stereo motion, a modulated two-line delay (1 s here), distortion, compression, mutation and an arpeggiator.",
   "tags": ["synth", "drone", "poly"],
   "kind": "digital",
-  "untested": true,
   "screenshot": "media/screen_artihive.png",
   "accent": "#f06f9d",
   "alt": "ARTIHIVE's screen: DRONE, voice 1, the output's wave, four envelopes, TUNE, FINE, SHARP and MOD, the eight voices' tunings"
