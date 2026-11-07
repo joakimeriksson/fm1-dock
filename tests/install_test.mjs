@@ -207,7 +207,9 @@ class FakeDock {
     this.access = { inputs: map(this.input), outputs: map(this.output) };
   }
   rx(f) {
-    const r = parse(Uint8Array.from(f)), d = r.d;
+    const r = parse(Uint8Array.from(f));
+    if (!r) return;                             // (not fm1-dock's frame: the updater's handshake, unanswered here)
+    const d = r.d;
     const u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
     if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, this.cur, 0, 0, 0, ...u32(this.largest), ...u32(500000), ...u32(300000), ...new Array(16).fill(0), ...u32(this.logText.length), ...new Array(4).fill(0)]);
     else if (r.cmd === CMD.LIST) {

@@ -19,6 +19,7 @@
 //     for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install);
 //   </script>
 import { Updater, sameKeyboard } from "./fm1ota.js";
+import { pairPorts, looksOurs } from "./ports.js";
 import { Dock, CMD, moduleInfo } from "../dock.js";
 
 const SITE = new URL("../", import.meta.url);           // fm1-dock's site: fw/ is there
@@ -142,7 +143,7 @@ export function catalog() {
 export async function entryFor(midi, entry) {
   const up = new Updater(midi);
   const dev = await up.find();
-  if (!dev) throw fail("notfound", "FM-1 not found");
+  if (!dev) throw up.missing("FM-1 not found");
   dev.link.close();
   const model = dev.id.model.replace(/^ota-/i, "");
   if (!SMK_FAMILY.test(model)) return entry;
@@ -181,7 +182,7 @@ export async function installOn(midi, pkg, name, ask, step) {
     return up.install(pkg.image, pkg.product, step);
   }
   const ota = await up.find(IS_OTA);
-  if (!ota) throw fail("notfound", "FM-1 not found");
+  if (!ota) throw up.missing("FM-1 not found");
   ota.link.close();
   if (!OUR_LOADER(ota.id))           // another firmware's update loader (M-VAVE's): its image layout may differ
     throw fail("foreign", ota.id.text);
@@ -190,16 +191,11 @@ export async function installOn(midi, pkg, name, ask, step) {
   return pkg.product;
 }
 
-// the FM-1 on midi that runs fm1-dock (it answers HELLO): { dock, hello } or null; MIDI ports of other names are left alone
+// the FM-1 on midi that runs fm1-dock (it answers HELLO): { dock, hello } or null; its ports paired as ports.js does
+// (Windows may name its input and output apart), MIDI ports of other names left alone
 export async function findDock(midi) {
-  const ins = [], outs = [];
-  midi.inputs.forEach((p) => ins.push(p));
-  midi.outputs.forEach((p) => outs.push(p));
-  for (const out of outs) {
-    if (out.state === "disconnected" || !/felucca|fm1-dock|dock|fm-?1/i.test(out.name || "")) continue;
-    const inp = ins.find((i) => i.name === out.name && i.state !== "disconnected");
-    if (!inp) continue;
-    const dock = new Dock(inp, out);
+  for (const p of pairPorts(midi.inputs, midi.outputs).filter(looksOurs).slice(0, 6)) {   // (paired names first)
+    const dock = new Dock(p.input, p.output);
     try { return { dock, hello: await dock.hello() }; } catch (_) { dock.close(); }
   }
   return null;
@@ -241,14 +237,17 @@ const BOOT_LINE = /fm1-dock (\S+) boot/g;     // dock.c's first log line at ever
 // what is on the device on midi, without changing anything: its identity (the updater's handshake: "FM-1_921", an
 // SMK-37's, "ota-..." in update mode), and when it runs fm1-dock its HELLO, its modules and its version (from the
 // log's last boot line, while the 2 KiB log still has it; opts.log false: not read). -> { identity, model, board: "fm1" |
-// "smk37" | null, ota, dock: { hello, modules, version } | null }; identity null: no FM-1 answered
+// "smk37" | null, ota, dock: { hello, modules, version } | null }; identity null: no FM-1 answered. Throws inuse when
+// none answered and a port would not open (another program or tab has it)
 export async function inspectDevice(midi, opts = {}) {
-  const dev = await new Updater(midi).find();
+  const up = new Updater(midi);
+  const dev = await up.find(null, { wide: true });     // (a press of Connect: ports of other names asked too)
   if (dev) dev.link.close();
   const model = dev ? dev.id.model.replace(/^ota-/i, "") : null;
   const out = { identity: dev ? dev.id.text : null, model, board: model ? (SMK_FAMILY.test(model) ? "smk37" : "fm1") : null,
     ota: !!dev && IS_OTA(dev.id), dock: null };
   if (out.ota) return out;
+  if (!dev && up.busy.size) throw up.missing("FM-1 not found");   // (its port is another program's: HELLO would not get through)
   const found = await findDock(midi);
   if (!found) return out;
   const { dock, hello } = found;
@@ -320,9 +319,10 @@ export async function playTune(midi, bytes, song, progress = () => {}) {
 }
 
 const SAY = {
-  nomidi: "This browser cannot reach the FM-1: open the page in Chrome or Edge.",
-  denied: "MIDI (SysEx) was not allowed. Allow MIDI in the site settings (the address bar) and press Install again.",
-  notfound: "FM-1 not found. Plug it in with a USB data cable, close other apps that use MIDI, and press Install again.",
+  nomidi: "This browser has no Web MIDI, so it cannot reach the FM-1: open the page in Chrome or Edge on a computer, or Chrome on Android (not on an iPhone or iPad: no browser there has it).",
+  denied: "MIDI (SysEx) was not allowed. Allow MIDI in the site settings (the icon at the left of the address bar), reload the page and press again.",
+  notfound: "FM-1 not found. Plug it in with a USB data cable (a charge-only cable powers it but carries no data), switch it on, close other programs and tabs that use MIDI, and press again.",
+  inuse: "The FM-1 is there, but another program or browser tab is using its MIDI port, and Windows lets only one at a time have it. Close the Firmware Hub's tab, a DAW, M-VAVE's app or any other MIDI program, then press again. Ports that would not open: ",
   model: "The connected device is not the one this package is for: nothing was written.",
   nosmk: "There is no SMK-37 package of this firmware on this site: it runs on the FM-1 only.",
   foreign: "The FM-1 is in the update mode of another firmware: finish that update with its own installer, then press Install again.",
@@ -349,7 +349,7 @@ const DETAIL = ["badpkg", "badreq", "abi", "space", "select", "refused", "hvsc",
 // an error of the functions above in words for the page
 export function explain(e) {
   if (!SAY[e.code]) return `Error: ${e.message}`;
-  return SAY[e.code] + (e.code === "mismatch" ? e.detail || "" : DETAIL.includes(e.code) ? e.message : "");
+  return SAY[e.code] + (e.code === "mismatch" || e.code === "inuse" ? e.detail || "" : DETAIL.includes(e.code) ? e.message : "");
 }
 
 const confirmAsk = async (q) => confirm(q);
@@ -406,7 +406,7 @@ export function installButton(el, id, opts = {}) {
       if (got === null) say("Cancelled: nothing was written.");
       else { say(`Done: the FM-1 runs ${fw.name} ${entry.version} (${got}).`); if (opts.onDone) opts.onDone(got); }
     } catch (e) {
-      say(SAY[e.code] ? SAY[e.code] + (e.code === "mismatch" ? e.detail : e.code === "badpkg" || e.code === "badreq" ? e.message : "")
+      say(SAY[e.code] ? SAY[e.code] + (e.code === "mismatch" || e.code === "inuse" ? e.detail : e.code === "badpkg" || e.code === "badreq" ? e.message : "")
         : `Error: ${e.message}`);
       console.error(e);
     }

@@ -7,6 +7,8 @@
 // the loader reads the whole image and writes it. Both steps are "the device
 // asks, we answer": cmd 0x30 read requests on the logical image.
 
+import { pairPorts, looksOurs, NOT_DEVICE } from "./ports.js";
+
 const HS_QUERY = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7];
 const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 const MAXDATA = 512;
@@ -21,7 +23,7 @@ export function sameKeyboard(a, b) {
   return ma === mb || (SMK_FAMILY.test(ma) && SMK_FAMILY.test(mb));
 }
 
-// errors carry a code the pages translate: notfound, model, stopped, noloader, lost, noreturn,
+// errors carry a code the pages translate: notfound, inuse (detail: the ports that would not open), model, stopped, noloader, lost, noreturn,
 // mismatch (detail: the identity the device reports), badreq
 function fail(code, msg, detail = "") { const e = new Error(msg); e.code = code; e.detail = detail; return e; }
 
@@ -122,21 +124,69 @@ export class Updater {
     this.log = log || (() => {});
   }
 
-  // every in/out pair with the same port name that answers the handshake
-  async find(filter) {
-    const outs = [...this.access.outputs.values()];
-    for (const input of this.access.inputs.values()) {
-      if (input.state === "disconnected") continue;
-      if (!/fm-1|smk|elite|mke-p37|starry|felucca|ota|composite|sinco|usb-midi/i.test(input.name || "")) continue;   // never probe other gear
-      const output = outs.find((o) => o.name === input.name && o.state !== "disconnected");
-      if (!output) continue;
-      try { await input.open(); await output.open(); } catch (_) { continue; }
-      const link = new Link(input, output);
-      const id = await handshake(link, 2);
-      if (id && (!filter || filter(id))) return { link, id, name: input.name };
-      link.close();
+  // the first in/out pair that answers the handshake (and filter): the pairs of names that look like the device's
+  // (ports.js), then its ports left unpaired tried input against output; wide: then every other port's too but the
+  // systems' own (a press of Connect: the handshake is a SysEx of no one's). A port that would not open (another
+  // program or tab holds it, as Windows allows only one) is noted in this.busy.
+  async find(filter, { wide = false } = {}) {
+    this.busy = new Set();
+    const pairs = pairPorts(this.access.inputs, this.access.outputs);
+    for (const p of pairs.filter((x) => !x.guess && looksOurs(x))) {
+      const dev = await this.ask(p.input, p.output, filter);
+      if (dev) return dev;
     }
+    const left = pairs.filter((x) => x.guess && (looksOurs(x) ||
+      (wide && !NOT_DEVICE.test(x.input.name || "") && !NOT_DEVICE.test(x.output.name || ""))));
+    return left.length ? this.cross(left, filter) : null;
+  }
+
+  async open(port) {
+    if (typeof port.open !== "function") return true;   // (opened by its first use)
+    try { await port.open(); return true; } catch (_) { this.busy.add(port.name || "?"); return false; }
+  }
+
+  async ask(input, output, filter) {
+    if (!await this.open(input) || !await this.open(output)) return null;
+    const link = new Link(input, output);
+    const id = await handshake(link, 2);
+    if (id && (!filter || filter(id))) return { link, id, name: input.name === output.name ? input.name : `${input.name} / ${output.name}` };
+    link.close();
     return null;
+  }
+
+  // unpaired ports: each output asked once while every input listens; the input that answers is its pair
+  async cross(guesses, filter) {
+    const ins = [...new Set(guesses.map((g) => g.input))], outs = [...new Set(guesses.map((g) => g.output))];
+    const heard = [], ears = [];
+    const stop = () => { ears.forEach((i) => { i.onmidimessage = null; }); ears.length = 0; };
+    for (const i of ins) {
+      if (!await this.open(i)) continue;
+      i.onmidimessage = (ev) => { if (ev.data[0] === 0xF0) heard.push([i, Array.from(ev.data)]); };
+      ears.push(i);
+    }
+    try {
+      for (const o of outs) {
+        if (!ears.length) break;
+        if (!ins.some((i) => guesses.some((g) => g.input === i && g.output === o)) || !await this.open(o)) continue;
+        heard.length = 0;
+        try { o.send(HS_QUERY); } catch (_) { continue; }
+        for (const end = Date.now() + 700; Date.now() < end;) {
+          await sleep(20);
+          const hit = heard.map(([i, p]) => [i, parseIdentity(p)]).find(([i, id]) => id && guesses.some((g) => g.input === i && g.output === o));
+          if (!hit) continue;
+          const [i, id] = hit;
+          if (filter && !filter(id)) break;
+          stop();
+          return { link: new Link(i, o), id, name: `${i.name} / ${o.name}` };
+        }
+      }
+    } finally { stop(); }
+    return null;
+  }
+
+  // the error for no device found: another program holding its port, or none there
+  missing(msg = "FM-1 not found (USB cable, and no other app using it?)") {
+    return this.busy && this.busy.size ? fail("inuse", msg, [...this.busy].join(", ")) : fail("notfound", msg);
   }
 
   async waitFor(filter, ms) {
@@ -182,7 +232,7 @@ export class Updater {
   async install(image, product, onStep) {
     const step = onStep || (() => {});
     const dev = await this.find((id) => !IS_OTA(id));
-    if (!dev) throw fail("notfound", "FM-1 not found (USB cable, and no other app using it?)");
+    if (!dev) throw this.missing();
     const [model] = product.split("_");
     if (!sameKeyboard(dev.id.model, model)) { dev.link.close(); throw fail("model", `the device is ${dev.id.text}, the package is for ${product}`); }
     step("start", dev.id.text);

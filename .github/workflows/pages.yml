@@ -53,6 +53,7 @@ jobs:
       - name: Test the installer (the packages, the update against a fake FM-1, the Try it files)
         run: |
           node tests/install_test.mjs _site/fw _site/tryit
+          node tests/ports_test.mjs
           python3 tests/tryit_test.py
       - if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5

@@ -4,12 +4,14 @@
 // (notes out of a USB-MIDI interface into the jack, back over USB with MIDI THRU on, timed). Only channel messages are
 // sent: nothing here installs or changes anything on the device.
 
+import { pairPorts } from "./install/ports.js";
+
 const $ = (s) => document.querySelector(s);
 const BLE_SVC = "03b80e5a-ede8-4b33-a751-6ce34ec4c700", BLE_CHR = "7772e5db-3868-4112-a1a9-f2669d106bf3";
 const OURS = /felucca|fm-?1|dinghy|smk|mke-?p37|starry|m-?vave/i;   // the device's port names (fm1-dock's is Felucca's)
 const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const noteName = (n) => NAMES[n % 12] + (Math.floor(n / 12) - 1);
-const S = { midi: null, usbIn: null, usbOut: null, ble: null, bleDev: null, base: 60, held: new Map(), demo: false, trs: null };
+const S = { midi: null, usbIn: null, usbOut: null, usbName: "", ble: null, bleDev: null, base: 60, held: new Map(), demo: false, trs: null };
 
 // ------------------------------------------------------------------ messages ---
 
@@ -142,28 +144,26 @@ async function usbConnect() {
   ports(true);
 }
 
-// the FM-1's port: the one whose name looks like the device's, an input and an output of the same name
+// the FM-1's port: an input and an output paired as the installer pairs them (install/ports.js: Windows may name the
+// two apart), the one whose name looks like the device's
 function ports(pick) {
-  const ins = [...S.midi.inputs.values()].filter((p) => p.state !== "disconnected");
-  const outs = [...S.midi.outputs.values()].filter((p) => p.state !== "disconnected");
-  const names = [...new Set(ins.map((p) => p.name).filter((n) => outs.some((o) => o.name === n)))];
-  const sel = $("#usb-port"), was = S.usbOut ? S.usbOut.name : sel.value;
+  const names = pairPorts(S.midi.inputs, S.midi.outputs).filter((p) => !p.guess).map((p) => p.name);
+  const sel = $("#usb-port"), was = S.usbOut ? S.usbName : sel.value;
   sel.innerHTML = "";
   for (const n of names) sel.add(new Option(n, n));
   sel.disabled = !names.length;
   if (!names.length) sel.add(new Option("no MIDI ports"));
   const want = names.includes(was) ? was : names.find((n) => OURS.test(n)) || "";
   if (want) sel.value = want;
-  if (pick || (S.usbOut && !names.includes(S.usbOut.name))) usePort(want);
+  if (pick || (S.usbOut && !names.includes(S.usbName))) usePort(want);
   trsPorts();
 }
 function usePort(name) {
   if (S.usbIn) S.usbIn.onmidimessage = null;
   S.usbIn = S.usbOut = null;
-  if (name) {
-    S.usbIn = [...S.midi.inputs.values()].find((p) => p.name === name && p.state !== "disconnected") || null;
-    S.usbOut = [...S.midi.outputs.values()].find((p) => p.name === name && p.state !== "disconnected") || null;
-  }
+  S.usbName = name || "";
+  const p = name ? pairPorts(S.midi.inputs, S.midi.outputs).find((x) => !x.guess && x.name === name) : null;
+  if (p) { S.usbIn = p.input; S.usbOut = p.output; }
   if (S.usbIn) S.usbIn.onmidimessage = (e) => fromDevice("USB", e.data);
   if (S.usbOut) {
     pill($("#usb-pill"), "connected: " + name, "ok");
@@ -329,7 +329,7 @@ const TRS_NOTES = [60, 62, 64, 65, 67, 69, 71, 72], GAP = 300, WAIT = 800;
 function trsPorts() {
   const sel = $("#trs-port");
   if (!S.midi) return;
-  const outs = [...S.midi.outputs.values()].filter((p) => p.state !== "disconnected" && (!S.usbOut || p.name !== S.usbOut.name));
+  const outs = [...S.midi.outputs.values()].filter((p) => p.state !== "disconnected" && (!S.usbOut || p !== S.usbOut));
   const was = sel.value;
   sel.innerHTML = "";
   for (const p of outs) sel.add(new Option(p.name, p.id));
