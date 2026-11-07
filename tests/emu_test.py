@@ -228,6 +228,45 @@ def prophet_cases():
           "a bank sent to PROPHET (three programs) plays and is there after a power-on (12 programs)")
 
 
+def niagara_cases():
+    """NIAGARA: Evan Yerburgh's Niagara Drift (modules/niagara), two drones"""
+    k = pick("NIAGARA") + ",2000:12,2050:12^"   # PLAY: the drones fade in (its start animation ends on the press)
+    s, log = run("niagara", k, 4500)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("niagara", "niagara: Niagara Drift" in log and peak(s, 0.0, 1.7) == 0 and peak(s, 3.0, 4.2) > 1000 and
+          " 0 overruns" in log, f"NIAGARA plays its drones on PLAY, silent before; worst {worst} % of a block")
+    # the twelve Presets (the scene keys, the lower white keys: F3 .. D5 but the black ones), one after the other
+    scenes = "".join(f",{2600 + 700 * i}:{14 + w},{2700 + 700 * i}:{14 + w}^"
+                     for i, w in enumerate((0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19)))
+    s, log = run("niagara_presets", k + scenes, 11400)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("niagara_presets", peak(s, 10.0, 11.0) > 1000 and " 0 overruns" in log and worst < 70,
+          f"NIAGARA through its twelve Presets; worst {worst} % of a block")
+    # KNOB2 (drone I's cutoff, the Play page), a note on MIDI channel 2 (drone II's pitch), a scene key's pressure:
+    # each changes the sound from where it happens (the WAV starts ~0.2 s after power-on), nothing before
+    a, _ = run("niagara_still", k + ",4000:23@100,5000:23^", 5500)
+    for case, more, t in (("niagara_knob", ",3500:e3:6", 3.5), ("niagara_midi", ",3500:m913c64", 3.5),
+                          ("niagara_pressure", ",4400:23~127", 4.4)):
+        b, _ = run(case, k + more + ",4000:23@100,5000:23^", 5500)
+        n = int((t - 0.3) * 44100) * 2
+        first = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), len(a)) / 88200
+        check(case, a[:n] == b[:n] and t - 0.3 < first < t + 0.3, f"NIAGARA: {case[8:]} changes the drones from {first:.2f} s")
+    # AUTOSAVE (its own: ~4 s after the last change, the drones stopped): KNOB2 turned past the start animation, its
+    # project in the module's bank 1; at the next power-on (NIAGARA again, the last module) it loads back
+    flash = OUT / "niagara_flash.bin"
+    flash.unlink(missing_ok=True)
+    fw = ("--fwsc", str(SRC / "build" / "fm1-dock.fwsc"), "--flash", str(flash))
+    run("niagara_fresh", pick("NIAGARA"), 4500, extra=fw)   # (the host keeps NIAGARA as the last module)
+    fresh = (OUT / "niagara_fresh" / "ram.bin").read_bytes()
+    run("niagara_save", "5500:e3:-20", 12000, extra=fw)
+    _, log = run("niagara_saved", "", 3000, extra=fw)
+    ram = (OUT / "niagara_saved" / "ram.bin").read_bytes()
+    at = fresh.find(b"DRN1")
+    check("niagara_saved", "niagara: Niagara Drift" in log and at >= 0 and ram.find(b"DRN1") == at and
+          ram[at:at + 512] != fresh[at:at + 512], "NIAGARA's sound is there after a power-off (its project autosaved "
+          "to its bank, loaded back)")
+
+
 def main():
     names = [n for n, _, _ in slots()]
     print(f"slots: {', '.join(names)}")
@@ -414,6 +453,43 @@ def main():
     if "PROPHET" in names:
         prophet_cases()
 
+    if "B3 ORGAN" in names:
+        # Standard B (88 8000 000) under ten keys; then over MIDI every drawbar out (CC 70..78 at 0, as setBfree),
+        # percussion, the Leslie fast, overdrive, reverb and vibrato, and a ten-note chord: its heaviest
+        chord = "".join(f",1800:{k},3000:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26, 28, 30))
+        s, log = run("b3", pick("B3 ORGAN") + chord, 3600)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("b3", "b3: B3 ORGAN" in log and peak(s, 0.0, 1.5) == 0 and peak(s, 1.9, 2.9) > 1000 and
+              peak(s, 3.4, 3.6) < peak(s, 1.9, 2.9) // 20 and " 0 overruns" in log and worst < 70,
+              f"B3 ORGAN plays Standard B under ten keys and stops; worst {worst} % of a block")
+        cc = [(70 + i, 0) for i in range(9)] + [(66, 127), (1, 127), (65, 127), (91, 127), (31, 127), (93, 127)]
+        m = "".join(f",{1300 + 10 * j}:mb0{c:02x}{v:02x}" for j, (c, v) in enumerate(cc))
+        m += "".join(f",{1800 + 20 * j}:m90{n:02x}64" for j, n in enumerate(range(48, 68, 2)))
+        s, log = run("b3_full", pick("B3 ORGAN") + m, 3000)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("b3_full", peak(s, 2.1, 2.9) > 1000 and " 0 overruns" in log and worst < 90,
+              f"B3 ORGAN over MIDI: all drawbars, percussion, Leslie fast, overdrive, reverb, vibrato, ten keys; "
+              f"worst {worst} % of a block")
+    if "NIAGARA" in names:
+        niagara_cases()
+    if "ARTIHIVE" in names:
+        # DRONE: silent until PLAY, which starts all eight drones (four FM pairs, the delay, the compressor);
+        # POLY (HOME on its first page): an eight-note chord on the keys; a MIDI note latches voice 4 (60 & 7)
+        k = pick("ARTIHIVE")
+        s, log = run("artihive", k + ",2000:12,2050:12^", 4500)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("artihive", "artihive: ARTIHIVE" in log and peak(s, 0.5, 1.7) == 0 and peak(s, 2.6, 4.0) > 1000 and
+              " 0 overruns" in log and worst < 80, f"ARTIHIVE: PLAY starts its eight drones; worst {worst} % of a block")
+        s, log = run("artihive_poly", k + ",2000:8,2050:8^," + ",".join(f"2400:{14 + n}" for n in (0, 4, 7, 11, 12, 16, 19, 23)), 4000)
+        check("artihive_poly", peak(s, 0.5, 2.1) == 0 and rms_left(s, 2.6, 3.6) > 300 and " 0 overruns" in log,
+              f"ARTIHIVE in POLY: an eight-note chord on the keys (RMS {rms_left(s, 2.6, 3.6):.0f})")
+        base = k + ",2000:12,2050:12^,2600:12,2650:12^"   # (all drones on, then off: their tails go on)
+        a, _ = run("artihive_nomidi", base, 5000)
+        b, _ = run("artihive_midi", base + ",3600:m903c64", 5000)
+        d = [x - y for x, y in zip(a, b)]
+        check("artihive_midi", rms_left(d, 2.0, 3.35) == 0 and rms_left(d, 3.6, 4.6) > 100,
+              f"ARTIHIVE over MIDI: a note latches its voice (RMS {rms_left(d, 3.6, 4.6):.0f} more than without it)")
+
     # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
     # is on row PA7, key 34 (note key 20) on the top row, which has no converter
     s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
@@ -515,7 +591,8 @@ def main():
         chord = "".join(f",4000:{k},5200:{k}^" for k in (14, 18, 21, 25, 28, 32))
         for name in names:
             case = "usb_" + re.sub(r"[^a-z0-9]+", "", name.lower())
-            s, log = run(case, pick(name) + chord, 6000, extra=("--usb",))
+            play = ",3000:12,3050:12^" if name == "ARTIHIVE" else ""   # (ARTIHIVE is silent until PLAY)
+            s, log = run(case, pick(name) + play + chord, 6000, extra=("--usb",))
             rate, u = usb_frames(case)
             same, how = usb_same(s, u)
             g = uac_glitches(case)

@@ -114,7 +114,10 @@ RAM needs it. The originals are linked; their manuals apply.
 | **FM-1 SID** | Joakim Eriksson | 3, the SID's | 266 KiB | C64 music: a cycle-exact 6510 and reSID, GoatTracker 2 songs and their editor; any `.sid` from [its page](https://joakimeriksson.github.io/fm1-emu/fm1-sid/) plays at once. [Write your first chiptune](https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step). |
 | **AMB-1** | Charles Vestal | 4 pads, 6 bells, a bass, 3 drums | 76 KiB | A generative ambient machine after *Music for Airports*: it plays itself while you tend it. [The original](https://charlesvestal.github.io/fm1-amb/), its code unchanged. |
 | **FoMni** | Charles Vestal | 16 strings, a 3-note chord, a bass | 139 KiB | A chord harp after the Omnichord: chords on the black keys, strummed on the white ones, with a rhythm box. [The original](https://charlesvestal.github.io/fm1-fomni/), its code unchanged. |
+| **ARTIHIVE** | KHAV | 8, as four FM pairs | 84 KiB | An experimental drone and polyphonic synth: four interacting FM pairs on the white keys (DRONE) or all 27 keys (POLY), a Hyper LFO, stereo motion, a modulated two-line delay, distortion, compression, mutation and an arpeggiator. [The original](https://github.com/KHAVld/ARTIHIVE), its app and DSP unchanged; here its delay lines are 1 s (2 s there) and its six textured themes are plain. |
 | **PROPHET** | Kerem Kilic (Melodee) | 8, half on the second core (5 on one core) | 31 KiB | A Prophet-5 Rev 4 on Melodee's engine: band-limited oscillators, Poly-Mod, two filter characters, both envelopes, glide, unison and Vintage; INIT and eight patches of its own. Sequential's factory programs are not included: send your own bank with `tools/dock.py send FILE.syx`. [The original](https://github.com/keremimo/melodee), its engine unchanged. |
+| **B3 ORGAN** | R-Jeb | every key, 91 tonewheels | 77 KiB | A tonewheel organ modelled on setBfree: nine drawbars, key click, vibrato and chorus, percussion, overdrive, reverb and a Leslie; setBfree's 110 programs and its MIDI controllers. [The original](https://github.com/R-Jeb/setBfree-fm1), its organ and screen unchanged. |
+| **Niagara Drift** | Evan Yerburgh | 2 drones | 156 KiB | A drone synth after the SOMA Lyra-8, the Moog Subharmonicon and the Stylophone DS-2: two virtual-analog drones that breathe and drift, scenes on the white keys that the keys' pressure glides into, gestures, an LFO, a delay and a reverb. [The original](https://evanyerburgh.github.io/niagara-drift/), its code unchanged but for a module's RAM: the delay reaches 270 ms (450), the knob loop keeps 2048 events (4096). |
 
 The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas); the page's meter shows what
 fits before you add one. FM-1 SID, MONK-1 and DUB-1 are large: with one of them added, little else fits. The five new
@@ -240,7 +243,7 @@ The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `pla
 - **The modules**: CS-1, twochannels. OberVave, zvenson. FM-106, PatttF (its DSP after
   [ultramaster_kr106](https://github.com/kayrockscreenprinting/ultramaster_kr106)). AMB-1, FoMni and MONK-1, Charles
   Vestal (MONK-1's voice: Jonathan Taylor's MonkSynth). FiMba-1, Adam Sowers. GATOR, npi3pak (Plaits and stmlib:
-  Emilie Gillet). DUB-1, sbegueria (after AMB-1). reSID: Dag Lem.
+  Emilie Gillet). DUB-1, sbegueria (after AMB-1). ARTIHIVE, KHAV. reSID: Dag Lem.
 - **The base**: [Dinghy](https://github.com/zvenson/dinghy) (zvenson), on the platform of
   [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton Instruments) as
   [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) carries it.
