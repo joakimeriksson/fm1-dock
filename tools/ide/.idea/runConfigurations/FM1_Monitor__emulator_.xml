@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration name="FM1 Monitor (emulator)" type="DAPConfiguration" factoryName="DAPConfiguration">
+    <option name="command" value="python3 $PROJECT_DIR$/tools/fm1dap.py --emu" />
+    <option name="workingDirectory" value="$PROJECT_DIR$" />
+    <option name="serverId" value="" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>
