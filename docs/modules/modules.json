@@ -278,6 +278,26 @@
   "accent": "#e8913a",
   "alt": "Niagara Drift's screen: PLAY 1, SWELL, the two drones' waves, their pitch and cutoff"
  },
+ "artihive": {
+  "hub": "artihive",
+  "file": "artihive.dock",
+  "version": "2.0.3",
+  "source": "modules/artihive: KHAVld/ARTIHIVE ed53f4b (ARTIHIVE 2.0.3; modules/artihive/take.py), fm1-dock",
+  "by": "KHAV",
+  "songs": "",
+  "title": "ARTIHIVE",
+  "module": "ARTIHIVE",
+  "author_url": "https://github.com/KHAVld",
+  "original": "https://github.com/KHAVld/ARTIHIVE",
+  "links": [{ "label": "source", "url": "https://github.com/KHAVld/ARTIHIVE" }],
+  "license": "GPL-3.0-only",
+  "voices": "8, as four FM pairs",
+  "description": "An experimental drone and polyphonic synth: eight voices as four interacting FM pairs, DRONE and POLY modes, a Hyper LFO, stereo motion, a modulated two-line delay (1 s here), distortion, compression, mutation and an arpeggiator.",
+  "tags": ["synth", "drone", "poly"],
+  "screenshot": "media/screen_artihive.png",
+  "accent": "#f06f9d",
+  "alt": "ARTIHIVE's screen: DRONE, voice 1, the output's wave, four envelopes, TUNE, FINE, SHARP and MOD, the eight voices' tunings"
+ },
  "sine": {
   "hub": "dinghy",
   "title": "SINE",
