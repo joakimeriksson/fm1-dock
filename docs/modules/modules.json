@@ -258,6 +258,26 @@
   "accent": "#ffbe5a",
   "alt": "B3 ORGAN's screen: the nine drawbars of Standard B (88 8000 000), vibrato, Leslie, percussion, overdrive and reverb under them"
  },
+ "niagara": {
+  "hub": "niagara",
+  "file": "niagara.dock",
+  "version": "0.2.1",
+  "source": "modules/niagara: evanyerburgh/niagara-drift 86f47d2 (v0.2.1; modules/niagara/take.py), fm1-dock",
+  "by": "Evan Yerburgh",
+  "songs": "",
+  "title": "Niagara Drift",
+  "module": "NIAGARA",
+  "author_url": "https://github.com/evanyerburgh",
+  "original": "https://evanyerburgh.github.io/niagara-drift/",
+  "links": [{ "label": "source", "url": "https://github.com/evanyerburgh/niagara-drift" }],
+  "license": "GPL-3.0-only",
+  "voices": "2 drones",
+  "description": "A drone synth after the Lyra-8, the Subharmonicon and the DS-2: two drones that breathe and drift, scenes you press into, gestures, a delay and a reverb. Its delay reaches 270 ms here (450 in the original).",
+  "tags": ["synth", "drone", "ambient"],
+  "screenshot": "media/screen_niagara.png",
+  "accent": "#e8913a",
+  "alt": "Niagara Drift's screen: PLAY 1, SWELL, the two drones' waves, their pitch and cutoff"
+ },
  "sine": {
   "hub": "dinghy",
   "title": "SINE",
