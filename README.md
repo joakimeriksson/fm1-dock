@@ -75,18 +75,20 @@ its own package; the installers refuse an FM-1 package on an SMK-37, and the oth
 Back to any other firmware, or the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing firmware is at your own risk.
 
-## New in 0.7
+## New in 0.8
 
-- **Bluetooth MIDI that connects.** The radio calibrates itself at every start; a Mac connects in half a second and
-  MIDI flows both ways, with both CPU cores running.
-- **Five new modules**: FM-106, MONK-1, FiMba-1, GATOR and DUB-1.
-- **The second core**: CS-1 plays half its voices on the chip's second CPU, FM-106 three of its six.
-- **For every module**: a master EQ in the chip's hardware EQ, and MIDI CH, LOCAL, MIDI THRU, KNOBS CC and CC 7 volume.
-- **Built and signed on GitHub**, with a build attestation.
-- **The page** is a catalog and installer: your device, fm1-dock's install and update, every module with Add and
-  Remove, and a meter for the flash they share.
+- **Four new synths**: PROPHET (a Prophet-5 on Melodee's engine), B3 ORGAN (a tonewheel organ after setBfree),
+  Niagara Drift (two drones that drift) and ARTIHIVE (eight FM voices, drone or poly).
+- **A lighter Scintilla**: its engine built for speed, the heaviest factory patches 5 to 10 points of a block lighter
+  (measured in fm1-emu), and the module 58 KiB instead of 90 with its factory bank packed.
+- **[Test MIDI](https://joakimeriksson.github.io/fm1-dock/midi.html)**: play the FM-1 from the browser over USB or
+  Bluetooth, see what it sends, and test the TRS MIDI jack.
+- **The Firmware Hub**: every module's card links its own firmware there.
+- **The EQ is held** after a safe boot or a failed one, as Bluetooth is.
 
-The whole list: the [0.7 release notes](https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.7).
+The whole list: the [0.8 release notes](https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.8). Before that,
+[0.7](https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.7) brought Bluetooth MIDI that connects, the second
+core, the master EQ, the MIDI options and five modules.
 
 ## The modules
 
@@ -98,7 +100,7 @@ RAM needs it. The originals are linked; their manuals apply.
 | | by | voices | size | |
 | --- | --- | --- | --- | --- |
 | **CS-1** | twochannels | 8, two layers each | 52 KiB | A CS-80-style polysynth: two layers, its tone bars, effects and user presets, velocity and aftertouch from the keys. Half its voices on the second core. [The original](https://github.com/twochannels/CS-1). |
-| **Scintilla** | Joakim Eriksson | 8 | 90 KiB | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. Half its voices on the second core. [Its page](https://joakimeriksson.github.io/scintilla-fm1/). |
+| **Scintilla** | Joakim Eriksson | 8 | 58 KiB | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. Half its voices on the second core. [Its page](https://joakimeriksson.github.io/scintilla-fm1/). |
 | **OberVave** | zvenson | 8, shared by four tracks | 149 KiB | A four-track analog-style poly with arpeggiator, sequencer and effects. [The original](https://github.com/zvenson/obervave). |
 | **SINE** | zvenson (Dinghy) | 4 | in the host | Dinghy's sine: the fallback when a module fails, and the smallest module to copy. |
 
@@ -120,8 +122,8 @@ RAM needs it. The originals are linked; their manuals apply.
 | **Niagara Drift** | Evan Yerburgh | 2 drones | 156 KiB | A drone synth after the SOMA Lyra-8, the Moog Subharmonicon and the Stylophone DS-2: two virtual-analog drones that breathe and drift, scenes on the white keys that the keys' pressure glides into, gestures, an LFO, a delay and a reverb. [The original](https://evanyerburgh.github.io/niagara-drift/), its code unchanged but for a module's RAM: the delay reaches 270 ms (450), the knob loop keeps 2048 events (4096). |
 
 The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas); the page's meter shows what
-fits before you add one. FM-1 SID, MONK-1 and DUB-1 are large: with one of them added, little else fits. The five new
-modules are tested in the emulator, FiMba-1 also on an FM-1.
+fits before you add one. FM-1 SID, MONK-1, DUB-1, GATOR and Niagara Drift are large: with one of them added, only
+smaller ones fit beside it. The new modules of 0.8 have been played on an FM-1, both cores running: at their worst ARTIHIVE took 64 % of a block, PROPHET 53 %, Niagara Drift 33 %, Scintilla 46 % (its second core 35 %), with no overruns. Niagara Drift (156 KiB) leaves too little room in one piece for B3 ORGAN beside it and PROPHET: the free room can be split, and the page's meter shows the largest piece.
 
 ## Play it
 
@@ -152,7 +154,11 @@ Switch **BLUETOOTH** ON in OPTIONS. A computer, phone or controller connects to 
 notes go both ways. The radio calibrates itself every time it starts, so the sound pauses for about 0.2 s; both CPU
 cores keep running. A link that dies is let go and the FM-1 advertises again.
 
-On a Mac: Audio MIDI Setup → Window → Show MIDI Studio → the Bluetooth button → **Connect** on `FM1-DOCK xxxx`.
+- **Mac**: Audio MIDI Setup → Window → Show MIDI Studio → the Bluetooth button → **Connect** on `FM1-DOCK xxxx`.
+- **iPhone, iPad**: in an app that does Bluetooth MIDI, e.g. GarageBand → Settings → Advanced → Bluetooth MIDI Devices.
+- **Android**: a BLE-MIDI connect app, then any MIDI app.
+- **Windows**: most programs see no Bluetooth MIDI on their own; they need Windows MIDI Services or a bridge such as
+  KORG BLE-MIDI Driver or MIDIberry.
 
 [Test MIDI](https://joakimeriksson.github.io/fm1-dock/midi.html) plays the FM-1 from Chrome or Edge over USB or Bluetooth
 (no Audio MIDI Setup), shows what it sends back, and tests the TRS jack with MIDI THRU ON: notes out of a USB-MIDI

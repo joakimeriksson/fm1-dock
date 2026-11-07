@@ -248,6 +248,12 @@ main section { max-width: 1180px; margin: 0 auto; padding: 72px 24px 24px; }
 .mod .noshot { display: grid; place-items: center; text-align: center; padding: 20px;
   background: radial-gradient(circle at 50% 40%, #1c1530, #000 70%); color: var(--acc); font: 600 1.4rem var(--mono); letter-spacing: 0.06em; }
 .mod .noshot small { display: block; font: 0.75rem var(--mono); color: #847d96; letter-spacing: 0; margin-top: 6px; }
+.mod .badges { position: absolute; left: 8px; bottom: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 5px; pointer-events: auto; }
+.badge { font: 600 0.68rem var(--mono); padding: 3px 7px; border-radius: 5px; color: #eeeaf5; background: rgba(9, 8, 13, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.14); backdrop-filter: blur(4px); }
+.badge.big { color: #ffcf66; border-color: rgba(255, 207, 102, 0.5); }
+.badge.untested { color: #c4a5ff; border-color: rgba(180, 140, 255, 0.5); }
+.legend li.crowd { flex-basis: 100%; color: var(--warn); }
 .mod-body { padding: 14px 16px 16px; display: flex; flex-direction: column; flex: 1; gap: 8px; }
 .mod-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .mod .kind { flex: none; margin-top: 3px; font: 600 0.66rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
@@ -292,6 +298,21 @@ main section { max-width: 1180px; margin: 0 auto; padding: 72px 24px 24px; }
 .news-grid .feat::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--acc); opacity: 0.8; }
 .news-grid .feat h3 { font: 700 1.02rem/1.25 var(--sans); color: var(--fg); letter-spacing: -0.01em; text-transform: none; margin-bottom: 6px; }
 .news-grid .feat p { font-size: 0.9rem; }
+.new-synths { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.synth { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  color: inherit; transition: border-color 0.15s, transform 0.15s; }
+.synth:hover, .synth:focus-visible { text-decoration: none; border-color: var(--acc); }
+@media (hover: hover) { .synth:hover { transform: translateY(-2px); } }
+.synth img { display: block; width: 100%; height: auto; aspect-ratio: 1; background: #000; }
+.synth div { padding: 12px 14px 14px; }
+.synth h3 { margin: 0; font: 700 1rem/1.25 var(--sans); }
+.synth .by { margin: 2px 0 6px; font-size: 0.8rem; color: var(--muted); }
+.synth p { margin: 0; font-size: 0.86rem; color: var(--fg-2); }
+.synth .go { display: block; margin-top: 8px; font: 600 0.78rem var(--mono); color: var(--acc-text); }
+.older { margin-top: 18px; }
+.older summary { cursor: pointer; font-weight: 600; color: var(--fg-2); }
+.older .features { margin-top: 12px; }
+.hint { margin: 8px 0 0; font-size: 0.82rem; color: var(--muted); }
 
 /* ---- FM-1 SID's extras */
 .extras { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
@@ -392,7 +413,7 @@ dialog.ask p { margin: 0 0 18px; }
 dialog.ask .row { justify-content: flex-end; }
 
 @media (min-width: 1100px) { .dock-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
-@media (max-width: 1060px) { .news-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1060px) { .news-grid, .new-synths { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 901px) and (max-width: 1140px) { .screens { grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 420px; } }
 @media (max-width: 900px) {
   .hero, .split, .cols, .extras { grid-template-columns: 1fr; gap: 28px; }
