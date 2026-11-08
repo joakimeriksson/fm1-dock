@@ -5,7 +5,7 @@ app (app.c, app.h, the factory presets and the splash), its voice, pattern gener
 and from fm1-base the platform interface (plat.h), its maths (fastmath.h), its drawing (gfx.c) and its fonts
 (felucca_font.h, made by fm1-base's tools/gen_font.py: Pillow). The platform under it is fm1-dock's:
 atek303_platform.inc. Run it again on a new ATEK303:
-    modules/atek303/take.py ~/src/FM1-Animatek [FONT_H]        (FM1-Animatek 9b82ef2: ATEK303 1.2, fm1-base e07ebca)
+    modules/atek303/take.py ~/src/FM1-Animatek [FONT_H]        (FM1-Animatek 564b7a0: ATEK303 1.2, fm1-base e07ebca)
 FONT_H: gen_font.py's output made elsewhere when this Python's Pillow has no libraqm (see modules/amb/take.py).
 
 ATEK303 on fm1-base has 370 KiB of RAM (40 KiB and a 330 KiB pool), a module 272 KiB. What changes, all settable in

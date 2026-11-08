@@ -721,11 +721,13 @@ static void limit(float *l, float *r)
     *r = soft_clip(*r * g);
 }
 
-void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
+/* The render in three steps, so that a build with a second core (fm1-dock's module) can run the effects of one block
+ * there while this core makes the voice of the next: app_render_events (what the main loop posted, MIDI in: all that
+ * changes the voice's, the sequencer's and the effects' settings), app_render_fx (the effects, the limiter and the
+ * gain: a mono block into the output; it touches nothing the other two do) and app_render_voice (the sequencer and
+ * the voice: a mono block). app_render, the platform's, is the three in turn. */
+static void app_render_events(void)
 {
-    uint32_t i, off;
-    float gain = (float)master_q12 / 4096.0f * 8300000.0f;
-    static float gain_now;
     while (q_r != q_w) {
         uint32_t e = q[q_r % QN], kind = e & 0xFFu, a = (e >> 8) & 0xFFu, b = e >> 16;
         if (kind == EV_NOTE_ON)
@@ -782,22 +784,38 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         q_r++;
     }
     midi_in();
-    if (n > APP_BLOCK)
-        n = APP_BLOCK;
+    fx_tempo(sq.running && sq.ext ? sq.period : 15.0f / (float)(set.tempo < 30u ? 30u : set.tempo));
+}
+static void app_render_voice(float *out, uint32_t n)
+{
+    uint32_t off;
     for (off = 0; off < n; off += CHUNK) {     /* the sequencer at 0.7 ms, the voice between */
         uint32_t c = n - off < CHUNK ? n - off : CHUNK;
         seq_chunk(c);
-        at_render(&voice, mono + off, c);
+        at_render(&voice, out + off, c);
         sq.now += c;
     }
-    fx_tempo(sq.running && sq.ext ? sq.period : 15.0f / (float)(set.tempo < 30u ? 30u : set.tempo));
-    fx_process(mono, fxl, fxr, n);
+}
+static void app_render_fx(const float *in, int32_t *lr, uint32_t n, uint32_t master_q12)
+{
+    uint32_t i;
+    float gain = (float)master_q12 / 4096.0f * 8300000.0f;
+    static float gain_now;
+    fx_process(in, fxl, fxr, n);
     for (i = 0; i < n; i++) {
         gain_now += (gain - gain_now) * 0.004f;
         limit(&fxl[i], &fxr[i]);
         lr[2 * i] = (int32_t)fm_clampf(fxl[i] * gain_now, -8388000.0f, 8388000.0f);
         lr[2 * i + 1] = (int32_t)fm_clampf(fxr[i] * gain_now, -8388000.0f, 8388000.0f);
     }
+}
+void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
+{
+    if (n > APP_BLOCK)
+        n = APP_BLOCK;
+    app_render_events();
+    app_render_voice(mono, n);
+    app_render_fx(mono, lr, n, master_q12);
 }
 
 void app_panic(void)
