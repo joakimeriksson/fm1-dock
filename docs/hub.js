@@ -170,7 +170,7 @@ function emphasis() {
   if (!hero) return;
   hero.disabled = !navigator.requestMIDIAccess || S.connecting || !!S.busy;
   hero.textContent = S.connecting ? "Asking the device…" : d ? `${devName()} connected · fm1-dock ${d.version || ""}`.trim()
-    : dv && dv.identity ? `${devName()} connected` : "Connect your FM-1";
+    : dv && dv.identity ? `${devName()} connected` : "Connect your FM-1 or SMK-37";
   hero.classList.toggle("primary", !d);
 }
 

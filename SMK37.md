@@ -57,6 +57,9 @@ firmware update.
 
 ## Controls
 
+The [player's guide](https://joakimeriksson.github.io/fm1-dock/guide.html#smk37) shows every control on a picture of the
+SMK-37, OPTIONS, and how to start each synth.
+
 | SMK-37 | fm1-dock | |
 | --- | --- | --- |
 | Keys F3 .. G5 (the middle 27) | the FM-1's 27 keys | with their velocity (two contacts, the unit's factory curves) |

@@ -369,7 +369,7 @@ export function installButton(el, id, opts = {}) {
   status.setAttribute("role", "status");
   const note = document.createElement("p");
   note.className = "fm1-install-note";
-  note.textContent = "Over USB, in Chrome or Edge. Do not unplug the FM-1 while it writes. " +
+  note.textContent = "Over USB, in Chrome or Edge. Do not unplug the device while it writes. " +
     (fw.keeps ? fw.keeps + " " : "") + "Installing firmware is at your own risk; OCT− held at power-on is the USB rescue.";
   el.append(btn, bar, status, note);
   const say = (text) => { status.textContent = text; };
@@ -379,7 +379,7 @@ export function installButton(el, id, opts = {}) {
   catalog().then((c) => {
     entry = c.firmwares && c.firmwares[id];
     if (!entry) { say(`No ${fw.name} package on this site yet.`); return; }
-    btn.textContent = `Install ${fw.name} ${entry.version} on my FM-1`;
+    btn.textContent = `Install ${fw.name} ${entry.version} on my ${entry.variants && Object.keys(entry.variants).length ? "FM-1 or SMK-37" : "FM-1"}`;
     btn.disabled = !navigator.requestMIDIAccess;
     if (entry.variants && Object.keys(entry.variants).length)
       note.textContent += " An SMK-37 keyboard gets its own package (Pro, Elite, MKE-P37).";
