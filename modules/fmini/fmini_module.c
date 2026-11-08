@@ -1,18 +1,22 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* FMINI-1: FMini-1's FMINI engine (Ruppert, github.com/ruppert/fmini-1, 2.2.0) as a fm1-dock module: a monosynth in
  * the style of the classic three-oscillator Moogs (three polyBLEP oscillators and noise, the mixer's soft overload, the
- * Minimoog-style 24 dB ladder with its own contour) and its 200 factory patches, the engine's own code (take.py). Under
- * it the slice of FMini-1's host the engine reads (fmini_platform.inc); around it an interface of fm1-dock's own on
- * the FM-1's panel (FMini-1's screens, sequencer, arpeggiator and effects are not in it):
+ * Minimoog-style 24 dB ladder with its own contour), its 200 factory patches and its effects (FMini-1's own: DRIVE,
+ * CHORUS, DELAY, REVERB; fx_taken.c), FMini-1's code (take.py). Under it the slice of FMini-1's host the engine reads
+ * (fmini_platform.inc); around it an interface of fm1-dock's own on the FM-1's panel, and an arpeggiator of its own
+ * (FMini-1's screens and sequencer are not in it):
  *
  *   PRESETS   the patch: F001..F200 (the factory's), then U001.. (yours)
- *   SELECT    the page (ALGORITHM too): FILTER, F.CONTOUR, LOUDNESS, OSC 1..3, NOISE & OUT, MOD, LFO, PLAY, EXTRA
+ *   SELECT    the page (ALGORITHM too): FILTER, F.CONTOUR, LOUDNESS, OSC 1..3, NOISE & OUT, MOD, LFO, PLAY, EXTRA,
+ *             REVERB, DELAY, CHORUS, DRIVE, ARPEGGIATOR, ARP 2
  *   KNOB1..4  the page's four controls
- *   EDIT ENV LFO FX ARP GLO   straight to FILTER, LOUDNESS, MOD, NOISE & OUT, OSC 1, PLAY
+ *   FX        the FX pages in turn          ARP   the arpeggiator on / off (and its page)
+ *   EDIT ENV LFO SEQ GLO   straight to FILTER, LOUDNESS, MOD, OSC 1, PLAY
  *   SAVE      into a user slot: PRESETS picks it, SAVE again keeps it (any other button: not saved)
  *   MIDI      notes (velocity: loudness), FMini-1's CC map (74 CUTOFF, 71 EMPHASIS, 44 CONTOUR, 73 / 75 / 50 the
  *             loudness contour, 7 volume, 5 glide, ...), 1 the mod wheel (vibrato), 64 sustain, bank (0) and
- *             program change, the pitch bend (the patch's range)
+ *             program change, the pitch bend (the patch's range); its FX and ARP CCs (91 94 93 51, 56 .. 61); MIDI
+ *             clock (the arpeggiator's tempo while it comes) and START
  *
  * The voices: MONO and LEGATO (FMini-1's MONO patches: glide and one contour between held keys) on one voice, POLY on
  * up to 12; with the host's second core the voices are rendered in two halves, one on each core. */
@@ -40,7 +44,14 @@ typedef struct {
     int8_t oct;                                 /* the keys' octave */
     uint8_t bend;                               /* the bend range: +-2, +-12, +2 -12, +2 -24 */
     char name[13];
+    uint8_t send[4];                            /* DRIVE's gain, the CHORUS, DELAY and REVERB sends (P_DIST .. P_REV) */
+    uint8_t fxg[12];                            /* the FX pop-ups' settings (FA_XG's order: REVERB TYPE DECAY TONE, DELAY TYPE TIME
+                                                 * FEEDBACK, CHORUS TYPE DEPTH RATE, DRIVE TYPE TONE OUTPUT) */
+    uint8_t arp[7];                             /* the arpeggiator: ON, MODE, RATE, OCTAVES, GATE, SWING, CHANCE (FMini-1's) */
+    uint8_t hold;
 } snd_t;
+static const uint8_t FA_XG[12] = {G_RTYPE, G_RSIZE, G_RDAMP, G_DTIME, G_DRREV, G_DFDBK, G_ENGGO, G_CDEPTH, G_CRATE, G_INFO,
+                                  G_DRLVL, G_MIDI};   /* (fmini_app.c's) */
 
 static void factory(uint32_t k, snd_t *s)       /* FMini-1's factory patch k as its loads make it (fa_factory_extras) */
 {
@@ -64,11 +75,19 @@ static void factory(uint32_t k, snd_t *s)       /* FMini-1's factory patch k as 
     s->oct = (int8_t)clamp(x->oct, -2, 2);
     for (i = 0; i < 12u && p->name[i]; i++)
         s->name[i] = p->name[i];
+    {   static const uint8_t FX_DEF[4] = {0, 24, 28, 36};   /* (ui.c apply_preset_to: a send stored + 1, 0 its default) */
+        for (i = 0; i < 4u; i++)
+            s->send[i] = (uint8_t)(p->fx[i] ? p->fx[i] - 1u : FX_DEF[i]);
+    }
+    for (i = 0; i < 12u; i++)
+        s->fxg[i] = (uint8_t)clamp(x->fx[i], 0, G_MAX[FA_XG[i]]);
+    for (i = 0; i < 7u; i++)
+        s->arp[i] = x->arp[i];
 }
 
 /* ---- user slots: in the module's flash bank */
 #define NUSER ((HB_BANK_MAX - 8u) / sizeof(snd_t))
-#define UB_MAGIC 0x31494D46u                    /* "FMI1" */
+#define UB_MAGIC 0x33494D46u                    /* "FMI3" (with the FX and the arpeggio) */
 static struct { uint32_t magic, count; snd_t s[NUSER]; } ub;
 static uint32_t npatches(void) { return FMINI_NFACTORY + ub.count; }
 static void patch_get(uint32_t k, snd_t *s)
@@ -96,6 +115,133 @@ static void ev_put(uint32_t type, uint32_t a, uint32_t b)
     ev_w = w + 1u;
 }
 
+
+/* ---- the arpeggiator (fm1-dock's own: FMini-1's lives in its sequencer). In the audio interrupt: the keys held (as
+ * played), each step a note of them on the part, at RATE (FMini-1's note values of the tempo: the patch's TEMPO, or a
+ * MIDI clock's while one comes), its GATE, SWING (every second step later) and CHANCE; HOLD keeps the notes when the
+ * keys are let go (the next key after that starts a new set). MODE as FMini-1 numbers them: UP, DOWN, UP-DOWN, RANDOM,
+ * AS PLAYED, REPEAT (the last key), DOWN-UP; its other modes play UP here */
+enum { AM_OFF, AM_UP, AM_DN, AM_UPDN, AM_RND, AM_ORD, AM_REPEAT, AM_DNUP };
+static volatile uint8_t arp_mode, arp_rate = 2, arp_oct = 1, arp_gate = 64, arp_swing, arp_prob = 127, arp_hold;
+static volatile uint8_t arp_restart;            /* the main loop: a MIDI start (FA), or the set to let go */
+static uint8_t ah[16], ahv[16], an, aphys;      /* the notes in the set (as played), their velocities; keys held now */
+static uint8_t a_was_mode, a_was_hold, a_note = 0xFFu, a_last;
+static uint32_t a_pos, a_idx, a_len, a_off;
+static int32_t a_seed = 0x6C078965;
+
+static void arp_stop_note(void)
+{
+    if (a_note != 0xFFu) {
+        trk_note_off(&trk[0], a_note);
+        a_note = 0xFFu;
+    }
+}
+static void arp_clear(void)
+{
+    arp_stop_note();
+    an = 0;
+}
+static void arp_key_on(uint32_t k, uint32_t vel)
+{
+    uint32_t i;
+    if (arp_hold && !aphys)
+        an = 0;                                 /* HOLD: a key after all were let go starts a new set */
+    aphys++;
+    for (i = 0; i < an && ah[i] != k; i++)
+        ;
+    if (i == an && an < sizeof ah) {
+        ah[an] = (uint8_t)k;
+        ahv[an++] = (uint8_t)vel;
+        if (an == 1u) {                         /* the first: a step now */
+            a_idx = 0;
+            a_pos = 0xFFFFFFFFu;
+        }
+    }
+    a_last = (uint8_t)k;
+}
+static void arp_key_off(uint32_t k)
+{
+    uint32_t i, j;
+    if (aphys)
+        aphys--;
+    if (arp_hold)
+        return;
+    for (i = j = 0; i < an; i++)
+        if (ah[i] != k) { ah[j] = ah[i]; ahv[j++] = ahv[i]; }
+    an = (uint8_t)j;
+    if (!an)
+        arp_stop_note();
+}
+static uint32_t arp_pick(uint8_t *vel)          /* the note of step a_idx */
+{
+    uint8_t l[16], v[16];
+    uint32_t i, j, k = an, n, oc = arp_oct ? arp_oct : 1u, m = arp_mode, x;
+    for (i = 0; i < k; i++) { l[i] = ah[i]; v[i] = ahv[i]; }
+    if (m == AM_REPEAT) {
+        for (i = 0; i < k && l[i] != a_last; i++)
+            ;
+        *vel = v[i < k ? i : k - 1u];
+        return i < k ? l[i] : l[k - 1u];
+    }
+    if (m != AM_ORD)                            /* sorted, low to high (insertion: at most 16) */
+        for (i = 1; i < k; i++)
+            for (j = i; j && l[j - 1u] > l[j]; j--) {
+                uint8_t a = l[j], b = v[j];
+                l[j] = l[j - 1u]; v[j] = v[j - 1u];
+                l[j - 1u] = a; v[j - 1u] = b;
+            }
+    n = k * oc;
+    switch (m) {
+    case AM_DN: x = n - 1u - a_idx % n; break;
+    case AM_UPDN: x = n < 2u ? 0u : a_idx % (2u * n - 2u); x = x < n ? x : 2u * n - 2u - x; break;
+    case AM_DNUP: x = n < 2u ? 0u : a_idx % (2u * n - 2u); x = x < n ? n - 1u - x : x - n + 2u - 1u; break;
+    case AM_RND: x = (uint32_t)noise32(&a_seed) % n; break;
+    default: x = a_idx % n; break;
+    }
+    *vel = v[x % k];
+    i = l[x % k] + 12u * (x / k);
+    return i > 127u ? 127u : i;
+}
+static void arp_block(uint32_t n)               /* once a control block, before the voices */
+{
+    track_t *t = &trk[0];
+    if (arp_mode != a_was_mode || (a_was_hold && !arp_hold) || arp_restart) {
+        if (!arp_mode || arp_restart == 2u) {
+            arp_clear();
+            aphys = 0;
+        } else if (a_was_hold && !arp_hold && !aphys) {
+            arp_clear();                        /* HOLD off with no key down: the set goes */
+        }
+        if (arp_restart == 1u) {                /* a MIDI start: from the first step */
+            a_idx = 0;
+            a_pos = 0xFFFFFFFFu;
+        }
+        a_was_mode = arp_mode;
+        a_was_hold = arp_hold;
+        arp_restart = 0;
+    }
+    if (!arp_mode || !an)
+        return;
+    if (a_note != 0xFFu && a_pos != 0xFFFFFFFFu && a_pos + n >= a_off)
+        arp_stop_note();
+    if (a_pos == 0xFFFFFFFFu || (a_pos += n) >= a_len) {
+        uint32_t base = div_samples(arp_rate), sw = (uint32_t)arp_swing * base / 200u;
+        uint8_t vel = 100;
+        uint32_t note;
+        a_pos = a_pos == 0xFFFFFFFFu ? 0u : a_pos - a_len;
+        a_len = a_idx & 1u ? base - sw : base + sw; /* SWING: the even steps longer, the odd ones shorter */
+        a_off = a_len * arp_gate / 128u;
+        if (a_off < CTL) a_off = CTL;
+        arp_stop_note();
+        note = arp_pick(&vel);
+        if (arp_prob >= 127u || (uint32_t)noise32(&a_seed) % 127u < arp_prob) {
+            trk_note_on(t, note, vel);
+            a_note = (uint8_t)note;
+        }
+        a_idx++;
+    }
+}
+
 static uint8_t key_held[128], key_sus[128], sustain;
 static volatile uint8_t bend_mode;
 static int16_t bend_raw;
@@ -111,11 +257,13 @@ static void ev_play(const ev_t *e)
     uint32_t k;
     switch (e->type) {
     case EV_ON:
+        if (arp_mode) { arp_key_on(e->a & 127u, e->b ? e->b : 1u); break; }
         key_held[e->a & 127u] = 1;
         key_sus[e->a & 127u] = 0;
         trk_note_on(t, e->a & 127u, e->b ? e->b : 1u);
         break;
     case EV_OFF:
+        if (arp_mode) { arp_key_off(e->a & 127u); break; }
         key_held[e->a & 127u] = 0;
         if (sustain) key_sus[e->a & 127u] = 1;
         else trk_note_off(t, e->a & 127u);
@@ -135,6 +283,8 @@ static void ev_play(const ev_t *e)
         break;
     case EV_BEND: bend_raw = (int16_t)((int32_t)(e->a | e->b << 7) - 8192); bend_update(); break;
     case EV_PANIC:
+        arp_clear();
+        aphys = 0;
         trk_all_off(t);
         memset(key_sus, 0, sizeof key_sus);
         memset(key_held, 0, sizeof key_held);
@@ -145,6 +295,7 @@ static void ev_play(const ev_t *e)
 
 /* ---- the sound: control blocks of CTL frames; the voices in two halves when the second core takes jobs */
 static int32_t buf0[CTL], buf1[CTL];
+static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
 static vmod_t vm[NVOICE];
 static uint8_t vgo[NVOICE];
 static uint32_t c1_n;
@@ -175,7 +326,7 @@ static void part_block(int32_t *out, uint32_t n)
 {
     track_t *t = &trk[0];
     uint32_t i, live = 0, split;
-    int32_t gain;
+    arp_block(n);
     part_head(t);
     for (i = 0; i < NVOICE; i++) {
         vgo[i] = 0;
@@ -198,18 +349,38 @@ static void part_block(int32_t *out, uint32_t n)
         for (i = 0; i < n; i++)
             buf0[i] += buf1[i];
     }
-    /* the patch's LEVEL (unity at 112), as FMini-1 mixes a part (fx.c mix_part); then a soft knee above -2.5 dBFS where
-     * FMini-1 has its master's limiter (loud chords) */
-    gain = (int32_t)LEVEL_Q12[t->p[P_LEVEL] & 127];
-    for (i = 0; i < n; i++) {
-        int32_t s = (int32_t)(((int64_t)buf0[i] * gain) >> 12), a = s < 0 ? -s : s;
-        if (a > 24576) {
-            a = 24576 + ((a - 24576) >> 2);
-            if (a > 32767) a = 32767;
-            s = s < 0 ? -a : a;
+    /* the part as FMini-1's mix_part mixes it (fx.c): DRIVE, the LEVEL (unity at 112), the three sends; the buses (fx_buses: the
+     * chorus, the delay, the reverb), their stereo (rev_side_mix); then a soft knee above -2.5 dBFS where FMini-1 has its master's
+     * limiter (loud chords) */
+    track_dist(t, buf0, n);
+    {
+        int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], c = t->p[P_CHOR] * 258, d = t->p[P_DLY] * 258, r = t->p[P_REV] * 258;
+        int32_t xmax = c > d ? c : d;
+        xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);
+        for (i = 0; i < n; i++) {
+            int32_t x = ((buf0[i] >> 2) * lvl) >> 10, xs = clamp(x, -xmax, xmax);
+            send_c[i] = c ? mulq15(xs, c) : 0;
+            send_d[i] = d ? mulq15(xs, d) : 0;
+            send_r[i] = r ? mulq15(xs, r) : 0;
+            mix_l[i] = mix_r[i] = x;
         }
-        out[2u * i] += s;
-        out[2u * i + 1u] += s;
+    }
+    fx_buses(send_c, send_d, send_r, wet, n);
+    if (hl.side || fx.ds_on)
+        rev_side_mix(mix_l, mix_r, n);
+    for (i = 0; i < n; i++) {
+        int32_t lr[2], k;
+        lr[0] = mix_l[i] + wet[i];
+        lr[1] = mix_r[i] + wet[i];
+        for (k = 0; k < 2; k++) {
+            int32_t s = lr[k], a = s < 0 ? -s : s;
+            if (a > 24576) {
+                a = 24576 + ((a - 24576) >> 2);
+                if (a > 32767) a = 32767;
+                s = s < 0 ? -a : a;
+            }
+            out[2u * i + (uint32_t)k] += s;
+        }
     }
 }
 
@@ -259,8 +430,21 @@ static void sound_apply(void)                   /* the whole sound into the part
     t->p[P_ED_PIT] = snd.mod[2];
     t->p[P_VOICE] = snd.mode;
     bend_mode = snd.bend & 3u;
+    for (i = 0; i < 4u; i++)
+        t->p[P_DIST + i] = snd.send[i];
+    for (i = 0; i < 12u; i++)
+        song.g[FA_XG[i]] = (int16_t)clamp(snd.fxg[i], 0, G_MAX[FA_XG[i]]);
+    arp_rate = (uint8_t)clamp(snd.arp[2], 0, 11);
+    arp_oct = (uint8_t)clamp(snd.arp[3], 1, 4);
+    arp_gate = (uint8_t)clamp(snd.arp[4], 1, 127);
+    arp_swing = (uint8_t)clamp(snd.arp[5], 0, 100);
+    arp_prob = (uint8_t)clamp(snd.arp[6], 0, 127);
+    arp_hold = snd.hold;
+    arp_mode = snd.arp[0] ? (uint8_t)(snd.arp[1] ? snd.arp[1] : AM_UP) : AM_OFF;   /* the patch's arpeggio, on or off */
+    if (arp_mode > AM_DNUP)
+        arp_mode = AM_UP;                       /* (FMini-1's other modes: UP here) */
     apply_glide();
-    fmini_set_patch(0, snd.g);
+    fmini_set_patch(0, snd.g);                  /* (its TEMPO, when it has one, into song.g[G_BPM]: eng_fmini.c) */
     if (was != snd.mode)
         ev_put(EV_PANIC, 0, 0);                 /* another voice mode: what sounds is let go */
 }
@@ -278,7 +462,7 @@ static void patch_select(uint32_t k)
 
 /* ---- the controls */
 enum { K_E, K_ENV, K_FREL, K_G, K_SW, K_LVL, K_DET, K_RANGE, K_WAVE, K_NOISE, K_MODTO, K_LFO, K_LWAVE, K_MOD,
-       K_FENV, K_MODE, K_GLIDE, K_VOL, K_OCT, K_BEND, K_PRIO, K_NONE };
+       K_FENV, K_MODE, K_GLIDE, K_VOL, K_OCT, K_BEND, K_PRIO, K_SEND, K_GLB, K_AMODE, K_ARP, K_HOLD, K_TEMPO, K_NONE };
 typedef struct { const char *label; uint8_t kind, a, b; } ctl_t;
 typedef struct { const char *title; ctl_t c[4]; } page_t;
 static const page_t PAGES[] = {
@@ -298,9 +482,17 @@ static const page_t PAGES[] = {
     {"PLAY", {{"MODE", K_MODE, 0, 0}, {"GLIDE", K_GLIDE, 0, 0}, {"PRIORITY", K_PRIO, 0, 0}, {"BEND", K_BEND, 0, 0}}},
     {"EXTRA", {{"OCTAVE", K_OCT, 0, 0}, {"LFO SQUARE", K_SW, FG_SW2, FT_SQR}, {"CNTR > PITCH", K_MOD, 2, 0},
                {"ENV > FILTER", K_FENV, 0, 0}}},
+    /* FMini-1's FX pop-ups, each MIX (or GAIN) and three of its settings */
+    {"REVERB", {{"MIX", K_SEND, 3, 0}, {"TYPE", K_GLB, 0, 0}, {"DECAY", K_GLB, 1, 0}, {"TONE", K_GLB, 2, 0}}},
+    {"DELAY", {{"MIX", K_SEND, 2, 0}, {"TYPE", K_GLB, 3, 0}, {"TIME", K_GLB, 4, 0}, {"FEEDBACK", K_GLB, 5, 0}}},
+    {"CHORUS", {{"MIX", K_SEND, 1, 0}, {"TYPE", K_GLB, 6, 0}, {"DEPTH", K_GLB, 7, 0}, {"RATE", K_GLB, 8, 0}}},
+    {"DRIVE", {{"GAIN", K_SEND, 0, 0}, {"TYPE", K_GLB, 9, 0}, {"TONE", K_GLB, 10, 0}, {"OUTPUT", K_GLB, 11, 0}}},
+    {"ARPEGGIATOR", {{"MODE", K_AMODE, 0, 0}, {"RATE", K_ARP, 2, 0}, {"OCTAVES", K_ARP, 3, 0}, {"GATE", K_ARP, 4, 0}}},
+    {"ARP 2", {{"HOLD", K_HOLD, 0, 0}, {"TEMPO", K_TEMPO, 0, 0}, {"SWING", K_ARP, 5, 0}, {"CHANCE", K_ARP, 6, 0}}},
 };
 #define NPAGES NELEM(PAGES)
-enum { PG_FILTER, PG_FCONT, PG_LOUD, PG_OSC1, PG_OSC2, PG_OSC3, PG_NOISE, PG_MOD, PG_LFO, PG_PLAY, PG_EXTRA };
+enum { PG_FILTER, PG_FCONT, PG_LOUD, PG_OSC1, PG_OSC2, PG_OSC3, PG_NOISE, PG_MOD, PG_LFO, PG_PLAY, PG_EXTRA, PG_REV, PG_DLY,
+       PG_CHO, PG_DRV, PG_ARP, PG_ARP2 };
 
 static int32_t det_get(uint32_t lo) { return fmini_det(snd.g, lo); }
 static int32_t cget(const ctl_t *c)
@@ -325,6 +517,12 @@ static int32_t cget(const ctl_t *c)
     case K_OCT: return snd.oct;
     case K_BEND: return snd.bend;
     case K_PRIO: return glo_note_prio;
+    case K_SEND: return snd.send[c->a];
+    case K_GLB: return snd.fxg[c->a];
+    case K_AMODE: return snd.arp[0] ? (snd.arp[1] ? snd.arp[1] : AM_UP) : 0;
+    case K_ARP: return snd.arp[c->a];
+    case K_HOLD: return snd.hold;
+    case K_TEMPO: return song.g[G_BPM];
     default: return 0;
     }
 }
@@ -344,7 +542,16 @@ static void lims(const ctl_t *c, int32_t *lo, int32_t *hi)
     case K_MODE: case K_PRIO: *hi = 2; break;
     case K_OCT: *lo = -2; *hi = 2; break;
     case K_BEND: *hi = 3; break;
-    case K_G: if (c->a == FG_GLID) *hi = 127; break;
+    case K_GLB: *hi = G_MAX[FA_XG[c->a]]; break;
+    case K_AMODE: *hi = AM_DNUP; break;
+    case K_ARP:
+        if (c->a == 2) *hi = 11;                /* RATE: N_DIV's twelve */
+        else if (c->a == 3) { *lo = 1; *hi = 4; }
+        else if (c->a == 4) *lo = 1;
+        else if (c->a == 5) *hi = 100;
+        break;
+    case K_HOLD: *hi = 1; break;
+    case K_TEMPO: *lo = 40; *hi = 240; break;
     default: break;
     }
 }
@@ -396,6 +603,28 @@ static void cset(const ctl_t *c, int32_t v)
     case K_OCT: snd.oct = (int8_t)v; break;
     case K_BEND: snd.bend = (uint8_t)v; bend_mode = (uint8_t)v; break;
     case K_PRIO: glo_note_prio = (uint8_t)v; break;
+    case K_SEND: snd.send[c->a] = (uint8_t)v; t->p[P_DIST + c->a] = (int16_t)v; break;
+    case K_GLB: snd.fxg[c->a] = (uint8_t)v; song.g[FA_XG[c->a]] = (int16_t)v; break;
+    case K_AMODE:
+        snd.arp[0] = (uint8_t)(v != 0);
+        if (v) snd.arp[1] = (uint8_t)v;
+        arp_mode = (uint8_t)v;
+        break;
+    case K_ARP:
+        snd.arp[c->a] = (uint8_t)v;
+        if (c->a == 2) arp_rate = (uint8_t)v;
+        else if (c->a == 3) arp_oct = (uint8_t)v;
+        else if (c->a == 4) arp_gate = (uint8_t)v;
+        else if (c->a == 5) arp_swing = (uint8_t)v;
+        else arp_prob = (uint8_t)v;
+        break;
+    case K_HOLD: snd.hold = (uint8_t)v; arp_hold = (uint8_t)v; break;
+    case K_TEMPO:                               /* the patch's TEMPO (its bytes: eng_fmini.c FG_BPML / FG_BPMH) */
+        snd.g[FG_BPML] = (uint8_t)(v & 127);
+        snd.g[FG_BPMH] = (uint8_t)(v >> 7);
+        song.g[G_BPM] = (int16_t)v;
+        patch = 1;
+        break;
     default: return;
     }
     if (patch)
@@ -413,6 +642,8 @@ static const ccmap_t CCMAP[] = {
     {36, PG_OSC2, 3}, {37, PG_OSC3, 3}, {39, PG_NOISE, 0}, {63, PG_NOISE, 1}, {74, PG_FILTER, 0}, {71, PG_FILTER, 1},
     {44, PG_FILTER, 2}, {45, PG_FILTER, 3}, {72, PG_NOISE, 2}, {46, PG_FCONT, 0}, {47, PG_FCONT, 1}, {48, PG_FCONT, 2},
     {49, PG_FCONT, 3}, {73, PG_LOUD, 0}, {75, PG_LOUD, 1}, {50, PG_LOUD, 2}, {7, PG_NOISE, 3}, {26, PG_EXTRA, 1},
+    {91, PG_REV, 0}, {94, PG_DLY, 0}, {93, PG_CHO, 0}, {51, PG_DRV, 0}, {56, PG_ARP, 0}, {57, PG_ARP, 1}, {58, PG_ARP, 2},
+    {59, PG_ARP, 3}, {60, PG_ARP2, 0}, {61, PG_ARP2, 1},
 };
 static void cc_abs(const ctl_t *c, uint32_t val)
 {
@@ -482,8 +713,27 @@ static void note(uint32_t ch, uint32_t key, uint32_t vel)   /* the FM-1's keys: 
     ev_put(vel ? EV_ON : EV_OFF, (uint32_t)n, vel);
 }
 static void cc(uint32_t ch, uint32_t num, uint32_t val) { (void)ch; cc_in(num, val); }
+static uint32_t clk_n, clk_t0, clk_last;      /* MIDI clock: ticks counted, when the count began, the last tick */
+static void clock_tick(void)
+{
+    uint32_t now = H->ms();
+    if (now - clk_last > 500u)
+        clk_n = 0;                              /* (a pause: start the count again) */
+    clk_last = now;
+    if (!clk_n)
+        clk_t0 = now;
+    if (++clk_n > 24u) {                        /* a quarter's 24 ticks: its length, the tempo the arpeggiator follows */
+        midi_beat_samples = (now - clk_t0) * 441u / 10u;
+        song.g[G_CLOCK] = 1;
+        clk_n = 1;
+        clk_t0 = now;
+    }
+}
 static void midi(uint32_t st, uint32_t d1, uint32_t d2)
 {
+    if (st == 0xF8u) { clock_tick(); return; }
+    if (st == 0xFAu) { arp_restart = 1; return; }   /* START: the arpeggio from its first step */
+    if (st >= 0xF0u) return;
     switch (st & 0xF0u) {
     case 0x90: ev_put(d2 ? EV_ON : EV_OFF, d1, d2); break;
     case 0x80: ev_put(EV_OFF, d1, 0); break;
@@ -509,8 +759,8 @@ static void ui(uint32_t ev, int32_t arg)
     uint32_t id = HB_EV_ID(ev);
     if (HB_EV_KIND(ev) == HB_EV_BTN_DOWN) {
         static const struct { uint8_t btn, page; } JUMP[] = {
-            {HB_BTN_EDIT, PG_FILTER}, {HB_BTN_ENV, PG_LOUD}, {HB_BTN_LFO, PG_MOD}, {HB_BTN_FX, PG_NOISE},
-            {HB_BTN_ARP, PG_OSC1}, {HB_BTN_GLO, PG_PLAY},
+            {HB_BTN_EDIT, PG_FILTER}, {HB_BTN_ENV, PG_LOUD}, {HB_BTN_LFO, PG_MOD}, {HB_BTN_SEQ, PG_OSC1},
+            {HB_BTN_GLO, PG_PLAY},
         };
         uint32_t i;
         if (id == HB_BTN_SAVE) {
@@ -533,6 +783,16 @@ static void ui(uint32_t ev, int32_t arg)
             return;
         }
         saving = 0;
+        if (id == HB_BTN_FX) {                  /* the FX pages in turn: REVERB, DELAY, CHORUS, DRIVE */
+            page = page >= PG_REV && page < PG_DRV ? page + 1u : PG_REV;
+            return;
+        }
+        if (id == HB_BTN_ARP) {                 /* the arpeggiator on / off, its page */
+            static const ctl_t AM = {"MODE", K_AMODE, 0, 0};
+            cset(&AM, cget(&AM) ? 0 : (snd.arp[1] ? snd.arp[1] : AM_UP));
+            page = PG_ARP;
+            return;
+        }
         for (i = 0; i < NELEM(JUMP); i++)
             if (JUMP[i].btn == id) page = JUMP[i].page;
         return;
@@ -601,6 +861,12 @@ static void value_text(const ctl_t *c, char *s)
     static const char *const MODE[3] = {"POLY", "MONO", "LEGATO"};
     static const char *const PRIO[3] = {"LAST", "LOW", "HIGH"};
     static const char *const BEND[4] = {"+/-2", "+/-12", "+2/-12", "+2/-24"};
+    static const char *const RTYPE[5] = {"ROOM", "HALL", "PLATE", "SPRING", "CLOUD"};
+    static const char *const DTYPE[8] = {"ANALOG", "DIGITAL", "TAPE", "P-PONG", "MULTI", "SLAP", "REVERSE", "A-SYNC"};
+    static const char *const CTYPE[3] = {"STEREO", "JUNO", "MULTI"};
+    static const char *const AMODE[8] = {"OFF", "UP", "DOWN", "UP-DOWN", "RANDOM", "AS PLAYED", "REPEAT", "DOWN-UP"};
+    static const char *const DIV[12] = {"1/4", "1/8", "1/16", "1/32", "1/8T", "1/16T", "1/2", "1/1", "2 BARS", "4 BARS",
+                                        "1/2T", "1/4T"};
     int32_t v = cget(c);
     s[0] = 0;
     switch (c->kind) {
@@ -642,6 +908,22 @@ static void value_text(const ctl_t *c, char *s)
     case K_OCT: num(s, v, 1); break;
     case K_BEND: cat(s, BEND[v & 3]); break;
     case K_PRIO: cat(s, PRIO[v % 3]); break;
+    case K_SEND: case K_GLB:
+        if (c->kind == K_GLB && c->a == 0) cat(s, RTYPE[v % 5]);
+        else if (c->kind == K_GLB && c->a == 3) cat(s, DTYPE[v % 8]);
+        else if (c->kind == K_GLB && c->a == 4) { num(s, dly_ms(v), 0); cat(s, " MS"); }
+        else if (c->kind == K_GLB && c->a == 6) cat(s, CTYPE[v % 3]);
+        else if (c->kind == K_GLB && c->a == 9) cat(s, v ? "TUBE" : "SOFT");
+        else num(s, v, 0);
+        break;
+    case K_AMODE: cat(s, AMODE[v % 8]); break;
+    case K_ARP:
+        if (c->a == 2) cat(s, DIV[v % 12]);
+        else if (c->a == 5) { num(s, v, 0); cat(s, " %"); }
+        else num(s, v, 0);
+        break;
+    case K_HOLD: cat(s, v ? "ON" : "OFF"); break;
+    case K_TEMPO: num(s, v, 0); cat(s, song.g[G_CLOCK] ? " CLK" : " BPM"); break;
     default: break;
     }
 }
@@ -649,7 +931,9 @@ static int bar(const ctl_t *c, int32_t *w)      /* a bar under the value: its sh
 {
     int32_t lo, hi, v = cget(c);
     if (c->kind == K_SW || c->kind == K_NOISE || c->kind == K_RANGE || c->kind == K_WAVE || c->kind == K_MODTO ||
-        c->kind == K_LWAVE || c->kind == K_MODE || c->kind == K_PRIO || c->kind == K_BEND || c->kind == K_OCT)
+        c->kind == K_LWAVE || c->kind == K_MODE || c->kind == K_PRIO || c->kind == K_BEND || c->kind == K_OCT ||
+        c->kind == K_AMODE || c->kind == K_HOLD || (c->kind == K_GLB && (c->a == 0 || c->a == 3 || c->a == 6 || c->a == 9)) ||
+        (c->kind == K_ARP && (c->a == 2 || c->a == 3)))
         return 0;
     lims(c, &lo, &hi);
     if (v < 0 && (c->kind == K_LVL || c->kind == K_GLIDE)) v = 0, lo = 0;
@@ -658,12 +942,16 @@ static int bar(const ctl_t *c, int32_t *w)      /* a bar under the value: its sh
 }
 
 static struct { uint32_t magic; uint16_t cur; uint8_t page, prio; uint8_t edited, pad[3]; snd_t snd; } rec;
-#define REC_MAGIC 0x32494D46u                   /* "FMI2" */
+#define REC_MAGIC 0x34494D46u                   /* "FMI4" */
 
 static void draw(uint32_t full)
 {
     char s[40];
     uint32_t k, now = H->ms(), c1 = c1_on ? 2u : 1u;
+    if (song.g[G_CLOCK] && now - clk_last > 1000u) {   /* the clock stopped: the patch's TEMPO again */
+        song.g[G_CLOCK] = 0;
+        midi_beat_samples = 0;
+    }
     if (save_at && (int32_t)(now - save_at) >= 0 && !voices_live) {   /* (when nothing sounds) */
         save_at = 0;
         rec.magic = REC_MAGIC;

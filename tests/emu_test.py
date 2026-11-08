@@ -302,6 +302,37 @@ def fmini_cases():
           f"four factory patches, four sounds (brightness {', '.join(f'{x:.2f}' for x in b[:4])}); CC 74 closes the "
           f"ladder ({b[4]:.2f} -> {b[5]:.2f})")
 
+    # the arpeggiator: SINE SOLO (its TEMPO 120), ARP on (the ARP button: UP, 1/16, one octave), C4 and G4 held: the two
+    # notes in turn, a step each 125 ms; with HOLD (CC 60) the arpeggio goes on after the keys are let go
+    def steps(t, t0, t1):
+        f = [upward(t, t0 + 0.125 * i + 0.02, t0 + 0.125 * i + 0.06) for i in range(int((t1 - t0) / 0.125))]
+        return sum(1 for x in f if abs(x - 261.6) < 40), sum(1 for x in f if abs(x - 392) < 50), f
+    m = pick("FMINI-1") + ",1300:mc004,1500:10,1550:10^,1800:m903c64,1800:m904364,3300:m803c00,3300:m804300"
+    s, log = run("fmini_arp", m, 4200)
+    lo, hi, f = steps(s, 1.9 - 0.2, 3.1 - 0.2)    # (the WAV starts ~0.2 s after boot)
+    after = rms_left(s, 3.6 - 0.2, 4.0 - 0.2)
+    check("fmini_arp", lo >= 4 and hi >= 4 and after < 0.1 * rms_left(s, 2.0, 2.9),
+          f"ARP on SINE SOLO: C4 and G4 in turn at 1/16 (steps: {lo} C4, {hi} G4), silent once the keys are let go")
+    s, log = run("fmini_hold", m.replace(",1800:m903c64", ",1700:mb03c7f,1800:m903c64"), 4600)
+    lo2, hi2, _ = steps(s, 3.5 - 0.2, 4.4 - 0.2)
+    check("fmini_hold", lo2 >= 2 and hi2 >= 2, f"HOLD: the arpeggio goes on after the keys are let go ({lo2} C4, {hi2} G4 steps)")
+
+    # PLUCK ARP (F003): its own arpeggio on recall (UP-DOWN, 1/16, three octaves): one key held, the steps climb and fall
+    # over three octaves
+    s, log = run("fmini_arppatch", pick("FMINI-1") + ",1300:mc002,1800:m903064,3300:m803000", 3600)
+    f = [upward(s, 1.6 + 0.125 * i + 0.02, 1.6 + 0.125 * i + 0.09) for i in range(10)]
+    check("fmini_arppatch", min(f) > 0 and max(f) > 2.5 * min(f),
+          f"PLUCK ARP arpeggiates by itself over its octaves (steps from {min(f):.0f} to {max(f):.0f} crossings a second)")
+
+    # the effects: SINE SOLO (its sends: chorus 51, delay 32, reverb 32; the delay ANALOG, 374 ms), a short note: its tail
+    # 0.4 .. 1.2 s after the note, with the effects and with every send at 0 (CC 91, 94, 93)
+    k = pick("FMINI-1") + ",1300:mc004,1800:m904564,1900:m804500"
+    s, log = run("fmini_fx", k, 3400)
+    s2, log2 = run("fmini_dry", k.replace(",1800:", ",1500:mb05b00,1520:mb05e00,1540:mb05d00,1800:"), 3400)
+    wet, dry = rms_left(s, 2.1, 2.9), rms_left(s2, 2.1, 2.9)
+    check("fmini_fx", wet > 3 * dry and wet > 20 and " 0 overruns" in log,
+          f"FMini-1's effects: a short note's tail {wet:.0f} with them, {dry:.0f} with every send at 0")
+
     # a user patch: MOOG BASS with its cutoff down (CC 74), SAVE twice into U001; after a power-off FMINI-1 lists
     # 201 patches and starts on it
     flash = OUT / "fmini_flash.bin"

@@ -4,12 +4,13 @@
 (firmware/src/eng_fmini.c: three polyBLEP oscillators and a noise source, the mixer that overloads softly, the
 Minimoog-style transistor ladder with its contour, the 200 factory patches of eng_fmini_presets.h and the ladder's
 laws of eng_fmini_filter.h) unchanged but for one line: the engine's preset list is its factory table itself
-(FMini-1 fills a RAM copy of it from its preset bank: fmini_bank.c, not taken). With them Felucca-Engines' DSP
+(FMini-1 fills a RAM copy of it from its preset bank: fmini_bank.c, not taken); and its effects (Felucca's fx.c as
+FMini-1 builds it: three runs of its lines as fx_taken.c, below). With them Felucca-Engines' DSP
 helpers (github.com/hugelton/Felucca-Engines, MIT, the submodule FMini-1 builds with, at c46e008): dsp.c and the
 engine interface felucca_engine.h, unchanged.
 
 Not taken: Felucca's host under the engine (the tracks, voice.c, the sequencer and songs, the projects, the
-arpeggiator, the effects, the screens and the editor). fmini_module.c gives the engine the slice of voice.c it
+arpeggiator, the master, the FX hold layer, the screens and the editor). fmini_module.c gives the engine the slice of voice.c it
 reads (fmini_platform.inc: the part, its voices, the amplitude contour, glide, the LFO, the bend) and an interface
 of its own on the FM-1's panel.
 
@@ -41,6 +42,33 @@ def sub(name, old, new, count=1):
     assert t.count(old) == count, (name, old, t.count(old))
     (out / name).write_text(t.replace(old, new))
 
+
+# FMini-1's effects (Felucca's fx.c as FMini-1 2.2.0 builds it, Leo Kuroshita, GPL-3.0): three runs of its lines, unchanged but for its
+# .pool sections (the firmware's second RAM region: a module's RAM is one), as fx_taken.c. Taken: the buses' buffers and state, the DIST
+# (SOFT, TUBE), the tempo's note values, the delay's TIME, the five reverbs (ROOM, HALL, PLATE, SPRING, CLOUD), the chorus (STEREO, JUNO,
+# MULTI), the delay (ANALOG DIGITAL TAPE P-PONG MULTI SLAP REVERSE A-SYNC), fx_buses and rev_side_mix. Not taken: the master (limiter,
+# low cut, the speaker's BASS+), the metronome, the FX hold layer (perform.c), the INSERT, the SLICER, the parts' mix (fmini_module.c mixes
+# the one part as FMini-1's mix_part does)
+fx = (fw / "fx.c").read_text().split("\n")
+
+
+def run(first, last, a, b):
+    assert fx[first - 1].startswith(a), (first, fx[first - 1])
+    assert fx[last - 1].startswith(b), (last, fx[last - 1])
+    return fx[first - 1:last]
+
+
+body = (run(1, 183, "/* SPDX-License-Identifier: GPL-3.0-only", "}")
+        + ["", "/* (fm1-dock, take.py: fx.c's master, lines 185 .. 285, not taken) */", ""]
+        + run(286, 297, "static const uint8_t DIV_DEN[6]", "}")
+        + ["", "/* (fm1-dock, take.py: fx.c's #include of perform.c and click.c not taken) */", ""]
+        + run(302, 1292, "/* the delay's TIME (params.c N_DTIME)", "}"))
+assert fx[184].startswith("/* master: peak limiter") and fx[298].startswith('#include "perform.c"')
+assert fx[1293].startswith("/* INSERT (1.5")
+t = "\n".join(body) + "\n"
+assert t.count(' __attribute__((section(".pool")))') == 7, t.count(' __attribute__((section(".pool")))')
+t = t.replace(' __attribute__((section(".pool")))', "")
+(out / "fx_taken.c").write_text(t)
 
 E = "eng_fmini.c"
 sub(E, "static preset_t fmini_pre[FMINI_NSLOT];",

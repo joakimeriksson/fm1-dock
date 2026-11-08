@@ -32,6 +32,7 @@
 enum {                                          /* the part's parameters (FMini-1's core.h, those the engine and this read) */
     P_LEVEL, P_ATK, P_DEC, P_SUS, P_REL, P_ED_FLT, P_ED_PIT, P_LRATE, P_LWAVE, P_LFADE,
     P_LD_PIT, P_LD_FLT, P_LD_AMP, P_LPOL, P_LTRIG, P_VOICE, P_GLIDE, P_GLMODE,
+    P_DIST, P_CHOR, P_DLY, P_REV,               /* the DRIVE's gain and the three sends (fx.c) */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7, P_COUNT
 };
 enum { V_POLY, V_MONO, V_LEGATO };              /* P_VOICE */
@@ -45,16 +46,28 @@ typedef struct track {
     uint8_t mono_stack[8];
     int32_t lfo_val, lfo_fade;
     uint32_t lfo_ph, lfo_rnd;
+    int32_t dist_hp, dist_lp1, dist_lp2;        /* fx.c track_dist's states */
 } track_t;
 #define FMINI_FREL(t) (((t)->frel & 0x80) ? ((t)->frel & 127) : ((t)->p[P_E4] & 127))
 static track_t trk[NTRK];
-static struct { uint32_t sel; int16_t g[1]; } song;   /* (the engine's tempo bytes: no song here) */
-#define G_BPM 0
+enum {                                          /* the song's settings fx.c reads (FMini-1's params.c GP: the FX pop-ups') */
+    G_BPM, G_CLOCK, G_DTIME, G_DRREV, G_DFDBK, G_DCOLOR, G_DMIX, G_RTYPE, G_RSIZE, G_RDAMP, G_CDEPTH, G_CRATE, G_ENGGO,
+    G_INFO, G_DRLVL, G_MIDI, G_N
+};
+static struct { uint32_t sel; int16_t g[G_N]; } song = {0, {120, 0, 0, 65, 60, 70, 90, 1, 90, 67, 60, 40, 0, 0, 64, 64}};
+static const int16_t G_MAX[G_N] = {240, 1, 7, 127, 120, 127, 127, 4, 127, 127, 127, 127, 2, 1, 127, 127};
 static int32_t glo_tune_c;                      /* (FMini-1's GLO TUNING, cents: A 440 here) */
 static uint8_t glo_note_prio = 1;               /* NOTE PRIORITY: 0 LAST, 1 LOW (FMini-1's default), 2 HIGH */
 #define fm1_ms (H->ms())
 
 #include "fmini/eng_fmini.c"
+
+/* what fx.c (fx_taken.c) reads besides: the FX hold layer's ECHO THROW (perform.c: none here), the delay's TIME in ms
+ * (FMini-1's params.c dly_ms) */
+static struct { int32_t ew1; } pf;
+#define THR_FB 22938
+static int32_t dly_ms(int32_t v) { v = v < 0 ? 0 : v > 127 ? 127 : v; return 10 + v * v * 1390 / 16129; }
+#include "fmini/fx_taken.c"
 
 /* FMini-1's bank (fmini_bank.c, not taken): a slot's patch is the factory's here (the module's own user slots are
  * fmini_module.c's) */
