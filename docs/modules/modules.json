@@ -332,8 +332,7 @@
   "kind": "analog",
   "screenshot": "media/screen_fmini.png",
   "accent": "#e0752b",
-  "alt": "FMINI-1's screen: the patch PAD SWELL, F004 of 200, its FILTER page with cutoff, emphasis, contour and keyboard control",
-  "untested": true
+  "alt": "FMINI-1's screen: the patch PAD SWELL, F004 of 200, its FILTER page with cutoff, emphasis, contour and keyboard control"
  },
  "sine": {
   "hub": "dinghy",
