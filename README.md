@@ -19,12 +19,13 @@
   <a href="https://joakimeriksson.github.io/fm1-dock/#play">the video</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#console">the console</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#emulator">the emulator</a> ·
-  <a href="https://thefirmwarehub.com/#fw-fm1dock">on the FM-1 Firmware Hub</a>
+  <a href="https://thefirmwarehub.com/#fw-fm1dock">on the FM-1 Firmware Hub</a> ·
+  <a href="ROADMAP.md">the roadmap</a>
 </p>
 
 fm1-dock is installed once. The synths are modules in its flash: hold HOME, pick another one, play. No reinstall.
-Twelve modules so far, each its author's own code: four come with it, eight more go in from the page with one click,
-and out again. Every one can be tried first, without an FM-1: its card's **Try it** runs it in the emulator on the page. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
+Fifteen synths so far, each its author's own code: three come with it (and a sine), twelve more go in from the page
+with one click, and out again. Every one can be tried first, without an FM-1: its card's **Try it** runs it in the emulator on the page. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
 crash record and the render load are one click away in the browser. It also runs on the M-Vave SMK-37 keyboards.
 
 <p align="center">
