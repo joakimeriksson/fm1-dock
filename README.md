@@ -15,6 +15,7 @@
 <p align="center">
   <a href="https://joakimeriksson.github.io/fm1-dock/"><b>The page</b></a>:
   <a href="https://joakimeriksson.github.io/fm1-dock/#install">install</a> ·
+  <a href="https://joakimeriksson.github.io/fm1-dock/guide.html"><b>the player's guide</b></a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#modules">the catalog</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#play">the video</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#console">the console</a> ·

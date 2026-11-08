@@ -500,3 +500,32 @@ dialog.ask .row { justify-content: flex-end; }
   .mt-log { height: 240px; }
   .mt-log .ev { grid-template-columns: 6ch 3.5ch minmax(0, 1fr); gap: 6px; }
 }
+
+/* the player's guide (guide.html) */
+.g-tasks { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.g-tasks .box h3 { font-size: 1rem; margin: 0 0 8px; }
+.g-tasks .box p, .g-tasks .box li { font-size: 0.9rem; }
+.g-steps { margin: 0; padding-left: 1.3em; color: var(--fg-2); }
+.g-steps li { margin-bottom: 6px; }
+.g-fig { margin: 0 0 18px; }
+.g-fig img { display: block; width: 100%; height: auto; border-radius: var(--r); border: 1px solid var(--line); }
+.g-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 560px; }
+.g-table th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line-2); }
+.g-table td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--fg-2); }
+.g-table td:first-child { font-family: var(--mono); color: var(--acc-text); white-space: nowrap; }
+.g-table td:nth-child(2) { color: var(--fg); font-weight: 500; }
+.g-note { font-size: 0.86rem; max-width: 780px; margin-top: 12px; }
+.g-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.g-card { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 14px; align-items: start; }
+.g-card img { width: 88px; height: 88px; border-radius: 8px; background: var(--shot-bg); }
+.g-card h3 { font-size: 1rem; margin: 0 0 6px; }
+.g-card h3 .dim { font-size: 0.78rem; font-weight: 400; display: block; margin-top: 2px; }
+.g-card ul { margin: 0 0 8px; padding-left: 1.1em; font-size: 0.84rem; color: var(--fg-2); }
+.g-card li { margin-bottom: 3px; }
+.g-card p { margin: 0 0 8px; }
+.g-foot { max-width: 1180px; margin: 0 auto; padding: 24px 24px 48px; font-size: 0.86rem; }
+@media (max-width: 560px) {
+  .g-card { grid-template-columns: 64px minmax(0, 1fr); }
+  .g-card img { width: 64px; height: 64px; }
+  main section { padding-left: 16px; padding-right: 16px; }
+}
