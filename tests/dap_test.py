@@ -128,6 +128,7 @@ REQUESTS = [
 def boot_emulator(fm1_live, out_dir):
     """Run fm1-dock in fm1-live, return (ram_path, ok) or (None, error_msg)."""
     ram = out_dir / "ram.bin"
+    (out_dir / "work").mkdir(exist_ok=True)
     # Prefer the tree's build over the shipped release package
     if FWSC_BUILD.exists():
         fw_arg = str(FWSC_BUILD)
@@ -145,7 +146,8 @@ def boot_emulator(fm1_live, out_dir):
         return None, f"no firmware: need {FWSC_BUILD} or {FWSC_SHIPPED} or {APP}"
 
     env = {**os.environ, "FM1_DUMPRAM": str(ram)}
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env,
+                       cwd=str(out_dir))
     if not ram.exists():
         return None, f"no ram.bin produced (exit {r.returncode}): {r.stderr[:200]}"
     return ram, f"ram.bin {ram.stat().st_size} bytes"
