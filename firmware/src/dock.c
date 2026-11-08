@@ -785,8 +785,12 @@ static void h_cv_blit(int32_t x, int32_t y)
 #if BOARD_SMK37
 static void h_led(uint32_t id, uint32_t on)   /* the buttons' LEDs (the SMK's keys have none); the glow: off */
 {
-    if (id < 14u && !scr_hidden)
+    if (scr_hidden)
+        return;
+    if (id < 14u)
         fm1_led_key(id, on == 1u);
+    else if (id >= HB_LED_XBTN(HB_BTN_KNOB_BANK) && id <= HB_LED_XBTN(HB_BTN_RIGHT))
+        fm1_led[(id & 0x7Fu) - HB_BTN_KNOB_BANK] = (uint8_t)(on == 1u);   /* (SMK LED i = button i: 0 KNOB BANK) */
 }
 #else
 static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (hal/fm1_input.h's fm1_led_dim) */
@@ -990,6 +994,9 @@ static int start_module(uint32_t i)
     const hb_file_t *f = e->file;
     stop_module();
     eq_clear = 1;                               /* (the EQ from silence: nothing of the last module rings on) */
+#if BOARD_SMK37
+    memset(fm1_led, 0, HB_BTN_RIGHT + 1u - HB_BTN_KNOB_BANK);   /* (the SMK's own buttons: only XBTN lights them) */
+#endif
     if (e->state != M_OK || e->kind == K_BOOT)
         return -1;                              /* (a boot firmware is started by a reboot: hb_boot_hook) */
     if (f) {
@@ -2698,7 +2705,7 @@ static void app_main(void)
             if (b >> BTN_HOME & 1u) { home_t0 = fm1_ms; home_alone = 1; home_eaten = 0; }
             if ((b & ~(1u << BTN_HOME)) || (keys && b >> BTN_HOME & 1u))
                 home_alone = 0;
-            for (k = 0; k < 14u; k++) {
+            for (k = 0; k < (m->flags & HB_F_XBTN ? HB_BTN_RIGHT + 1u : 14u); k++) {   /* (XBTN: the SMK's too) */
                 if (b >> k & 1u) m->ui(HB_EV_BTN_DOWN | k, 0);
                 if (rel >> k & 1u && !(k == BTN_HOME && home_eaten)) m->ui(HB_EV_BTN_UP | k, 0);
             }
@@ -2722,7 +2729,7 @@ static void app_main(void)
                 sel = cur;
                 draw_picker(sel);
             } else if (m && m->ui) {
-                for (k = 2; k < 14u; k++) {     /* the module's buttons: not OCT- / OCT+ / HOME */
+                for (k = 2; k < (m->flags & HB_F_XBTN ? HB_BTN_RIGHT + 1u : 14u); k++) {   /* not OCT-/+, HOME */
                     if (k == BTN_HOME) continue;
                     if (b >> k & 1u) m->ui(HB_EV_BTN_DOWN | k, 0);
                     if (rel >> k & 1u) m->ui(HB_EV_BTN_UP | k, 0);

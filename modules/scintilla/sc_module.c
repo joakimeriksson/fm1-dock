@@ -54,4 +54,4 @@ static void release(void)
     sc_post(&syn, SC_EV_ALL_OFF, 0, 0);
 }
 
-HB_DESC = {HB_ABI, "SCINTILLA", init, release, note, cc, render, ui, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL, midi};
+HB_DESC = {HB_ABI, "SCINTILLA", init, release, note, cc, render, ui, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL | HB_F_XBTN, midi};
