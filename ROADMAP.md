@@ -49,12 +49,15 @@ large ones can fill it. 0.9 makes every synth an add-on.
 6. **On the Firmware Hub**: one package, and maybe one "with the classics" (CS-1, Scintilla and OberVave already
    added) for those who install from the Hub.
 
-**To decide first**: the processing section (a reverb in the host for every synth, the Korg Mini Pops 7 rhythm
-box, the "seqdock" build) wants flash too, and changes Scintilla's build. In the lean firmware, or a build of its
-own?
+**With it**: the host's reverb (the processing section), one for every synth, so a synth need not carry its own:
+it wants a little of the lean firmware's flash, and Scintilla's build uses it instead of its own reverb.
 
 ## Later
 
+- **SEVENTIES** (seventies-fm1): the synths of a Jarre record in one module, so they play together: the Eminent
+  310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg
+  Mini Pops 7 and a tape echo, on the dock's reverb. Its engines are also modules of their own: ARP 2600,
+  MINIPOPS, EMINENT.
 - **More synths**: a second look through the Firmware Hub (Elixir, Smileyface, the Dinghy-based ones); the ones too
   big today may fit in 0.9's room. Toward 20.
 - **A CMI-style sampler**: 8 voices of 8-bit samples at each voice's own rate, the Fairlight's harmonic synthesis
