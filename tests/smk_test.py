@@ -80,9 +80,10 @@ def peak(out):
     return int(out.split("audio peak over the last 0.5 s: ")[1].split()[0]) if "audio peak" in out else 0
 
 
-def usb_deploy(blob, t0=1500, gap=15):
+def usb_deploy(blob, t0=1500, gap=25):
     """the deploy's frames over USB at times (ms): each DATA twice, as the computer sends again a chunk that was not
-    answered (the device takes one it has again); -> (FM1_USB_SEND entries, ms the COMMIT is in by)"""
+    answered (the device takes one it has again); -> (FM1_USB_SEND entries, ms the COMMIT is in by). Sent blind, not
+    on the answers as tools/hbdeploy.py does: 15 ms a frame left no margin behind the stock marker's erase"""
     out, t = [], t0
     for i, (cmd, payload) in enumerate(hbdeploy.deploy_frames(blob)):
         if cmd == hbdeploy.COMMIT:
@@ -174,6 +175,13 @@ def scintilla(flash):
           and a["cut"] != b["cut"] and a["led"] == 1 and b["led"] == 0 and a["page"] == b["page"] == 6,
           f"FADER BANK: bank {a['fbank']} (LED {a['led']}), fader 1 moved FILTER ENV's attack ({b['att']} -> {a['att']}) "
           f"and not the cutoff ({a['cut']}; without it {b['cut']}); KNOB BANK then >: page {a['page']} (6)")
+    # its octave is its own (OCTAVE- is its button): C3, an outer key of the host's, goes on from it (key_base)
+    oct_flash = flash.with_name("oct.bin")
+    oct_flash.write_bytes(flash.read_bytes())
+    _, _, usb = live(4400, pick + ["3200:octave-", "3300:octave-^", "3700:k0@100", "3900:k0^"], oct_flash, usb=[])
+    ns = [int(n[2:4], 16) for n in notes(usb) if n.startswith("90")]
+    check("scintilla outer", ns[:1] == [36], f"OCTAVE- in Scintilla, then C3: note {ns[:1]} (36: an octave below the "
+          "key's 48, as the middle keys went)")
 
 
 def main():

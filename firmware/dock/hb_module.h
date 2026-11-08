@@ -141,7 +141,14 @@ typedef struct hb_host {
      * the same rules as render(), and no host call but ticks() */
     int (*c1_run)(void (*fn)(uint32_t), uint32_t arg);
     int (*c1_wait)(void);
+    /* the board the host runs on (a module checks size first): HB_BOARD_FM1, HB_BOARD_SMK37 (its K5..K8 are
+     * the FM-1's KNOB1..4, for a module that names them) */
+    uint32_t board;
+    /* a panel module (HB_F_PANEL) with its own octave says the note its key 0 (F3) plays, n 0 none (the host's
+     * octave): an SMK-37's outer keys, the host's, go on from it (a module checks size first) */
+    void (*key_base)(uint32_t n);
 } hb_host_t;
+enum { HB_BOARD_FM1 = 0, HB_BOARD_SMK37 = 1 };
 /* the host has field f of hb_host_t (an older one ends before it) */
 #define HB_HOST_HAS(h, f) ((h)->size >= (uint32_t)(__builtin_offsetof(hb_host_t, f) + sizeof (h)->f))
 #define HB_BANK_MAX 8176u

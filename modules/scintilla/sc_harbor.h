@@ -16,6 +16,8 @@ enum { BTN_OCT_DOWN = 0, BTN_OCT_UP = 1, BTN_FX = 2, BTN_SEL = 3, BTN_ENV = 4, B
        BTN_GLO = 7, BTN_HOME = 8, BTN_SAVE = 9, BTN_ARP = 10, BTN_SEQ = 11, BTN_PLAY = 12, BTN_REC = 13 };
 enum { ENC_SELECT = 0, ENC_ALGORITHM = 1, ENC_KNOB1 = 2, ENC_KNOB2 = 3, ENC_KNOB3 = 4, ENC_KNOB4 = 5, ENC_PRESETS = 6 };
 #define KEY_LED(k) (14u + (k))
+#define KEY_BASE(n) do { if (HB_HOST_HAS(H, key_base)) H->key_base(n); } while (0)   /* the SMK's outer keys */
+#define KNOB_FIRST (HB_HOST_HAS(H, board) && H->board == HB_BOARD_SMK37 ? 5u : 1u)   /* the editor's K1..K4: K5..K8 */
 static void platform_poll(void) {}
 
 /* ---- the screen (gfx.c's calls; the host draws with the same fonts) */
