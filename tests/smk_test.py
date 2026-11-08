@@ -70,7 +70,8 @@ def live(ms, keys, flash, usb=None):
         if r.returncode or "halt" in r.stdout + r.stderr:
             raise SystemExit(f"fm1-live: {r.stdout[-2000:]}{r.stderr[-2000:]}")
         ram = Path(wd) / "ram.bin"
-        log = dock.read_log(ram.read_bytes()) if ram.exists() else ""
+        live.ram = ram.read_bytes() if ram.exists() else b""
+        log = dock.read_log(live.ram) if live.ram else ""
         out = [bytes.fromhex(ln.split("usb in:")[1].replace(" ", "")) for ln in r.stdout.splitlines() if "usb in:" in ln]
         return r.stdout, log, out
 
@@ -143,6 +144,38 @@ def notes(usb_out):
     return [m.hex() for m in usb_out if len(m) == 3 and m[0] & 0xE0 == 0x80]
 
 
+def scintilla(flash):
+    """Scintilla (HB_F_XBTN) gets the SMK's own buttons: FADER BANK makes fader 1 (CC 70) FILTER ENV's attack, not
+    the cutoff, and lights its LED; KNOB BANK on a single sound opens LAYERS (page 5); > the page after it"""
+    eng = SRC / "modules" / "scintilla" / "engine"
+    c, exe = SRC / "build" / "sc_fields.c", SRC / "build" / "sc_fields"
+    c.write_text('#include <stdio.h>\n#include <stddef.h>\n#include "sc_patch.h"\nint main(void){printf("%zu %zu\\n", '
+                 "offsetof(sc_patch_t, layer[0].cutoff), offsetof(sc_patch_t, layer[0].env_f.a));}\n")
+    subprocess.run(["cc", "-I", str(eng), "-o", str(exe), str(c)], check=True)
+    cut, att = map(int, subprocess.run([str(exe)], capture_output=True, text=True).stdout.split())
+    syms = (SRC / "build" / "modules" / "scintilla" / "module.syms").read_text()
+    host = (SRC / "build" / "fm1-dock-smk37.syms").read_text() if (SRC / "build" / "fm1-dock-smk37.syms").exists() \
+        else (SRC / "build" / "fm1-dock.syms").read_text()
+
+    def at(text, name):
+        return int(re.search(rf"^([0-9a-f]{{8}}) .*\s{name}$", text, re.M).group(1), 16) - dock.RAM_BASE
+    pick = ["900:patch", "1000:patch^", "1400:e1:-40", "2300:e1:3", "2600:scale", "2700:scale^"]   # (Scintilla, 3rd)
+    tail = ["3600:a16:900", "4000:knobbank", "4100:knobbank^", "4400:>", "4500:>^"]
+    got = {}
+    for name, bank in (("bank", ["3200:faderbank", "3300:faderbank^"]), ("none", [])):
+        _, log, _ = live(5200, pick + bank + tail, flash)
+        r = live.ram
+        syn, st = at(syms, "syn"), at(syms, "set")
+        got[name] = dict(started="started 00000002" in log, fbank=r[at(syms, "fbank")], page=r[st + 1],
+                         cut=struct.unpack_from("<i", r, syn + cut)[0], att=struct.unpack_from("<i", r, syn + att)[0],
+                         led=r[at(host, "fm1_led") + 1])
+    a, b = got["bank"], got["none"]
+    check("scintilla xbtn", a["started"] and a["fbank"] == 1 and b["fbank"] == 0 and a["att"] != b["att"]
+          and a["cut"] != b["cut"] and a["led"] == 1 and b["led"] == 0 and a["page"] == b["page"] == 6,
+          f"FADER BANK: bank {a['fbank']} (LED {a['led']}), fader 1 moved FILTER ENV's attack ({b['att']} -> {a['att']}) "
+          f"and not the cutoff ({a['cut']}; without it {b['cut']}); KNOB BANK then >: page {a['page']} (6)")
+
+
 def main():
     if not FWSC.exists():
         raise SystemExit(f"{FWSC} is missing: ./build.sh --board smk37")
@@ -186,6 +219,9 @@ def main():
         soft = peak(live(2900, pick + ["2400:k12@15"], flash)[0])
         hard = peak(live(2900, pick + ["2400:k12@127"], flash)[0])
         check("velocity", hard > soft * 1.3 > 0, f"a hard key louder than a soft one ({hard} > {soft})")
+
+        print("Scintilla's SMK buttons")
+        scintilla(flash)
 
         print("deploys over USB")
         f = bytearray(flash.read_bytes())

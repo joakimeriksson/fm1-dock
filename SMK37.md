@@ -74,11 +74,16 @@ firmware update.
 | **4 faders** | | CC 70 .. 73 on channel 1 |
 | **Mod wheel** | | CC 1 |
 | **Pitch wheel** | | the pitch bend |
-| KNOB BANK, FADER BANK, < , > | | not used yet |
+| **KNOB BANK · FADER BANK · < · >** | | to a module that asks for them (`HB_F_XBTN`), with their LEDs: Scintilla's (below) |
 
 The outer keys, pads, faders and wheels go to the module running as MIDI, and out over USB-MIDI too: the keyboard
 is a controller for your computer as well. A module's own manual applies to the rest (CS-1's pages, FM-1 SID's
 editor, ...): where it says KNOB1..4, those are K5..K8 here.
+
+**Scintilla** uses the SMK's own buttons: **FADER BANK** picks what the four faders do: PLAY (cutoff, resonance,
+release, attack), FILTER ENV and AMP ENV (A, D, S, R), MIX (OSC 1, OSC 2, noise, envelope amount); its LED is lit off
+PLAY. **KNOB BANK** picks the layers the knobs and faders edit in a split or double sound (both, upper, lower; lit
+when one), or opens the LAYERS page of a single one. **<** and **>** step through all 26 pages.
 
 ## Added modules
 
