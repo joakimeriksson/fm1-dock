@@ -4,7 +4,7 @@
 //   frame    F0 7D 48 42 cmd seq pack7(payload + CRC-32 of the payload, little endian) F7
 //   replies  cmd | 0x40 (0x7F: refused), the same seq; the payload starts with a status byte
 
-export const CMD = { HELLO: 0x01, LIST: 0x02, BEGIN: 0x10, DATA: 0x11, COMMIT: 0x12, ABORT: 0x13, DELETE: 0x14,
+export const CMD = { HELLO: 0x01, LIST: 0x02, INFO: 0x03, BEGIN: 0x10, DATA: 0x11, COMMIT: 0x12, ABORT: 0x13, DELETE: 0x14,
   LOG: 0x20, SAFE: 0x21, SELECT: 0x22, MODULE: 0x23, RUN: 0x30, RESULT: 0x31 };
 export const STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed",
   "data missing", "not started", "not found", "bad message", "refused"];
@@ -188,6 +188,20 @@ export class Dock {
     const w = (i) => rd32(d, 8 + 4 * i);
     return { proto: d[1], abi: d[2], n: d[3], cur: d[4], receiving: d[5], largest: w(0), free: w(1),
       maxFile: w(2), crashPc: w(3), crashModule: w(4), worst: w(5), overruns: w(6), logW: w(7), block: w(8) };
+  }
+
+  // INFO (fm1-dock after 0.8; dock.c info_fill): the build, the board, the chips, the room. null from an older one:
+  // it answers "bad message", or nothing in time; asked once, so an older device connects as before
+  async info() {
+    let d;
+    try { d = await this.ask(CMD.INFO, new Uint8Array(0), { timeout: 400, tries: 1 }); } catch (_) { return null; }
+    if (d.length < 88 || d[0] !== 0 || d[1] < 1) return null;
+    const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, "0"), fl = rd32(d, 12), log2 = fl & 255;
+    return { format: d[1], board: d[2] ? "smk37" : "fm1", cpu1: d[3], cores: d[3] === 3 || d[3] === 5 ? 2 : 1, reset: d[4],
+      bleAddr: d[5] ? [...d.slice(6, 12)].reverse().map((x) => hex(x, 2)).join(":") : null,
+      flashId: hex(fl, 6), flashSize: log2 >= 16 && log2 <= 26 ? 2 ** log2 : null, free: rd32(d, 16), largest: rd32(d, 20),
+      modRam: rd32(d, 24), modRamUsed: rd32(d, 28), mhz: rd32(d, 32), soc: cstr(d, 36, 44), version: cstr(d, 44, 60),
+      build: cstr(d, 60, 72), model: cstr(d, 72, 88) };
   }
 
   async modules() {

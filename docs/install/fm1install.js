@@ -236,8 +236,9 @@ const BOOT_LINE = /fm1-dock (\S+) boot/g;     // dock.c's first log line at ever
 
 // what is on the device on midi, without changing anything: its identity (the updater's handshake: "FM-1_921", an
 // SMK-37's, "ota-..." in update mode), and when it runs fm1-dock its HELLO, its modules and its version (from the
-// log's last boot line, while the 2 KiB log still has it; opts.log false: not read). -> { identity, model, board: "fm1" |
-// "smk37" | null, ota, dock: { hello, modules, version } | null }; identity null: no FM-1 answered. Throws inuse when
+// INFO, else the log's last boot line, while the 2 KiB log still has it; opts.log false: not read), and INFO's record
+// (null from an fm1-dock before it). -> { identity, model, board: "fm1" | "smk37" | null, ota, dock: { hello, modules,
+// version, info } | null }; identity null: no FM-1 answered. Throws inuse when
 // none answered and a port would not open (another program or tab has it)
 export async function inspectDevice(midi, opts = {}) {
   const up = new Updater(midi);
@@ -253,12 +254,13 @@ export async function inspectDevice(midi, opts = {}) {
   const { dock, hello } = found;
   try {
     const modules = await dock.modules();
-    let version = null;
-    if (opts.log !== false) try {
+    const info = await dock.info();
+    let version = info ? info.version : null;
+    if (!info && opts.log !== false) try {
       const boots = [...(await dock.log()).text.matchAll(BOOT_LINE)];
       if (boots.length) version = boots.at(-1)[1];
     } catch (_) { /* an older fm1-dock, or the log is busy: no version */ }
-    out.dock = { hello, modules, version };
+    out.dock = { hello, modules, version, info };
   } finally { dock.close(); }
   return out;
 }

@@ -113,7 +113,7 @@ nothing on hardware):
       sine as the fallback, per-module settings, OCT+ safe boot, two strikes skip a module. Tested:
       a bad CRC is refused. Not testable in fm1-emu yet: a crash or watchdog reset and the reboot after it.
 - [~] **P4 deploy** (`firmware/src/dock.c` "deploys", `tools/hbdeploy.py`, `dock.py deploy`):
-  - SysEx `F0 7D 48 42 cmd seq pack7(payload, CRC-32) F7`: HELLO, LIST, BEGIN / DATA (256 B) / COMMIT,
+  - SysEx `F0 7D 48 42 cmd seq pack7(payload, CRC-32) F7`: HELLO, LIST, INFO, BEGIN / DATA (256 B) / COMMIT,
     ABORT, DELETE, SELECT, SAFE (the sine), LOG. Over USB each frame is answered; over the DIN jack
     (and a `.syx`) nothing comes back, the sender paces itself.
   - Flash: the deployed table at 0x93000 / 0x94000 (two copies, sequence number, header written last),
