@@ -408,6 +408,7 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
         <tr><th>cmd</th><th>name</th><th>payload → reply</th></tr>
         <tr><td>01</td><td>HELLO</td><td>— → proto, abi, modules, current, receiving; free, largest gap, max file, crash PC, crash module, worst, overruns, log length, block ticks</td></tr>
         <tr><td>02</td><td>LIST</td><td>— → one reply per module: index, state, kind, version, size, address, name[24]; index FF ends</td></tr>
+        <tr><td>03</td><td>INFO</td><td>— → format (1), board (0 FM-1, 1 SMK-37), second core's state (3, 5: two cores), reset cause, BLE address set, BLE address[6]; flash JEDEC id, free, largest gap, module RAM, its use, MHz; SoC[8], version[16], build[12], model[16]. 88 bytes, grown only at the end (after 0.8; older: bad message)</td></tr>
         <tr><td>10</td><td>BEGIN</td><td>size, CRC-32, name[24] → status (the module stops)</td></tr>
         <tr><td>11</td><td>DATA</td><td>offset, ≤ 256 bytes → status</td></tr>
         <tr><td>12</td><td>COMMIT</td><td>— → status, flash address (written, checked, running)</td></tr>

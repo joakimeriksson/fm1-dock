@@ -96,7 +96,8 @@ SID (268 KiB) and AMB-1 (76 KiB) fit together; FoMni (139 KiB) fits in the first
 
 ## BLE-MIDI
 
-As on the FM-1: **BLUETOOTH**, the last line of OPTIONS past the module list (PATCH, K2 down, SCALE), switches it ON; the keyboard then
+As on the FM-1: **BLUETOOTH**, the last line of OPTIONS past the module list (PATCH, K2 down, SCALE), switches it ON
+(ABOUT, the line above it, shows the version, the model, the flash chip's id and the modules: K2 scrolls, PATCH goes back); the keyboard then
 shows up as `FM1-DOCK XXXX` among a computer's or a tablet's Bluetooth MIDI devices. It is the same code as the FM-1's
 (the chip and its radio are the same), with one difference: where the radio's stored calibration comes from.
 

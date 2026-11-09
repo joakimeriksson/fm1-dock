@@ -5,6 +5,8 @@
 loader and an installable .fwsc package.
 
   tools/build.py [--release X.Y[-suffix]] [--modules cs1,scintilla,obervave] [--no-package]
+      the version (APP_VER: the boot log, OPTIONS > ABOUT) is X.Y for a release, with the source as APP_BUILD;
+      any other build's is its source: git's short hash, + with changes not committed (2dcbfbf+)
   tools/build.py --board smk37 [--model pro|elite|mke] [--release X.Y] ...
       the M-Vave SMK-37 (Pro, Elite, MKE-P37: one keyboard, three model names): fm1-dock for its panel and flash
       (-DBOARD_SMK37=1, firmware/hal/fm1_flash_map.h), identity "SMK-37 Pro_921" (the model's name), the package
@@ -66,7 +68,17 @@ MODELS = {"pro": "SMK-37 Pro", "elite": "SMK-37 Elite", "mke": "MKE-P37"}   # sm
 BOARD_DEFS = []                     # the SMK's -D flags (the FM-1 build gets none: byte-identical)
 PRODUCT = "FM-1_921"                # fm1-dock's own, for every release (free on the Firmware Hub, 2026-10-26: 95N, as
                                     # it was, is other firmwares'); FM-1_9NN as OUR_LOADER in the installer wants
-VERSION = None                      # APP_VER for release builds
+VERSION = None                      # APP_VER for release builds (X.Y); else the source's (git_build)
+
+
+def git_build():
+    """the source the build is made from: git's short hash of HEAD, + when tracked files differ from it (as git
+    describe --dirty); "unknown" with no git or no checkout (a release's APP_BUILD, every other build's APP_VER)"""
+    try:
+        run = lambda *a: subprocess.run(["git", *a], cwd=SRC, capture_output=True, text=True, check=True).stdout.strip()
+        return run("rev-parse", "--short=7", "HEAD") + ("+" if run("status", "--porcelain", "--untracked-files=no") else "")
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
 
 
 def toolchain():
@@ -190,7 +202,8 @@ HX_SIZE = 0xA000
 
 def build_app():
     flags = [*CFLAGS, *BOARD_DEFS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/dock",
-             f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"', *(["-DHB_BOOT_SLOT=1"] if BOOT_SLOT else []),
+             f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or git_build()}"',
+             *([f'-DAPP_BUILD="{git_build()}"'] if VERSION else []), *(["-DHB_BOOT_SLOT=1"] if BOOT_SLOT else []),
              *([f'-DAPP_NAME="{APP_NAME}"'] if APP_NAME else []), *(["-DHB_SOLO=1"] if SOLO else [])]
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),

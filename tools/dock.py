@@ -17,7 +17,8 @@ On an FM-1 (USB-MIDI; python-rtmidi: uv run --with python-rtmidi tools/dock.py .
   tools/dock.py deploy MOD.dock [--port NAME] [--blind]   the module into its flash, then running
                                        (a boot firmware, tools/hbboot.py: into the boot slot, then started)
   tools/dock.py deploy MOD.dock --syx OUT.syx            the same as a SysEx file (send it slowly)
-  tools/dock.py modules | delete NAME | select NAME | safe | logs   [--port NAME]
+  tools/dock.py modules | info | delete NAME | select NAME | safe | logs   [--port NAME]
+      (info: the build, the board, the chips, the free flash and RAM, as OPTIONS > ABOUT shows them)
   tools/dock.py send FILE [--arg N] [--port NAME]        a file into the RAM of the module playing (FM-1 SID:
                                        a .sid tune, played at once; --arg the subtune); never into flash
   --blind: no answers (an interface into the DIN jack); the FM-1's screen shows how it went
@@ -226,6 +227,16 @@ def device(a):
                   f"{h['cpu1_stack_free']} B of its stack never used")
         if h["crash_pc"]:
             print(f"last crash: pc {h['crash_pc']:#010x} in module {h['crash_module'] - 1 if h['crash_module'] else '-'}")
+    elif a.cmd == "info":
+        i = hd.info(p)
+        if not i:
+            raise SystemExit("no INFO from this fm1-dock (an older one): tools/dock.py modules and logs instead")
+        ver = i["version"] + (f" ({i['build']})" if i["build"] != i["version"] else "")
+        size = f", {i['flash_size'] // 1024} KiB" if i["flash_size"] else ""
+        print(f"fm1-dock {ver} on {i['model']}: {i['soc']} {i['mhz']} MHz, {i['cores']}CPU ({i['cpu1']}), reset {i['reset']:02x}")
+        print(f"flash {i['flash_id']:06X}{size}; add-ons {i['free'] // 1024} KiB free (largest {i['largest'] // 1024} KiB); "
+              f"module RAM {i['mod_ram'] // 1024} KiB, {i['mod_ram_used'] // 1024} KiB used")
+        print(f"BLE address {i['ble_addr'] or '- (not made yet)'}")
     elif a.cmd == "logs":
         text, _ = hd.log_text(p)
         print(text.rstrip("\n"))
@@ -269,7 +280,7 @@ def main():
     sd = sub.add_parser("send", help="a file to the module playing, into its RAM (FM-1 SID: a .sid tune, played at once)")
     sd.add_argument("file")
     sd.add_argument("--arg", type=int, default=0, help="for the module (FM-1 SID: the subtune, 0: the tune's own)")
-    for name in ("modules", "delete", "select", "safe", "logs"):
+    for name in ("modules", "info", "delete", "select", "safe", "logs"):
         c = sub.add_parser(name)
         if name in ("delete", "select"):
             c.add_argument("name")

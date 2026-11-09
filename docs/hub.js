@@ -50,6 +50,8 @@ function vcmp(a, b) {
   for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
   return 0;
 }
+// a development build: 0.0 (an older one), else its source, git's short hash (2dcbfbf, 2dcbfbf+): no release to compare
+const devBuild = (v) => !!v && !/^\d+\.\d+(\.\d+)?$/.test(v) || v === "0.0";
 const fail = (code) => Object.assign(new Error(code), { code });
 
 const S = {
@@ -162,7 +164,7 @@ async function connect({ log = true } = {}) {
 // one primary button at a time: Connect until a device answered, then Install while there is something to install
 function emphasis() {
   const d = dock(), rel = latest(), dv = S.dev;
-  const install = !!dv && (dv.ota || (!!dv.identity && !d) || (!!d && !!d.version && d.version !== "0.0" && !!rel && vcmp(d.version, rel.version) < 0));
+  const install = !!dv && (dv.ota || (!!dv.identity && !d) || (!!d && !!d.version && !devBuild(d.version) && !!rel && vcmp(d.version, rel.version) < 0));
   $("#dev-connect").classList.toggle("primary", !dv || (!dv.identity && !d));
   const ib = document.querySelector("[data-fm1-install] button");
   if (ib) ib.classList.toggle("primary", install);
@@ -215,21 +217,24 @@ function renderDevice() {
       on the <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>.</p>`;
     return;
   }
-  const d = dv.dock, rel = latest();
+  const d = dv.dock, rel = latest(), i = d.info;      // (i: INFO's record; null from an fm1-dock before it)
   let ver = d.version ? `fm1-dock ${esc(d.version)}` : "fm1-dock";
+  if (i && i.build && i.build !== i.version) ver += ` <span class="dim mono">(${esc(i.build)})</span>`;
   let state = "";
-  if (d.version === "0.0") state = `<span class="pill">a development build</span>`;
+  if (devBuild(d.version)) state = `<span class="pill">a development build</span>`;
   else if (d.version && rel) state = vcmp(d.version, rel.version) >= 0 ? `<span class="pill ok">up to date</span>`
     : `<span class="pill acc">${esc(rel.version)} is out</span>`;
   else if (!d.version) ver += ` <span class="dim small">(its version is no longer in the log)</span>`;
   const mods = d.modules.map((m) => `<span class="${m.kind === "deployed" ? "added" : ""}${m.index === d.hello.cur ? " cur" : ""}"
-    title="${esc(m.kind)}${m.index === d.hello.cur ? ", playing" : ""}">${esc(m.name)}</span>`).join("");
+    title="${esc(m.kind)}${m.at ? ` v${m.version}, ${kib(m.size)}` : ""}${m.index === d.hello.cur ? ", playing" : ""}">${esc(m.name)}</span>`).join("");
   pill.textContent = `${name} · fm1-dock`; pill.className = "pill ok";
   info.innerHTML = `${gone}<table class="dev-table">
     <tr><th>Device</th><td>${esc(name)} <span class="dim mono">${esc(dv.identity || "")}</span></td></tr>
     <tr><th>Firmware</th><td><div class="dev-row">${ver} ${state}</div></td></tr>
+    ${i ? `<tr><th>Hardware</th><td>${esc(i.model)} · ${esc(i.soc)}, ${i.cores} CPU core${i.cores > 1 ? "s" : ""} · flash
+      <span class="mono">${esc(i.flashId)}</span>${i.flashSize ? `, ${kib(i.flashSize)}` : ""}</td></tr>` : ""}
     <tr><th>Modules</th><td><div class="dev-mods">${mods}</div></td></tr>
-    <tr><th>Room for add-ons</th><td>${kib(d.hello.free)} free of ${kib(boardOf().area)}</td></tr></table>`;
+    <tr><th>Room for add-ons</th><td>${kib(d.hello.free)} free of ${kib(boardOf().area)}${i ? `, the largest piece ${kib(i.largest)}` : ""}</td></tr></table>`;
 }
 
 function renderRelease() {

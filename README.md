@@ -148,6 +148,7 @@ fm1-dock starts whatever played last. The options, for every module:
 | **EQ** | LOW (a 150 Hz shelf), MID (a 1 kHz peak), HIGH (a 6 kHz shelf), ±12 dB each, before MASTER, in the chip's hardware EQ (about 3 % of a block). **SELECT** picks a band, **ALGORITHM** or **KNOB1..3** turn it, **SEL** switches the EQ ON / OFF or puts a band back to 0 dB. OFF by default; a boost can clip a loud module |
 | **KNOBS CC** | ON: KNOB1..4 send CC 74, 71, 73, 72 (cutoff, resonance, attack, release) over USB and BLE-MIDI instead of turning the module's knobs. OFF by default |
 | **MIDI THRU** | ON: the TRS MIDI jack's input (not clock or SysEx) goes on to USB-MIDI and BLE-MIDI, and the module plays it too. OFF by default |
+| **ABOUT** | **SEL**: a page with the version (a release's `0.8.1 (abc1234)` with its source; any other build's is its source, git's short hash, `+` with changes not committed), the board and model, 1CPU / 2CPU, the chip, the flash chip's JEDEC id and size, the module RAM, the add-ons' free flash (all and the largest piece), the BLE address, and each module's name, version and KiB. **SELECT / PRESETS** scroll, **HOME** goes back |
 | **BLUETOOTH** | BLE-MIDI, OFF by default (below) |
 
 ### Bluetooth MIDI
@@ -199,6 +200,7 @@ has every call the host gives it.
 python3 tools/hbmod.py modules/mysynth                                        # -> build/modules/mysynth.dock
 uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock   # into the FM-1, running
 uv run --with python-rtmidi tools/dock.py modules | logs | select NAME | delete NAME
+uv run --with python-rtmidi tools/dock.py info                                # the build, the board, the flash chip, the room (ABOUT's)
 uv run --with python-rtmidi tools/dock.py send FILE [--arg N]                 # a file into the RAM of the module playing
 ```
 
