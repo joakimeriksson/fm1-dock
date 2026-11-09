@@ -935,12 +935,15 @@ static volatile uint8_t in_render;
 static uint8_t cpu1_said;                       /* the second core's state as last logged */
 static int h_c1_run(void (*fn)(uint32_t), uint32_t arg) { return in_render && cpu1_run(fn, arg); }
 static int h_c1_wait(void) { return in_render ? cpu1_wait() : 0; }
+static uint32_t mod_key0;                       /* the note a panel module's key 0 plays (key_base), 0: the host's */
+static void h_key_base(uint32_t n) { mod_key0 = n < 128u ? n : 0u; }
 
 static const hb_host_t HOST = {
     HB_ABI, sizeof(hb_host_t), h_ms, h_ticks, hb_log, hb_log_u32,
     h_fill, h_text, h_cv_begin, cv_rect, cv_line, h_cv_pixel, h_cv_text, h_cv_blit,
     h_led, h_rand, mod_load, mod_save, h_midi_send, h_master, h_blit, h_text_w, h_bank_load, h_bank_save,
     h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free, h_c1_run, h_c1_wait,
+    BOARD_SMK37 ? HB_BOARD_SMK37 : HB_BOARD_FM1, h_key_base,
 };
 
 /* ---- the sound: the module renders (and the EQ filters), the host measures */
@@ -1008,6 +1011,7 @@ static int start_module(uint32_t i)
     cur = i;
     hb_over = 0;
     sense_defaults();                           /* (what the module before set is gone) */
+    mod_key0 = 0;
     hb_nv.active = i + 1u;                      /* a crash in init counts as the module's */
     hb_nv.stats.module = i;
     hb_nv.stats.worst = hb_nv.stats.overruns = 0;
@@ -2479,7 +2483,7 @@ static void app_main(void)
         prev = keys;
 #if BOARD_SMK37
         smk_sense_keys(down, up);               /* (as the FM-1's sensed keys, with the velocity) */
-        smk_extras(m, base);
+        smk_extras(m, panel && mod_key0 ? mod_key0 : base);   /* (the outer keys go on from the module's octave) */
 #endif
         sensed = h_sense_keys();
         for (k = 0; k < 27u; k++) {

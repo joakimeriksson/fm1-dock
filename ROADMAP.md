@@ -18,9 +18,9 @@ and SMK-37.
 - **The second core after an install**: the first start after installing over another firmware can show 1CPU
   until a power-off (a marker in RAM that the other firmware left). fm1-dock should trust it only after it has
   run itself since power-on.
-- **The SMK-37's own controls** (now unused): `<` `>` the previous / next synth or preset without the list,
-  KNOB BANK K5..K8 between the synth and MIDI CC, FADER BANK the faders between CC 70..73 and the synth's four
-  main controls. Later per synth: B3 ORGAN's drawbars on the faders, the pads as the synth's own events.
+- **The SMK-37's own controls**: KNOB BANK, FADER BANK, `<` and `>` now reach a synth that asks for them
+  (`HB_F_XBTN`, [#66](https://github.com/joakimeriksson/fm1-dock/pull/66)); Scintilla uses them for its fader banks,
+  layers and pages. Next per synth: B3 ORGAN's drawbars on the faders, the pads as the synth's own events.
 - **Windows** ([#50](https://github.com/joakimeriksson/fm1-dock/issues/50)): the port pairing in 0.8 has not been
   tried on a Windows PC yet.
 - **TRS MIDI**: the jack's fix (0.7) checked with a USB-MIDI interface, with the Test MIDI page.
