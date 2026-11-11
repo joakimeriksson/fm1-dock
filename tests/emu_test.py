@@ -293,6 +293,92 @@ def prophet_cases():
           "a bank sent to PROPHET (three programs) plays and is there after a power-on (12 programs)")
 
 
+def fmini_cases():
+    """FMINI-1: FMini-1's FMINI engine and its 200 factory patches (modules/fmini)"""
+    # MINI LEAD (F001, LEGATO): a key sounds, silent before, and stops
+    s, log = run("fmini", pick("FMINI-1") + ",1800:21,2800:21^", 4200)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fmini", "fmini: FMini-1 2.2.0, patches 000000c8" in log and peak(s, 0.0, 1.5) == 0 and
+          peak(s, 1.9, 2.7) > 1000 and peak(s, 3.9, 4.1) < peak(s, 1.9, 2.7) // 20 and " 0 overruns" in log,
+          f"FMINI-1 plays MINI LEAD on a key and stops; worst {worst} % of a block")
+
+    # SINE SOLO (F005: a triangle at 8', LEGATO, GLIDE on) by program change: E4 held, then A3 legato (FMini-1's
+    # LOW note priority: the lower key wins): the pitch glides from 330 Hz down to 220 Hz on one contour (no gap); A3
+    # let go: back to E4, still held
+    m = (pick("FMINI-1") + ",1300:mc004,1500:m904064,2400:m903964,3600:m803900,4600:m804000")
+    s, log = run("fmini_glide", m, 5000)
+    t = onset_frames(s)                           # (times from the first note, 1.5 s)
+    f1, fmid, f2, f3 = upward(t, 0.4, 0.85), upward(t, 0.92, 1.0), upward(t, 1.6, 2.05), upward(t, 2.6, 3.0)
+    gap = min(rms_left(t, 0.85 + 0.01 * i, 0.86 + 0.01 * i) for i in range(20))
+    check("fmini_glide", abs(f1 - 329.6) < 8 and f2 + 10 < fmid < f1 - 10 and abs(f2 - 220) < 6 and abs(f3 - 329.6) < 8
+          and gap > 0.2 * rms_left(t, 0.4, 0.85), f"LEGATO and GLIDE: E4 {f1:.0f} Hz, gliding ({fmid:.0f}) to A3 "
+          f"{f2:.0f} Hz on one contour (the lowest 10 ms {gap:.0f}), back to E4 {f3:.0f} Hz")
+
+    # PAD SWELL (F004, POLY): an eight-note chord, half of its voices on the second core
+    chord = "".join(f",1800:{k},3400:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26))
+    s, log = run("fmini_poly", pick("FMINI-1") + ",1300:e6:3" + chord, 4000)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fmini_poly", "cpu1: 2 cores" in log and peak(s, 2.0, 3.3) > 1000 and " 0 overruns" in log and worst < 70,
+          f"FMINI-1 plays PAD SWELL as an eight-note chord on two cores; core 0's worst {worst} % of a block")
+
+    # four patches on one note sound different: MOOG BASS, UFO, MOOG FLUTE, ACID LEAD (program changes 1, 9, 20, 15);
+    # then CC 74 (CUTOFF) down closes MOOG BASS's ladder
+    m = pick("FMINI-1")
+    for i, p in enumerate((1, 9, 20, 15)):
+        m += f",{1300 + 1000 * i}:mc0{p:02x},{1500 + 1000 * i}:m903064,{2100 + 1000 * i}:m803000"
+    m += ",5300:mc001,5500:m903064,5900:mb04a08,6300:m803000"
+    s, log = run("fmini_presets", m, 6600)
+    t = onset_frames(s)
+    b = [brightness(t, 0.15 + i, 0.5 + i) for i in range(4)] + [brightness(t, 4.15, 4.35), brightness(t, 4.55, 4.75)]
+    r = [rms_left(t, 0.15 + i, 0.5 + i) for i in range(4)]
+    differ = all(abs(b[i] - b[j]) > 0.02 or abs(r[i] - r[j]) > 0.2 * max(r[i], r[j]) for i in range(4) for j in range(i))
+    check("fmini_presets", all(x > 300 for x in r) and differ and b[5] < 0.6 * b[4],
+          f"four factory patches, four sounds (brightness {', '.join(f'{x:.2f}' for x in b[:4])}); CC 74 closes the "
+          f"ladder ({b[4]:.2f} -> {b[5]:.2f})")
+
+    # the arpeggiator: SINE SOLO (its TEMPO 120), ARP on (the ARP button: UP, 1/16, one octave), C4 and G4 held: the two
+    # notes in turn, a step each 125 ms; with HOLD (CC 60) the arpeggio goes on after the keys are let go
+    def steps(t, t0, t1):
+        f = [upward(t, t0 + 0.125 * i + 0.02, t0 + 0.125 * i + 0.06) for i in range(int((t1 - t0) / 0.125))]
+        return sum(1 for x in f if abs(x - 261.6) < 40), sum(1 for x in f if abs(x - 392) < 50), f
+    m = pick("FMINI-1") + ",1300:mc004,1500:10,1550:10^,1800:m903c64,1800:m904364,3300:m803c00,3300:m804300"
+    s, log = run("fmini_arp", m, 4200)
+    lo, hi, f = steps(s, 1.9 - 0.2, 3.1 - 0.2)    # (the WAV starts ~0.2 s after boot)
+    after = rms_left(s, 3.6 - 0.2, 4.0 - 0.2)
+    check("fmini_arp", lo >= 4 and hi >= 4 and after < 0.1 * rms_left(s, 2.0, 2.9),
+          f"ARP on SINE SOLO: C4 and G4 in turn at 1/16 (steps: {lo} C4, {hi} G4), silent once the keys are let go")
+    s, log = run("fmini_hold", m.replace(",1800:m903c64", ",1700:mb03c7f,1800:m903c64"), 4600)
+    lo2, hi2, _ = steps(s, 3.5 - 0.2, 4.4 - 0.2)
+    check("fmini_hold", lo2 >= 2 and hi2 >= 2, f"HOLD: the arpeggio goes on after the keys are let go ({lo2} C4, {hi2} G4 steps)")
+
+    # PLUCK ARP (F003): its own arpeggio on recall (UP-DOWN, 1/16, three octaves): one key held, the steps climb and fall
+    # over three octaves
+    s, log = run("fmini_arppatch", pick("FMINI-1") + ",1300:mc002,1800:m903064,3300:m803000", 3600)
+    f = [upward(s, 1.6 + 0.125 * i + 0.02, 1.6 + 0.125 * i + 0.09) for i in range(10)]
+    check("fmini_arppatch", min(f) > 0 and max(f) > 2.5 * min(f),
+          f"PLUCK ARP arpeggiates by itself over its octaves (steps from {min(f):.0f} to {max(f):.0f} crossings a second)")
+
+    # the effects: SINE SOLO (its sends: chorus 51, delay 32, reverb 32; the delay ANALOG, 374 ms), a short note: its tail
+    # 0.4 .. 1.2 s after the note, with the effects and with every send at 0 (CC 91, 94, 93)
+    k = pick("FMINI-1") + ",1300:mc004,1800:m904564,1900:m804500"
+    s, log = run("fmini_fx", k, 3400)
+    s2, log2 = run("fmini_dry", k.replace(",1800:", ",1500:mb05b00,1520:mb05e00,1540:mb05d00,1800:"), 3400)
+    wet, dry = rms_left(s, 2.1, 2.9), rms_left(s2, 2.1, 2.9)
+    check("fmini_fx", wet > 3 * dry and wet > 20 and " 0 overruns" in log,
+          f"FMini-1's effects: a short note's tail {wet:.0f} with them, {dry:.0f} with every send at 0")
+
+    # a user patch: MOOG BASS with its cutoff down (CC 74), SAVE twice into U001; after a power-off FMINI-1 lists
+    # 201 patches and starts on it
+    flash = OUT / "fmini_flash.bin"
+    flash.unlink(missing_ok=True)
+    k = pick("FMINI-1") + ",1300:mc001,1500:mb04a10,1700:9,1750:9^,1900:9,1950:9^"
+    s, log = run("fmini_save", k, 5000, extra=("--flash", str(flash)))
+    s2, log2 = run("fmini_saved", "1800:21,2300:21^", 2600, extra=("--flash", str(flash)))
+    ram = (OUT / "fmini_saved" / "ram.bin").read_bytes()
+    check("fmini_save", "patches 000000c9" in log2 and peak(s2, 1.9, 2.3) > 1000 and b"MOOG BASS" in ram,
+          "a sound saved into U001 is there after a power-off (201 patches) and plays")
+
+
 def niagara_cases():
     """NIAGARA: Evan Yerburgh's Niagara Drift (modules/niagara), two drones"""
     k = pick("NIAGARA") + ",2000:12,2050:12^"   # PLAY: the drones fade in (its start animation ends on the press)
@@ -545,6 +631,9 @@ def main():
 
     if "PROPHET" in names:
         prophet_cases()
+
+    if "FMINI-1" in names:
+        fmini_cases()
 
     if "B3 ORGAN" in names:
         # Standard B (88 8000 000) under ten keys; then over MIDI every drawbar out (CC 70..78 at 0, as setBfree),

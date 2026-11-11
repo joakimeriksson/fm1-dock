@@ -12,7 +12,7 @@ and SMK-37.
 ## Next: 0.8.x
 
 - **FMINI-1** ([#63](https://github.com/joakimeriksson/fm1-dock/pull/63)): FMini-1's engine, its 200 patches and its
-  effects with an arpeggiator. Played on an SMK-37; waiting for its author's answer.
+  effects with an arpeggiator, as an add-on. Played on an SMK-37; its author is asked to have a look.
 - **The player's guide** ([#62](https://github.com/joakimeriksson/fm1-dock/pull/62)): every control of the FM-1 and
   the SMK-37, OPTIONS, each synth's first 30 seconds, troubleshooting.
 - **The second core after an install**: the first start after installing over another firmware can show 1CPU
