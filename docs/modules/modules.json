@@ -247,6 +247,28 @@
   "accent": "#f5a033",
   "alt": "PROPHET's screen: the patch STRINGS, 3 of 8, its MAIN page with cutoff, resonance, envelope amount and release"
  },
+ "fm6": {
+  "file": "fm6.dock",
+  "version": "165d177",
+  "source": "modules/fm6: keremimo/melodee 165d177 (branch main; modules/fm6/take.py), fm1-dock",
+  "by": "Kerem Kilic (Melodee)",
+  "songs": "",
+  "title": "FM6",
+  "module": "FM6",
+  "author_url": "https://github.com/keremimo",
+  "original": "https://github.com/keremimo/melodee",
+  "links": [{ "label": "source", "url": "https://github.com/keremimo/melodee" }],
+  "license": "GPL-3.0-only",
+  "voices": "16, half on the second core (10 on one core)",
+  "size_kib": 42,
+  "description": "A DX7-style six-operator FM synth on Melodee's engine: 32 algorithms, feedback, DX7 envelopes and scaling, three renderers; its own 24 voices, and your own DX7 SysEx voices if you send them.",
+  "tags": ["synth", "poly", "fm"],
+  "kind": "digital",
+  "untested": true,
+  "screenshot": "media/screen_fm6.png",
+  "accent": "#4fb3ff",
+  "alt": "FM6's screen: the voice TINE EP, 1 of 24, its MAIN page with algorithm, feedback, brightness and mod envelope"
+ },
  "b3": {
   "hub": "b3organ",
   "file": "b3.dock",
