@@ -61,6 +61,7 @@ typedef struct {
     sc_pink_t pink;
     sc_env_t env1, env2;
     sc_lfo_t lfo1, lfo2;
+    uint32_t stepped;                           /* its LFOs have passed this block's samples */
     sc_svf_t f1, f2;
     int64_t cur, target;                        /* pitch, Q32: a slow portamento's steps are far below Q16 */
     int32_t vel;                                /* 0..1, Q16 */
@@ -68,6 +69,9 @@ typedef struct {
     int32_t off1, off2, c1, c2;                 /* glide pitch offsets (Q24) and their decay (Q30) */
     int32_t l1, l2;                             /* the last LFO outputs, for the block-rate cutoff */
     int32_t prev1, prev2;                       /* the last oscillator outputs, for cross-mod */
+    int32_t dc1, dc2;                           /* the oscillators' DC as their coupling sees it, Q26 */
+    int32_t dcr;                                /* the ring modulator's output's, the same */
+    int32_t pendm;                              /* OSC2's mirrored pulse (the ring modulator's): its residual after a sync */
     uint32_t block;                             /* samples into the coefficient block */
     int32_t a1, a2, a3;                         /* SVF coefficients, Q30 */
     int32_t cn;                                 /* the cutoff (semitones Q16) they were computed for */
@@ -88,6 +92,13 @@ typedef struct {
 void sc_voice_init(sc_voice_t *v, uint32_t seed);
 void sc_voice_note_on(sc_voice_t *v, const sc_prep_t *p, int32_t note, int32_t vel_q16);
 void sc_voice_note_off(sc_voice_t *v, const sc_prep_t *p);
+/* The Synthex has one LFO per layer, running whether or not a key is down; each voice carries a copy.
+ * The copies stay in phase because every voice passes every sample, rendered (sc_voice_render) or,
+ * silent, advanced (sc_voice_advance: sc_voice_render does it for a silent voice; the synth, which
+ * does not call the render for one, at the end of the block for the voices with `stepped` clear).
+ * sc_voice_lfo_sync is the LFO board's SYNC strobe, for every voice of the layer at once. */
+void sc_voice_lfo_sync(sc_voice_t *v, const sc_prep_t *p);
+void sc_voice_advance(sc_voice_t *v, const sc_prep_t *p, uint32_t n);
 static inline int sc_voice_idle(const sc_voice_t *v) { return v->env2.stage == 0 && v->amp_gate == 0; }
 /* add n samples of this voice (audio Q20, mono) into out */
 void sc_voice_render(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n);

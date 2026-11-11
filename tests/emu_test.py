@@ -365,7 +365,7 @@ def main():
     info = [d for c, q, d in rep if c == hbdeploy.INFO and q == 5]
     i = hbdeploy.info(type("P", (), {"ask": lambda self, *_: info[0]})()) if info else None
     check("info", i is not None and i["version"] == ver and i["model"] == "FM-1" and i["board"] == "FM-1" and
-          i["flash_id"] in (0x856014, 0xEB6014) and i["flash_size"] == 1 << 20 and i["soc"] == "AC791N" and
+          i["flash_id"] in (0x856014, 0xB36014, 0xEB6014) and i["flash_size"] == 1 << 20 and i["soc"] == "AC791N" and
           i["mod_ram"] == 0x44000 and 0 < i["largest"] <= i["free"] and i["cores"] in (1, 2) and
           any(c == 0x04 and q == 6 and d[:1] == b"\x0a" for c, q, d in rep),
           f"INFO: fm1-dock {i and i['version']} ({i and i['build']}) on {i and i['model']}, {i and i['soc']}, flash "

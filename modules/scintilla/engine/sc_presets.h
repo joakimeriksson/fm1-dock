@@ -77,17 +77,25 @@ static void sc_rom_load(unsigned index, sc_patch_t *p)
     L->mix_noise = (v[39] & 192u) ? sc_rom_q(sc_rom_round(v[19] * 35, 12), 1000) : 0;
     L->noise_pink = (int8_t)((v[39] & 128u) != 0);
     L->ring = (int8_t)((v[37] & 192u) != 0);
-    L->cross = v[30] == 4 ? 11469 : 0; L->cross2 = v[29] == 4 ? 11469 : 0;
+    L->cross = v[30] == 4 ? 36438 : 0; L->cross2 = v[29] == 4 ? 36438 : 0;
     L->flt_mode = (int8_t)filter[v[32]];
-    L->cutoff = sc_rom_q(sc_rom_round((-25000 + 580 * (255 - (int32_t)v[5])) * 12750 +
-                                     971616 * (int32_t)v[6], 1224000), 1000);
-    L->key_track = sc_rom_q(sc_rom_round(80968 * (int32_t)v[6], 25500), 1000);
+    /* gen_factory.py's KEY_W = 1 / (2 CUT_SLOPE): full key tracking 1.0 st per key (synthex-web 1da4205) */
+    /* gen_factory.py's FILTER_ENV_FIX, the presets corrected one by one against the recording: the cutoff
+     * offset in semitones and the envelope amount in tenths (synthex-web 47cc14e; Filtered chorus 25de95b) */
+    int32_t fix_st = index == 16 ? -8 : index == 17 ? 6 : index == 23 ? -12 : 0;   /* High pass sweep, Filtered brass, Clavichord I */
+    int32_t fix_env = index == 16 ? 5 : index == 17 || index == 18 || index == 23 ? 7 : 10;
+    L->cutoff = sc_rom_q(sc_rom_round((-25000 + 1000 * fix_st + 580 * (255 - (int32_t)v[5])) * 12750 +
+                                     1200000 * (int32_t)v[6], 1224000), 1000);
+    L->key_track = sc_rom_q(sc_rom_round(1000 * (int32_t)v[6], 255), 1000);
     L->reso = sc_rom_q(sc_rom_round(v[10] * 1000, 254), 1000);
-    int32_t env = (v[20] >> 4) <= 3 && (v[22] >> 4) > 6 ? SC_ROM_ENV_LONG_MILLI[v[7]] : SC_ROM_ENV_MILLI[v[7]];
+    int32_t env_long = (v[20] >> 4) <= 3 && (v[22] >> 4) > 6;
+    int32_t env = env_long ? SC_ROM_ENV_LONG_MILLI[v[7]] : SC_ROM_ENV_MILLI[v[7]];
+    /* a corrected one from the amount itself (0.58 * 1.25 * v / 60), not from the table's rounded value */
+    if (fix_env != 10) env = sc_rom_round(725 * (int32_t)v[7] * (env_long ? 6 : 10) * fix_env, 6000);
     L->env_amt = sc_rom_q((v[35] & 64u) ? -env : env, 1000);
     L->env_f.a = sc_rom_q(SC_ROM_ATTACK_MS[v[20] >> 4], 1000);
     L->env_f.d = sc_rom_q(index == 32 ? 3300 : SC_ROM_ENV_MS[v[22] >> 4], 1000); /* calibrated Take-off */
-    L->env_f.s = sc_rom_q(sc_rom_round(v[8] * 1000, 255), 1000);
+    L->env_f.s = sc_rom_q(sc_rom_round(v[8] * 700, 255), 1000);         /* FILTER_SUSTAIN 0.7 */
     L->env_f.r = sc_rom_q((v[38] & 128u) ? SC_ROM_ENV_MS[v[24] >> 4] : 10, 1000);
     L->env_a.a = sc_rom_q(SC_ROM_ATTACK_MS[v[21] >> 4], 1000);
     L->env_a.d = sc_rom_q(SC_ROM_ENV_MS[v[23] >> 4], 1000);
@@ -96,16 +104,17 @@ static void sc_rom_load(unsigned index, sc_patch_t *p)
     L->lfo[0].shape = (int8_t)lfo[v[31]];
     L->lfo[0].rate = sc_rom_q(SC_ROM_RATE_CHZ[v[3]], 100);
     L->lfo[0].delay = sc_rom_q(SC_ROM_DELAY_CS[v[4]], 100);
-    L->lfo[0].depth_a = sc_rom_q(sc_rom_round(v[1] * 1000, 255), 1000);
-    L->lfo[0].depth_b = sc_rom_q(sc_rom_round(v[2] * 1000, 255), 1000);
+    /* both depth knobs read inverted (byte 255 = none): the LFO board's level CVs bias its OTAs through
+     * (5 V - LEV) / 10K. gen_factory.py's PITCH_MOD 0.09, PWM_MOD 2, CUTOFF_MOD 2, AMP_MOD 1 */
+    L->lfo[0].depth_a = sc_rom_q(sc_rom_round((255 - (int32_t)v[1]) * 1000, 255), 1000);
+    L->lfo[0].depth_b = sc_rom_q(sc_rom_round((255 - (int32_t)v[2]) * 1000, 255), 1000);
     L->lfo[1].rate = 26214; L->lfo[1].depth_a = L->lfo[1].depth_b = 65536;
-    int32_t pitch = sc_rom_q(SC_ROM_PITCH_1E4[v[1]], 10000);
-    if (v[26] & 1u) L->mm[SC_MM_L1_P1] = pitch;
-    if (v[26] & 2u) L->mm[SC_MM_L1_P2] = pitch;
-    if (v[26] & 4u) L->mm[SC_MM_L1_PW1] = 32768;
-    if (v[26] & 32u) L->mm[SC_MM_L1_PW2] = 32768;
-    if (v[26] & 16u) L->mm[SC_MM_L1_CUT] = 32768;
-    if (v[26] & 8u) L->mm[SC_MM_L1_AMP] = 24248;
+    if (v[26] & 1u) L->mm[SC_MM_L1_P1] = sc_rom_q(90, 1000);
+    if (v[26] & 2u) L->mm[SC_MM_L1_P2] = sc_rom_q(90, 1000);
+    if (v[26] & 4u) L->mm[SC_MM_L1_PW1] = 131072;
+    if (v[26] & 32u) L->mm[SC_MM_L1_PW2] = 131072;
+    if (v[26] & 16u) L->mm[SC_MM_L1_CUT] = 131072;
+    if (v[26] & 8u) L->mm[SC_MM_L1_AMP] = 65536;
     L->glide_o1 = L->glide_o2 = L->multi_trigger = 1;
     L->glide_mode = v[34] & 128u ? SC_GLIDE_PORTA : v[34] & 64u ? SC_GLIDE_GLIDE : SC_GLIDE_OFF;
     if (L->glide_mode) {
