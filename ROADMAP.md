@@ -42,7 +42,7 @@ large ones can fill it. 0.9 makes every synth an add-on.
    an FM-1 and an SMK-37.
 5. **Packs on the page**, one click each, the flash meter showing what fits:
    - **Analog**: Scintilla, CS-1, OberVave, PROPHET, FM-106, FMINI-1
-   - **Digital & chip**: FM-1 SID, GATOR, ARTIHIVE
+   - **Digital & chip**: FM-1 SID, GATOR, ARTIHIVE, FM6
    - **Ambient & texture**: AMB-1, Niagara Drift, FoMni, MONK-1, DUB-1
    - **Keys & acoustic**: B3 ORGAN, FiMba-1
    - **Empty**: pick your own
