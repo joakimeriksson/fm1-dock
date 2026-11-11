@@ -379,6 +379,71 @@ def fmini_cases():
           "a sound saved into U001 is there after a power-off (201 patches) and plays")
 
 
+def dx7_voice(name, coarse):
+    """a DX7 single-voice dump (VCED, 155 bytes: OP6 first): OP1 alone, a sine at coarse x the note, made here"""
+    v = []
+    for op in range(6):                         # R1-4, L1-4, BP, LD, RD, LC, RC, RS, AMS, KVS, OL, MODE, FC, FF, DET
+        v += [99, 99, 99, 99, 99, 99, 99, 0, 39, 0, 0, 0, 0, 0, 0, 0, 99 if op == 5 else 0, 0, coarse, 0, 7]
+    v += [99] * 4 + [50] * 4 + [0, 0, 1, 35, 0, 0, 0, 1, 0, 3, 24] + list(name.encode().ljust(10))
+    return bytes([0xF0, 0x43, 0x00, 0x00, 0x01, 0x1B] + v + [-sum(v) & 0x7F, 0xF7])
+
+
+def fm6_cases():
+    """FM6: Melodee's six-operator FM engine and its own voices (modules/fm6)"""
+    import hbdeploy
+    # TINE EP (F1, the first voice): a key sounds, silent before, and dies away
+    s, log = run("fm6", pick("FM6") + ",1800:21,2600:21^", 5000)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fm6", "fm6: Melodee 165d177, voices 00000019" in log and peak(s, 0.0, 1.5) == 0 and
+          peak(s, 1.7, 2.5) > 1000 and peak(s, 4.6, 5.0) < peak(s, 1.7, 2.5) // 20 and " 0 overruns" in log,
+          f"FM6 plays TINE EP on a key and it dies away; worst {worst} % of a block")
+
+    # STRINGS (F16: six operators, held) as a 16-note chord, half of its voices on the second core
+    chord = "".join(f",1800:{k},3600:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26, 28, 30, 31, 33, 35, 37, 38, 40))
+    s, log = run("fm6_chord", pick("FM6") + ",1300:e6:15" + chord, 4200)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fm6_chord", "cpu1: 2 cores" in log and peak(s, 2.0, 3.4) > 1000 and " 0 overruns" in log and worst < 80,
+          f"FM6 plays STRINGS as a 16-note chord on two cores; core 0's worst {worst} % of a block")
+    s, log = run("fm6_flaky", pick("FM6") + ",1300:e6:15" + chord, 4200, extra=("--flaky-core1", "1e-6", "--seed", "2"))
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fm6_flaky", "cpu1: misread RAM, 1 core" in log and peak(s, 2.0, 3.4) > 1000 and " 0 overruns" in log
+          and worst < 85, f"a faulty second core: FM6 plays ten voices on core 0; worst {worst} %")
+
+    # four voices on one note sound different: TINE EP, GLASS BELL, BRASS SECT, SOLID BASS (program changes 1, 2, 10, 11)
+    m = pick("FM6")
+    for i, p in enumerate((1, 2, 10, 11)):
+        m += f",{1300 + 1000 * i}:mc0{p:02x},{1500 + 1000 * i}:m903c64,{2100 + 1000 * i}:m803c00"
+    s, log = run("fm6_presets", m, 5400)
+    t = onset_frames(s)
+    b = [brightness(t, 0.05 + i, 0.4 + i) for i in range(4)]
+    r = [rms_left(t, 0.05 + i, 0.4 + i) for i in range(4)]
+    differ = all(abs(b[i] - b[j]) > 0.02 or abs(r[i] - r[j]) > 0.2 * max(r[i], r[j]) for i in range(4) for j in range(i))
+    check("fm6_presets", all(x > 300 for x in r) and differ,
+          f"four of Melodee's voices, four sounds (brightness {', '.join(f'{x:.2f}' for x in b)}, "
+          f"RMS {', '.join(f'{x:.0f}' for x in r)})")
+
+    # a DX7 voice dump (tools/dock.py send FILE.syx: MODULE frames, here into the DIN jack): OP1 alone at x2, played at
+    # once (A4 over MIDI: 880 Hz), kept in the module's flash banks; the next power-on lists it after Melodee's 25
+    syx = dx7_voice("HARBOR X2", 2)
+    steps = [b"B" + struct.pack("<II", len(syx), 0)]
+    steps += [b"D" + struct.pack("<I", a) + syx[a:a + 256] for a in range(0, len(syx), 256)] + [b"E"]
+    k, at = [pick("FM6")], 1500
+    for i, st in enumerate(steps):
+        f = hbdeploy.frame(hbdeploy.MODULE, i, st)
+        k.append(f"{at}:m{f.hex()}")
+        at += int(len(f) * hbdeploy.BYTE_MS) + 30
+    flash = OUT / "fm6_flash.bin"
+    flash.unlink(missing_ok=True)
+    s, log = run("fm6_sysex", ",".join(k) + f",{at + 400}:m904564,{at + 1400}:m804500", at + 1600,
+                 extra=("--flash", str(flash)))
+    t = onset_frames(s)
+    f1 = upward(t, 0.2, 0.9)
+    s2, log2 = run("fm6_sysex2", pick("FM6") + ",1800:21,2300:21^", 2600, extra=("--flash", str(flash)))
+    check("fm6_sysex", "fm6: voices in 00000001" in log and abs(f1 - 880) < 10 and "voices 0000001a" in log2
+          and peak(s2, 1.7, 2.2) > 1000,
+          f"a DX7 voice dump sent to FM6 plays at once (A4 at {f1:.0f} Hz: its OP1 at x2) and is there after a power-on")
+
+
 def niagara_cases():
     """NIAGARA: Evan Yerburgh's Niagara Drift (modules/niagara), two drones"""
     k = pick("NIAGARA") + ",2000:12,2050:12^"   # PLAY: the drones fade in (its start animation ends on the press)
@@ -634,6 +699,9 @@ def main():
 
     if "FMINI-1" in names:
         fmini_cases()
+
+    if "FM6" in names:
+        fm6_cases()
 
     if "B3 ORGAN" in names:
         # Standard B (88 8000 000) under ten keys; then over MIDI every drawbar out (CC 70..78 at 0, as setBfree),
