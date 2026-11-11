@@ -77,6 +77,19 @@ its own package; the installers refuse an FM-1 package on an SMK-37, and the oth
 Back to any other firmware, or the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing firmware is at your own risk.
 
+## New in 0.8.1
+
+- **Scintilla as its 0.3**: the Laser Harp without its click, the ring modulator and cross-mod read from the Synthex's
+  voice-board schematic, one LFO per layer, and the forty ROM presets closer to a recording of the real instrument
+  ([preset by preset](https://joakimeriksson.github.io/scintilla-fm1/tuning/)).
+- **Newer FM-1s**: the units sold since autumn 2026 carry another flash chip (0xB36014). fm1-dock accepts it now;
+  before, such a unit kept its saves in RAM only. Tested in fm1-emu, not yet on such a unit.
+- **The SMK-37's own controls** reach a module that asks for them; Scintilla takes them.
+- **OPTIONS > ABOUT**: the build, the board, the flash chip, the room left for add-ons.
+- **[The player's guide](https://joakimeriksson.github.io/fm1-dock/guide.html)**.
+
+The [0.8.1 release notes](https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.8.1).
+
 ## New in 0.8
 
 - **Four new synths**: PROPHET (a Prophet-5 on Melodee's engine), B3 ORGAN (a tonewheel organ after setBfree),
