@@ -22,6 +22,20 @@ enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE };
 #define MAX_DT 1932735283u                      /* 0.45 of a cycle: VoiceCore's dt clamp */
 #define PW_LO  3277                             /* 0.05, Q16 */
 #define PW_HI  62259                            /* 0.95 */
+/* VoiceCore's AC_COUPLING_HZ, 5 Hz: each oscillator, and the ring modulator's output, reaches the mixer
+ * through a one-pole coupling that takes its DC off (a pulse of width pw carries 2 pw - 1 of it, which
+ * came out as a thump on the narrow pulses). The ring modulator itself takes the oscillators as they
+ * are (ring_of). 1 - exp(-2 pi 5 / 44100), Q30 */
+#define DC_K   764639
+
+/* dc += k (s - dc); s - dc: the coupling, one oscillator sample (Q20) with its tracker (Q26: the
+ * difference fits 32 bits, so the multiply is one 32 x 32 one; Q30 and a 64-bit one cost twice the
+ * instructions) */
+static inline int32_t dc_block(int32_t s, int32_t *dc)
+{
+    *dc += (int32_t)(((int64_t)DC_K * (s * 64 - *dc)) >> 30);
+    return s - (*dc >> 6);
+}
 
 /* ---- pitch and cutoff tables ---------------------------------------------------------------- */
 
@@ -312,6 +326,32 @@ static inline int32_t lfo_step(sc_lfo_t *l, uint32_t inc, int shape, uint32_t dl
     return l->smooth;
 }
 
+/* Lfo.sync: the LFO board's SYNC strobe. The delay ramp starts again and the oscillator restarts: a
+ * triangle at its middle (phase 3/4), the other shapes at the top of the board's ramp (phase 0) */
+static void lfo_sync(sc_lfo_t *l, int shape)
+{
+    l->ph = shape == SC_LFO_TRI ? 0xC0000000u : 0;
+    l->ramp = 0;
+    l->smooth = lfo_raw(l, shape);
+}
+
+/* Lfo.advance: n samples pass without output: the phase and the delay ramp of n steps, the smoothed
+ * value the shape where the last of them read it (a silent voice's copy of the layer's LFO) */
+static void lfo_advance(sc_lfo_t *l, uint32_t inc, int shape, uint32_t dly_inc, uint32_t n)
+{
+    if (!n) return;
+    uint64_t end = (uint64_t)l->ph + (uint64_t)inc * n;
+    uint32_t wraps = (uint32_t)(end >> 32);
+    for (uint32_t k = wraps > 2 ? 2 : wraps; k > 0; k--) { l->sh = l->sh_next; l->sh_next = sc_rand20(&l->rng); }
+    l->ph = (uint32_t)end - inc;
+    l->smooth = lfo_raw(l, shape);
+    l->ph = (uint32_t)end;
+    if (dly_inc && l->ramp < SC_ONE30) {
+        uint64_t r = (uint64_t)(uint32_t)l->ramp + (uint64_t)dly_inc * n;
+        l->ramp = r >= (uint64_t)SC_ONE30 ? SC_ONE30 : (int32_t)r;
+    }
+}
+
 static void lfo_trigger(sc_lfo_t *l)
 {
     l->ph = 0;
@@ -381,6 +421,11 @@ static inline int32_t tri_at(uint32_t ph)
     uint32_t d = ph < 0x80000000u ? 0x80000000u - ph : ph - 0x80000000u;   /* |phase - 1/2| */
     return SC_ONE20 - (int32_t)(d >> 10);                             /* 1 - 4 |phase - 1/2| */
 }
+/* what cross-mod takes from an oscillator: not its output but its DAC wave in front of the pulse
+ * comparator (board 410CST5800), the counter's ramp folded into a triangle, or on the ringed
+ * oscillator the ramp as the other oscillator's pulse (s1) flips it. VoiceCore's prevOsc1 / 2. */
+static inline int32_t xmod_tri(uint32_t ph) { return -tri_at(ph); }
+static inline int32_t xmod_ringed(uint32_t ph, int32_t s1) { return s1 > 0 ? -saw_at(ph) : saw_at(ph); }
 static inline int32_t tri_bend(uint32_t dt) { return (int32_t)(dt >> 9); }    /* 8 dt, Q20 per sample */
 static inline int32_t sine_at(uint32_t ph)
 {
@@ -460,6 +505,36 @@ SC_OSC_FN int32_t osc_square(sc_osc_t *o, uint32_t dt, uint32_t pw)
     if (tau >= 0) s += sync_now(o, dt, tau, at_reset(ph, dt, tau) < pw ? 0 : 2 * SC_ONE20, 0);
     else advance(o, dt);
     return s;
+}
+
+/* PolyBlepSquare.companion: the pulse of width q from the phase, sync and residual state the square is
+ * about to play from (call it before the square moves them): q = 1 - pw gives the pulse mirrored in time
+ * and inverted, the other half of the ring modulator. pendm: its residual after a sync. */
+static inline int32_t sq_mirror(uint32_t ph, uint32_t d, uint32_t q, int32_t tau, int after, int32_t *pendm)
+{
+    const uint32_t u = 0u - ph, ue = q - ph;
+    int32_t y = ph < q ? SC_ONE20 : -SC_ONE20;
+    if (tau < 0 || (u < d && frac16(u, d) < tau)) y += blep_before(u, d);
+    if (ph < q && (tau < 0 || (ue < d && frac16(ue, d) < tau))) y -= blep_before(ue, d);
+    if (after) y += *pendm; else y += blep_after(ph, d);
+    if (ph >= q) y -= blep_after(ph - q, d);
+    if (tau >= 0) {
+        const int32_t a = at_reset(ph, d, tau) < q ? 0 : 2 * SC_ONE20, uu = SC_ONE16 - tau;
+        y += (int32_t)(((int64_t)a * sq16(uu)) >> 17);
+        *pendm = -(int32_t)(((int64_t)a * sq16(tau)) >> 17);
+    }
+    return y;
+}
+
+/* VoiceCore's ring modulator, the Synthex's (board 410CST5800): OSC2 is a counter whose bits pass
+ * through XOR gates into the waveform DAC, and with RING MOD on the gates' other input is OSC1's pulse,
+ * so the ramp runs backwards while that pulse is high. Behind the DAC's pulse comparator that is
+ * pulse(pw) or its mirror image -pulse(1 - pw):  (A - A') / 2 + s1 (A + A') / 2, one amplitude
+ * throughout, where the product of two coupled pulses swelled with the long half of a narrow one (a
+ * click 10 ms into Ring mod.'s notes). s1, a, m: OSC1, OSC2's pulse and its mirror (sq_mirror), Q20. */
+static inline int32_t ring_of(int32_t s1, int32_t a, int32_t m)
+{
+    return (a - m) / 2 + sc_mul(s1, (a + m) / 2, 20);
 }
 
 /* PolyBlepTriangle: -1 at the start of the cycle, +1 at the middle, its corners PolyBLAMP-corrected;
@@ -578,6 +653,12 @@ void sc_voice_note_on(sc_voice_t *v, const sc_prep_t *p, int32_t note, int32_t v
     if (from_idle) {                            /* a sounding voice keeps its phases: a reset is a step */
         if (!L->o2_sync) osc_reset(&v->o1);
         osc_reset(&v->o2);
+        /* the hardware's oscillators run all the time, so their coupling has settled when a key goes
+         * down: the tracker starts at the waveform's mean (a pulse's 2 pw - 1), not at 0 */
+        v->dc1 = L->o1_wave == SC_WAVE_SQR ? (2 * L->o1_pwm - SC_ONE16) * (1 << 10) : 0;
+        v->dc2 = L->o2_wave == SC_WAVE_SQR ? (2 * L->o2_pwm - SC_ONE16) * (1 << 10) : 0;
+        v->dcr = L->o2_wave == SC_WAVE_SQR ? v->dc2 : (int32_t)(((int64_t)v->dc1 * v->dc2) >> 26);
+        v->pendm = 0;
     }
 
     v->off1 = L->o1_glide_amt * 256;
@@ -588,6 +669,21 @@ void sc_voice_note_on(sc_voice_t *v, const sc_prep_t *p, int32_t note, int32_t v
         if (L->glide_o1) { v->off1 += L->glide_amt * 256; v->c1 = p->gdc_panel; }
         if (L->glide_o2) { v->off2 += L->glide_amt * 256; v->c2 = p->gdc_panel; }
     }
+}
+
+/* VoiceCore.syncLfo: the layer's LFO strobed (sc_synth.c's layer_on has the rule) */
+void sc_voice_lfo_sync(sc_voice_t *v, const sc_prep_t *p)
+{
+    lfo_sync(&v->lfo1, p->L->lfo[0].shape);
+}
+
+/* n samples of a silent voice: its copies of the layer's LFOs keep running */
+void sc_voice_advance(sc_voice_t *v, const sc_prep_t *p, uint32_t n)
+{
+    const sc_layer_t *L = p->L;
+    v->stepped = 1;
+    lfo_advance(&v->lfo1, p->lfo_inc[0], L->lfo[0].shape, p->lfo_dly_inc[0], n);
+    lfo_advance(&v->lfo2, p->lfo_inc[1], L->lfo[1].shape, p->lfo_dly_inc[1], n);
 }
 
 void sc_voice_note_off(sc_voice_t *v, const sc_prep_t *p)
@@ -833,12 +929,22 @@ static void render_general(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint
 
         int32_t s1 = osc_tick(&v->o1, w1, dt1, pw1, &v->noise1);
         if (L->o2_sync && w1 != SC_WAVE_NOISE && v->o1.wrapped) v->o2.tau = wrap_tau(&v->o1, dt1);
+        int32_t s2x = 0;                        /* OSC2's mirrored pulse, for the ring modulator */
+        if (L->ring && w2 == SC_WAVE_SQR) s2x = sq_mirror(v->o2.ph, dt2, 0u - pw2, v->o2.tau, v->o2.after, &v->pendm);
         int32_t s2 = osc_tick(&v->o2, w2, dt2, pw2, &v->noise2);
         /* white noise shares OSC2's generator, as noiseW2 does */
         int32_t nz = 0;
         if (use & SC_USE_NOISE) nz = L->noise_pink ? pink_next(&v->pink) : sc_rand20(&v->noise2);
 
-        int32_t s2m = L->ring ? sc_mul(s1, s2, 20) : s2;
+        v->prev1 = w1 == SC_WAVE_NOISE ? s1 : xmod_tri(v->o1.ph);    /* cross-mod takes the DAC waves */
+        v->prev2 = w2 == SC_WAVE_NOISE ? s2
+                 : L->ring && w2 == SC_WAVE_SQR ? xmod_ringed(v->o2.ph, s1) : xmod_tri(v->o2.ph);
+        int32_t rm = 0;                         /* the ring modulator, of the two as they are */
+        if (L->ring) rm = dc_block(w2 == SC_WAVE_SQR ? ring_of(s1, s2, s2x) : sc_mul(s1, s2, 20), &v->dcr);
+        s1 = dc_block(s1, &v->dc1);             /* the mixer, without their DC */
+        s2 = dc_block(s2, &v->dc2);
+
+        int32_t s2m = L->ring ? rm : s2;
         int32_t mixed = (int32_t)(((int64_t)s1 * p->mix1 + (int64_t)s2m * p->mix2 + (int64_t)nz * p->mixn) >> 16);
         mixed = sc_mul(mixed, p->atten, 16);
 
@@ -860,9 +966,6 @@ static void render_general(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint
             amp = (int32_t)(((int64_t)amp * (SC_ONE16 + (int32_t)(((int64_t)l1 * p->ka[0] + (int64_t)l2 * p->ka[1]) >> 20))) >> 16);
         amp = sc_mul(amp, vgain, 16);
         out[i] += sc_mul(y, amp, 16);
-
-        v->prev1 = s1;
-        v->prev2 = s2;
     }
 }
 
@@ -874,6 +977,7 @@ static const int32_t S_zero[256];              /* an LFO that is not routed read
 /* the passes' buffers: one set per lane (sc_voice.h), so that two cores can render voices at once */
 typedef struct {
     int32_t  amp[256], s1[256], s2[256], nz[256], e1[256], l1[256], l2[256];
+    int32_t  s2x[256];                          /* OSC2's mirrored pulse, for the ring modulator */
     uint32_t dt1[256], dt2[256], pw1[256];
     int32_t  key[256];                          /* the portamento pitch per sample, for key tracking */
     int64_t  pw2[256];                          /* OSC2's PWM sum before OSC1's cross-mod term */
@@ -898,6 +1002,7 @@ typedef struct {
     int32_t *s, *nz;
     int32_t *wrap;
     const int32_t *reset;
+    int32_t *mir, *pendm;                       /* the square's mirrored pulse (sq_mirror), when the ring modulator wants it */
 } osc_io_t;
 
 static inline __attribute__((always_inline))
@@ -935,6 +1040,7 @@ void osc_loop(sc_osc_t *o, const int wave, const int synced, const osc_io_t *io,
             else
                 q = io->pw ? io->pw[i] : 0x80000000u;
             const uint32_t ue = q - ph;
+            if (io->mir) io->mir[i] = sq_mirror(ph, d, 0u - q, tau, after, io->pendm);
             y = ph < q ? SC_ONE20 : -SC_ONE20;
             if (tau < 0 || (u < d && frac16(u, d) < tau)) y += blep_before(u, d);
             if (ph < q && (tau < 0 || (ue < d && frac16(ue, d) < tau))) y -= blep_before(ue, d);
@@ -1012,7 +1118,7 @@ static void osc_run(sc_osc_t *o, int wave, const osc_io_t *io, uint32_t n)
  * passes go by coefficient segment (sc_voice_render's w->seg_at / w->seg_c): a fast filter envelope
  * makes a segment of nearly every sample, so a segment costs no more than loading its three
  * coefficients. */
-typedef struct { int32_t m1, m2, mn, at, k; int ring; } mix_t;
+typedef struct { int32_t m1, m2, mn, at, k; int ring; } mix_t;   /* ring: 1 the product, 2 ring_of with w->s2x */
 
 static void svf_pass(sc_svf_t *f, const uint32_t *at, const int32_t (*c)[3], uint32_t nseg, int32_t *x, int out_bp)
 {
@@ -1037,18 +1143,38 @@ static void mix_run(sc_lane_t *w, sc_voice_t *v, int mode, const mix_t *m, const
 {
     const int32_t m1 = m->m1, m2 = m->m2, mn = m->mn, att = m->at;
     int32_t *x = w->mix;
+    int32_t dc1 = v->dc1, dc2 = v->dc2;         /* the oscillators' coupling (dc_block), in the mix's loop */
+    int32_t dcr = v->dcr;                       /* and the ring modulator's output's */
     if (mn)                                     /* the noise joins the same sum before its shift */
         for (uint32_t i = 0; i < n; i++) {
-            int64_t acc = (int64_t)w->s1[i] * m1 + (int64_t)(m->ring ? sc_mul(w->s1[i], w->s2[i], 20) : w->s2[i]) * m2
-                        + (int64_t)w->nz[i] * mn;
+            int32_t rm = 0;
+            if (m->ring) rm = dc_block(m->ring == 2 ? ring_of(w->s1[i], w->s2[i], w->s2x[i]) : sc_mul(w->s1[i], w->s2[i], 20), &dcr);
+            int32_t s1 = dc_block(w->s1[i], &dc1), s2 = dc_block(w->s2[i], &dc2);
+            int64_t acc = (int64_t)s1 * m1 + (int64_t)(m->ring ? rm : s2) * m2 + (int64_t)w->nz[i] * mn;
             x[i] = sc_mul((int32_t)(acc >> 16), att, 16);
         }
+    else if (m->ring == 2)
+        for (uint32_t i = 0; i < n; i++) {
+            int32_t rm = dc_block(ring_of(w->s1[i], w->s2[i], w->s2x[i]), &dcr);
+            int32_t s1 = dc_block(w->s1[i], &dc1);
+            (void)dc_block(w->s2[i], &dc2);
+            x[i] = sc_mul((int32_t)(((int64_t)s1 * m1 + (int64_t)rm * m2) >> 16), att, 16);
+        }
     else if (m->ring)
-        for (uint32_t i = 0; i < n; i++)
-            x[i] = sc_mul((int32_t)(((int64_t)w->s1[i] * m1 + (int64_t)sc_mul(w->s1[i], w->s2[i], 20) * m2) >> 16), att, 16);
+        for (uint32_t i = 0; i < n; i++) {
+            int32_t rm = dc_block(sc_mul(w->s1[i], w->s2[i], 20), &dcr);
+            int32_t s1 = dc_block(w->s1[i], &dc1);
+            (void)dc_block(w->s2[i], &dc2);
+            x[i] = sc_mul((int32_t)(((int64_t)s1 * m1 + (int64_t)rm * m2) >> 16), att, 16);
+        }
     else
-        for (uint32_t i = 0; i < n; i++)
-            x[i] = sc_mul((int32_t)(((int64_t)w->s1[i] * m1 + (int64_t)w->s2[i] * m2) >> 16), att, 16);
+        for (uint32_t i = 0; i < n; i++) {
+            int32_t s1 = dc_block(w->s1[i], &dc1), s2 = dc_block(w->s2[i], &dc2);
+            x[i] = sc_mul((int32_t)(((int64_t)s1 * m1 + (int64_t)s2 * m2) >> 16), att, 16);
+        }
+    v->dc1 = dc1;
+    v->dc2 = dc2;
+    v->dcr = dcr;
 
     switch (mode) {
     case SC_FLT_LP24:
@@ -1094,7 +1220,8 @@ void sc_voice_render(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n
 
 void sc_voice_render_lane(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint32_t n, unsigned lane)
 {
-    if (v->env2.stage == ENV_IDLE && !v->amp_gate) return;
+    if (v->env2.stage == ENV_IDLE && !v->amp_gate) { sc_voice_advance(v, p, n); return; }
+    v->stepped = 1;
 #ifndef SC_TEST_GENERAL                         /* tests/run.sh: the general path for every patch */
     if (p->cross2 || n > 256)
 #endif
@@ -1276,31 +1403,36 @@ void sc_voice_render_lane(sc_voice_t *v, const sc_prep_t *p, int32_t *out, uint3
     }
 
     /* 2. OSC1, keeping its wraps when OSC2 syncs to it; 3. OSC2. xs: OSC1's previous sample, for the
-     * OSC1 -> OSC2 PWM cross-mod (w->s1 shifted by one, its first from the last block) */
+     * OSC1 -> OSC2 PWM cross-mod (its DAC wave one sample back, the first from the last block) */
     int sync = L->o2_sync && w1 != SC_WAVE_NOISE;
     int need_nz = (use & SC_USE_NOISE) && !L->noise_pink;
     int nz_in_osc2 = need_nz && w2 == SC_WAVE_NOISE;
-    osc_io_t io1 = { w->dt1, w->pw1, 0, 0, 0, 0, &v->noise1, w->s1, 0, sync ? w->wrap : 0, 0 };
-    osc_io_t io2 = { w->dt2, 0, 0, 0, 0, 0, &v->noise2, w->s2, nz_in_osc2 ? w->nz : 0, 0, sync ? w->wrap : 0 };
+    osc_io_t io1 = { w->dt1, w->pw1, 0, 0, 0, 0, &v->noise1, w->s1, 0, sync ? w->wrap : 0, 0, 0, 0 };
+    osc_io_t io2 = { w->dt2, 0, 0, 0, 0, 0, &v->noise2, w->s2, nz_in_osc2 ? w->nz : 0, 0, sync ? w->wrap : 0, 0, 0 };
     w->prev1[0] = v->prev1;
+    uint32_t xph = v->o1.ph;                    /* OSC1's phase runs free: after sample i it is this + dt1[0..i] */
     osc_run(&v->o1, w1, &io1, n);
     if (w2 == SC_WAVE_SQR) {
-        for (uint32_t i = 1; i < n; i++) w->prev1[i] = w->s1[i - 1];
+        if (w1 == SC_WAVE_NOISE) for (uint32_t i = 1; i < n; i++) w->prev1[i] = w->s1[i - 1];
+        else for (uint32_t i = 1; i < n; i++) { xph += w->dt1[i - 1]; w->prev1[i] = xmod_tri(xph); }
         io2.pwacc = w->pw2;
         io2.xs = w->prev1;
         io2.xk = p->cross;
         io2.pwbase = p->pw2;
+        if (L->ring) { io2.mir = w->s2x; io2.pendm = &v->pendm; }
     }
     osc_run(&v->o2, w2, &io2, n);
     if (use & SC_USE_NOISE) {
         if (L->noise_pink) for (uint32_t i = 0; i < n; i++) w->nz[i] = pink_next(&v->pink);
         else if (!nz_in_osc2) for (uint32_t i = 0; i < n; i++) w->nz[i] = sc_rand20(&v->noise2);
     }
-    v->prev1 = w->s1[n - 1];
-    v->prev2 = w->s2[n - 1];
+    v->prev1 = w1 == SC_WAVE_NOISE ? w->s1[n - 1] : xmod_tri(v->o1.ph);
+    v->prev2 = w2 == SC_WAVE_NOISE ? w->s2[n - 1]
+             : L->ring && w2 == SC_WAVE_SQR ? xmod_ringed(v->o2.ph, w->s1[n - 1]) : xmod_tri(v->o2.ph);
 
     /* 4. mix, filter, gain, per coefficient segment */
-    mix_t m = { p->mix1, p->mix2, (use & SC_USE_NOISE) ? p->mixn : 0, p->atten, p->k_q28, L->ring };
+    mix_t m = { p->mix1, p->mix2, (use & SC_USE_NOISE) ? p->mixn : 0, p->atten, p->k_q28,
+                L->ring ? (w2 == SC_WAVE_SQR ? 2 : 1) : 0 };
     w->seg_at[nseg] = n;
     mix_run(w, v, mode, &m, w->seg_at, (const int32_t (*)[3])w->seg_c, nseg, out, n);
 #undef NEW_SEG
