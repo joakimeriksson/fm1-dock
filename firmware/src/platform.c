@@ -100,6 +100,7 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
                              ((uint32_t)(off) + (uint32_t)(n) <= APP_FL_KEEP_LO || (uint32_t)(off) >= APP_FL_KEEP_HI))
 #include "fm1_flash.h"
 static uint8_t flash_ok;
+static uint32_t flash_id;                       /* the SPI flash's JEDEC id (0x9F), read once at boot: fm1-dock's ABOUT */
 static int st_read(uint32_t off, void *dst, uint32_t n)
 {
     uint8_t *d = dst;
@@ -414,7 +415,7 @@ void fm1_cstart(void)
     fm1_boot.p3_rst = (uint8_t)p3;
     if (boot_mode == BOOT_RECOVERY || recovery_key())
         recovery_main();                        /* OCT- at power-on: the USB rescue */
-    flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());
+    flash_ok = FL_JEDEC_OK(flash_id = FL_FAR(fl_jedec_ram)());
     ota_boot_cleanup();
     lcd_init();
     lcd_fill(0, 0, 240, 240, C_BLACK);

@@ -785,8 +785,12 @@ static void h_cv_blit(int32_t x, int32_t y)
 #if BOARD_SMK37
 static void h_led(uint32_t id, uint32_t on)   /* the buttons' LEDs (the SMK's keys have none); the glow: off */
 {
-    if (id < 14u && !scr_hidden)
+    if (scr_hidden)
+        return;
+    if (id < 14u)
         fm1_led_key(id, on == 1u);
+    else if (id >= HB_LED_XBTN(HB_BTN_KNOB_BANK) && id <= HB_LED_XBTN(HB_BTN_RIGHT))
+        fm1_led[(id & 0x7Fu) - HB_BTN_KNOB_BANK] = (uint8_t)(on == 1u);   /* (SMK LED i = button i: 0 KNOB BANK) */
 }
 #else
 static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (hal/fm1_input.h's fm1_led_dim) */
@@ -931,12 +935,15 @@ static volatile uint8_t in_render;
 static uint8_t cpu1_said;                       /* the second core's state as last logged */
 static int h_c1_run(void (*fn)(uint32_t), uint32_t arg) { return in_render && cpu1_run(fn, arg); }
 static int h_c1_wait(void) { return in_render ? cpu1_wait() : 0; }
+static uint32_t mod_key0;                       /* the note a panel module's key 0 plays (key_base), 0: the host's */
+static void h_key_base(uint32_t n) { mod_key0 = n < 128u ? n : 0u; }
 
 static const hb_host_t HOST = {
     HB_ABI, sizeof(hb_host_t), h_ms, h_ticks, hb_log, hb_log_u32,
     h_fill, h_text, h_cv_begin, cv_rect, cv_line, h_cv_pixel, h_cv_text, h_cv_blit,
     h_led, h_rand, mod_load, mod_save, h_midi_send, h_master, h_blit, h_text_w, h_bank_load, h_bank_save,
     h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free, h_c1_run, h_c1_wait,
+    BOARD_SMK37 ? HB_BOARD_SMK37 : HB_BOARD_FM1, h_key_base,
 };
 
 /* ---- the sound: the module renders (and the EQ filters), the host measures */
@@ -990,6 +997,9 @@ static int start_module(uint32_t i)
     const hb_file_t *f = e->file;
     stop_module();
     eq_clear = 1;                               /* (the EQ from silence: nothing of the last module rings on) */
+#if BOARD_SMK37
+    memset(fm1_led, 0, HB_BTN_RIGHT + 1u - HB_BTN_KNOB_BANK);   /* (the SMK's own buttons: only XBTN lights them) */
+#endif
     if (e->state != M_OK || e->kind == K_BOOT)
         return -1;                              /* (a boot firmware is started by a reboot: hb_boot_hook) */
     if (f) {
@@ -1001,6 +1011,7 @@ static int start_module(uint32_t i)
     cur = i;
     hb_over = 0;
     sense_defaults();                           /* (what the module before set is gone) */
+    mod_key0 = 0;
     hb_nv.active = i + 1u;                      /* a crash in init counts as the module's */
     hb_nv.stats.module = i;
     hb_nv.stats.worst = hb_nv.stats.overruns = 0;
@@ -1149,21 +1160,21 @@ static void draw_top(int32_t oct)
     cv_blit(0, 0);
 }
 
-/* the list, then OPTIONS (past the last module): the host's, then BLUETOOTH (the last line, as it was) */
+/* the list, then OPTIONS (past the last module): the host's, ABOUT, then BLUETOOTH (the last line, as it was) */
 enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU };
 #if BOARD_SMK37
-#define N_OPTS_HOST 6u                          /* (no DIN jack: no MIDI THRU) */
+#define N_OPTS_HOST 7u                          /* (no DIN jack: no MIDI THRU, ABOUT in its place) */
 #else
-#define N_OPTS_HOST 7u
+#define N_OPTS_HOST 8u
 #endif
+#define O_ABOUT (N_OPTS_HOST - 1u)              /* the host's last: its page (draw_about) */
 #define N_OPTS (N_OPTS_HOST + hx_built)
-#define OPT_H 20u                               /* (eight lines above the footer) */
+#define OPT_H 18u                               /* (nine lines above the footer) */
 #define OPT_Y(i) (50u + (i) * OPT_H)
 static const char *const BLE_ST[] = {"OFF", "NO CAL", "HELD", "ON", "LINKED", "READY"};
-static char *put_u(char *p, uint32_t v)         /* v (0..999) in decimal; the end */
+static char *put_u(char *p, uint32_t v)         /* v in decimal; the end */
 {
-    if (v >= 100u) *p++ = (char)('0' + v / 100u);
-    if (v >= 10u) *p++ = (char)('0' + v / 10u % 10u);
+    if (v >= 10u) p = put_u(p, v / 10u);
     *p++ = (char)('0' + v % 10u);
     *p = 0;
     return p;
@@ -1183,7 +1194,8 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
         cv_blit(0, y);
         return;
     }
-    switch (o) {                                /* (lit: not as it is by default) */
+    if (o == O_ABOUT) v[0] = '>', v[1] = 0;     /* (SEL: its page) */
+    else switch (o) {                           /* (lit: not as it is by default) */
     case O_CC7:                                 /* OFF, ON, ON 64 (a level under 127: what it is now) */
         if ((lit = opt & OPT_CC7) != 0) {
             v[0] = 'O', v[1] = 'N', v[2] = 0;
@@ -1203,7 +1215,7 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
     default: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
     }
     col = o == O_EQ && eq_failed ? C_BAD : lit ? C_ACC : C_OFF;
-    cv_text(12, 2, &FONT_S, NAME[o], on_it ? C_ACC : C_WHITE);
+    cv_text(12, 2, &FONT_S, o == O_ABOUT ? "ABOUT" : NAME[o], on_it ? C_ACC : C_WHITE);
     cv_text(150, 2, &FONT_S, v, col);
     cv_blit(0, y);
 }
@@ -1376,7 +1388,7 @@ static uint32_t find_key(uint32_t k)
  * Frames: F0 7D 48 42 cmd seq pack7(payload, CRC-32 of it) F7 (7D: non-commercial; 48 42 "HB";
  * pack7 as ota.c's). Over USB each one is answered (cmd | 0x40, the same seq, a status first);
  * over DIN nothing comes back, the sender paces itself (tools/hbdeploy.py). */
-enum { D_HELLO = 0x01, D_LIST = 0x02, D_BEGIN = 0x10, D_DATA = 0x11, D_COMMIT = 0x12, D_ABORT = 0x13,
+enum { D_HELLO = 0x01, D_LIST = 0x02, D_INFO = 0x03, D_BEGIN = 0x10, D_DATA = 0x11, D_COMMIT = 0x12, D_ABORT = 0x13,
        D_DELETE = 0x14, D_LOG = 0x20, D_SAFE = 0x21, D_SELECT = 0x22, D_MODULE = 0x23, D_RUN = 0x30, D_RESULT = 0x31 };
 enum { D_OK, D_BAD_CRC, D_BAD_HEAD, D_TOO_BIG, D_NO_SPACE, D_FLASH, D_VERIFY, D_MISSING, D_IDLE, D_NOT_FOUND,
        D_BAD_MSG, D_REFUSED };
@@ -1517,6 +1529,119 @@ static uint32_t dp_place(uint32_t need, uint32_t *largest, uint32_t *total)   /*
     return at;
 }
 #endif
+
+/* OPTIONS, ABOUT and INFO (0x03): what runs here, from what is in RAM (the flash's JEDEC id was read at boot;
+ * nothing is read or written for them). info_fill gathers it for both: the build, the board, the chip, the flash, the
+ * RAM, the add-ons' room, the radio's address. A record, format 1, grown only at its end (docs/index.html) */
+#ifdef APP_BUILD
+#define AB_VER APP_VER " (" APP_BUILD ")"       /* a release: X.Y and its source */
+#else
+#define APP_BUILD APP_VER                       /* any other build: its source (tools/build.py git_build) */
+#define AB_VER APP_VER
+#endif
+#if BOARD_SMK37
+#define AB_BOARD SMK_MODEL
+#define AB_KEYS "K2: SCROLL    PATCH: BACK"
+#else
+#define AB_BOARD "FM-1"
+#define AB_KEYS "SELECT: SCROLL    HOME: BACK"
+#endif
+enum { IN_FMT = 1, IN_BOARD, IN_CPU1, IN_RST, IN_BT, IN_ADDR, IN_FLASH = 12, IN_FREE = 16, IN_BIG = 20, IN_RAM = 24,
+       IN_USED = 28, IN_MHZ = 32, IN_SOC = 36, IN_VER = 44, IN_BUILD = 60, IN_MODEL = 72, IN_LEN = 88 };
+typedef char in_fits[sizeof APP_VER <= 16u && sizeof APP_BUILD <= 12u && sizeof AB_BOARD <= 16u ? 1 : -1];
+static char *put_s(char *p, const char *s) { while ((*p = *s++) != 0) p++; return p; }
+static void info_fill(uint8_t *b)               /* [0] the status, then the record (IN_*) */
+{
+    uint32_t big, all;
+    const hb_file_t *f = mods[cur].file;
+    memset(b, 0, IN_LEN);
+    dp_place(~0u, &big, &all);
+    b[IN_FMT] = 1;
+    b[IN_BOARD] = BOARD_SMK37;
+    b[IN_CPU1] = cpu1_state;                    /* (cpu1.c CPU1_*: 3 OK and 5 screening are two cores) */
+    b[IN_RST] = fm1_boot.p3_rst;
+    if (ble_rec[4 + 6] == 0xA5u) {              /* HX's random static address, once the radio made it (hx.c ADDR_KEPT) */
+        b[IN_BT] = 1;
+        memcpy(b + IN_ADDR, ble_rec + 4, 6);
+    }
+    wr32(b + IN_FLASH, flash_id);
+    wr32(b + IN_FREE, all);
+    wr32(b + IN_BIG, big);
+    wr32(b + IN_RAM, HB_MOD_RAM_SIZE);
+    wr32(b + IN_USED, f ? f->data_size + f->bss_size : 0);
+    wr32(b + IN_MHZ, 360u);                     /* (as the boot loader sets it: fm1_sys.h) */
+    put_s((char *)b + IN_SOC, "AC791N");
+    put_s((char *)b + IN_VER, APP_VER);
+    put_s((char *)b + IN_BUILD, APP_BUILD);
+    put_s((char *)b + IN_MODEL, AB_BOARD);
+}
+
+/* ABOUT's page: the version, then info_fill's, then each module (name, vN, KiB; built in: the sine). SELECT /
+ * PRESETS scroll, HOME: OPTIONS again */
+#define AB_FIXED 7u                             /* the lines above the modules */
+#define AB_ROWS 10u                             /* on the screen at once, 18 px each */
+static char *put_x(char *p, uint32_t v, uint32_t n) { while (n--) *p++ = "0123456789ABCDEF"[v >> 4u * n & 15u]; *p = 0; return p; }
+static char *put_kib(char *p, const char *s, uint32_t v) { return put_u(put_s(p, s), v >> 10); }
+static void draw_about(uint32_t top)
+{
+    uint8_t in[IN_LEN];
+    uint32_t i, k, id;
+    info_fill(in);
+    id = rd32(in + IN_FLASH);
+    lcd_fill(0, HB_TOP, 240, 240 - HB_TOP, C_BLACK);
+    for (i = 0; i < AB_ROWS && top + i < AB_FIXED + n_mods; i++) {
+        char s[40], *p = s;
+        switch (top + i) {
+        case 0: put_s(p, "fm1-dock " AB_VER); break;
+        case 1:
+            p = put_s(p, AB_BOARD "  1CPU  reset ");
+            if (in[IN_CPU1] == CPU1_OK || in[IN_CPU1] == CPU1_SCREENING)   /* (as the top line has it) */
+                p[-12] = '2';
+            put_x(p, in[IN_RST], 2);
+            break;
+        case 2: put_s(p, "AC791N (WL82) 360 MHz"); break;
+        case 3:                                 /* the id's last byte: log2 of the size (0x14: 1 MiB) */
+            p = put_x(put_s(p, "flash "), id, 6);
+            if ((id & 0xFFu) - 16u < 11u)
+                put_s(put_kib(p, ", ", 1u << (id & 0xFFu)), " KiB");
+            break;
+        case 4: put_s(put_kib(put_s(put_kib(p, "module RAM ", HB_MOD_RAM_SIZE), " KiB, "), "", rd32(in + IN_USED) + 1023u), " used"); break;
+        case 5: put_s(put_kib(put_s(put_kib(p, "add-ons ", rd32(in + IN_FREE)), " KiB free, "), "", rd32(in + IN_BIG)), " max"); break;
+        case 6:
+            p = put_s(p, "BT ");
+            if (!in[IN_BT]) { put_s(p, "-"); break; }
+            for (k = 6; k--; ) {
+                p = put_x(p, in[IN_ADDR + k], 2);
+                if (k) *p++ = ':';
+            }
+            break;
+        default: {
+            const hb_entry_t *m = &mods[top + i - AB_FIXED];
+            memset(s, ' ', 22);
+            for (k = 0; k < 13u && m->name[k]; k++)
+                s[k] = m->name[k];
+            if (!m->file) { put_s(s + 15, "built in"); break; }
+            p = put_u(s + 15, m->file->version);
+            s[14] = 'v';
+            *p = ' ';
+            put_s(put_kib(s + 20, "", m->file->code_size + m->file->data_size + 1023u), " KiB");
+        }
+        }
+        draw_text_box(4, 28u + i * 18u, 232, &FONT_S, s, top + i ? C_OFF : C_ACC, 0);
+    }
+    draw_text_box(0, 212, 240, &FONT_S, AB_KEYS, C_OFF, 1);
+}
+static uint32_t about_input(uint32_t *top, const int32_t *en, uint32_t b)   /* 1: back to OPTIONS */
+{
+    int32_t t = (int32_t)*top + en[ENC_SELECT] + en[ENC_PRESETS], end = (int32_t)(AB_FIXED + n_mods - AB_ROWS);
+    if (b & (1u << BTN_HOME))
+        return 1;
+    if (t > end) t = end;
+    if (t < 0) t = 0;
+    if ((uint32_t)t != *top)
+        draw_about(*top = (uint32_t)t);
+    return 0;
+}
 
 static void rx_draw(const char *what, uint16_t col)
 {
@@ -1921,6 +2046,12 @@ static uint32_t deploy_frame(void)
         wr32(r + 48, cpu1_job_ticks); wr32(r + 52, cpu1_job_worst); wr32(r + 56, cpu1_stack_free());
         rn = 60;
         break;
+    }
+    case D_INFO: {                              /* the unit and the build: ABOUT's facts (info_fill) */
+        uint8_t b[IN_LEN];
+        info_fill(b);
+        if (usb_src) d_reply(cmd, seq, b, IN_LEN);
+        return 0;
     }
     case D_LIST:                                /* one reply per module */
         for (i = 0; i < n_mods; i++) {
@@ -2352,7 +2483,7 @@ static void app_main(void)
     uint32_t prev = 0, k, full = 1, picker = 0, sel = 0, t_top = 0, held_any = 0, t_notes = 0, safe = 0;
     uint32_t home_t0 = 0, home_alone = 0, home_eaten = 0;   /* HOME held alone 1.5 s: the picker (HB_F_PANEL) */
     uint32_t ble_drawn = HX_S_MISSING + 1u, cc7_drawn = 127u;   /* (the OPTIONS lines as drawn) */
-    uint32_t eqp = 0, eq_row = 0, eq_said = 0;  /* the EQ's page open, its line; its failure logged */
+    uint32_t eqp = 0, eq_row = 0, eq_said = 0;  /* a page open (1 the EQ's, 2 ABOUT), its line; the EQ's failure logged */
     uint32_t sheld = 0, t_press = 0;            /* the sensed keys held (bit k); the pressure's last round */
     int32_t oct_drawn = 99;
     uint8_t held[27] = {0}, press_sent[27] = {0};
@@ -2472,7 +2603,7 @@ static void app_main(void)
         prev = keys;
 #if BOARD_SMK37
         smk_sense_keys(down, up);               /* (as the FM-1's sensed keys, with the velocity) */
-        smk_extras(m, base);
+        smk_extras(m, panel && mod_key0 ? mod_key0 : base);   /* (the outer keys go on from the module's octave) */
 #endif
         sensed = h_sense_keys();
         for (k = 0; k < 27u; k++) {
@@ -2612,8 +2743,8 @@ static void app_main(void)
             mv = en[ENC_SELECT] + en[ENC_PRESETS];
             for (e = 1; e < 6u; e++)
                 turn += en[e];                  /* (the module's knobs: MIDI CH's value, else nothing meanwhile) */
-            if (eqp) {                          /* the EQ's page takes them all */
-                if (eq_page_input(&eq_row, en, b)) {
+            if (eqp) {                          /* the page takes them all */
+                if (eqp == 2u ? about_input(&eq_row, en, b) : eq_page_input(&eq_row, en, b)) {
                     eqp = 0;
                     draw_picker(sel);
                 }
@@ -2635,6 +2766,10 @@ static void app_main(void)
                 eqp = 1;                        /* the EQ's page */
                 eq_row = 0;
                 draw_eq_page(0);
+            } else if (sel == n_mods + O_ABOUT && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {
+                eqp = 2;                        /* ABOUT */
+                eq_row = 0;
+                draw_about(0);
             } else if (sel >= n_mods && ((b & (1u << BTN_SEL | 1u << BTN_PLAY)) || (turn && sel == n_mods + O_CH))) {
                 uint32_t o = sel - n_mods;      /* an option changed; OPTIONS stays */
                 if (o == O_LOCAL || o == O_CH)  /* the keys held: let go as they were played */
@@ -2662,7 +2797,7 @@ static void app_main(void)
                     st.spare[1] ^= OPT_LOCAL_OFF;
                 } else if (o == O_KNOBS) {
                     st.spare[1] ^= OPT_KNOBS;
-                } else if (o == O_THRU && o < N_OPTS_HOST) {   /* (the SMK-37's O_THRU: BLUETOOTH) */
+                } else if (o == O_THRU && o < O_ABOUT) {   /* (the SMK-37's O_THRU: ABOUT, its page) */
                     st.spare[1] ^= OPT_THRU;
                 }
                 if (o < N_OPTS_HOST)
@@ -2698,7 +2833,7 @@ static void app_main(void)
             if (b >> BTN_HOME & 1u) { home_t0 = fm1_ms; home_alone = 1; home_eaten = 0; }
             if ((b & ~(1u << BTN_HOME)) || (keys && b >> BTN_HOME & 1u))
                 home_alone = 0;
-            for (k = 0; k < 14u; k++) {
+            for (k = 0; k < (m->flags & HB_F_XBTN ? HB_BTN_RIGHT + 1u : 14u); k++) {   /* (XBTN: the SMK's too) */
                 if (b >> k & 1u) m->ui(HB_EV_BTN_DOWN | k, 0);
                 if (rel >> k & 1u && !(k == BTN_HOME && home_eaten)) m->ui(HB_EV_BTN_UP | k, 0);
             }
@@ -2722,7 +2857,7 @@ static void app_main(void)
                 sel = cur;
                 draw_picker(sel);
             } else if (m && m->ui) {
-                for (k = 2; k < 14u; k++) {     /* the module's buttons: not OCT- / OCT+ / HOME */
+                for (k = 2; k < (m->flags & HB_F_XBTN ? HB_BTN_RIGHT + 1u : 14u); k++) {   /* not OCT-/+, HOME */
                     if (k == BTN_HOME) continue;
                     if (b >> k & 1u) m->ui(HB_EV_BTN_DOWN | k, 0);
                     if (rel >> k & 1u) m->ui(HB_EV_BTN_UP | k, 0);

@@ -41,7 +41,27 @@ def pick(name):
     return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
 
 
-O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU = range(7)   # the OPTIONS lines (dock.c), past the list's modules
+O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU, O_ABOUT = range(8)   # the OPTIONS lines (dock.c), past the
+# list's modules; then BLUETOOTH, the last
+ACC = (180, 140, 255)                   # dock.c C_ACC, as the panel shows it (RGB565)
+
+
+def acc_span(case, y0, y1):
+    """the x span of the accent-coloured pixels in rows y0..y1 of the run's screen, (0, 0): none. The screen is
+    fm1-live's panel picture's (1280 x 820, the LCD at 370, 42, two pixels a pixel: its panel.rs)"""
+    ppm = OUT / case / "panel.ppm"
+    if ppm.exists():                        # (P6 as fm1-live writes it: tools/dock.py keeps it without Pillow)
+        raw = ppm.read_bytes()
+        hdr = raw.split(b"\n", 3)
+        w, px = int(hdr[1].split()[0]), hdr[3]
+        at = lambda x, y: tuple(px[3 * (y * w + x):3 * (y * w + x) + 3])
+    else:
+        from PIL import Image
+        img = Image.open(OUT / case / "panel.png").convert("RGB")
+        at = lambda x, y: img.getpixel((x, y))
+    xs = [x for y in range(y0, y1) for x in range(240)
+          if all(abs(c - a) <= 12 for c, a in zip(at(370 + 2 * x, 42 + 2 * y), ACC))]
+    return (min(xs), max(xs) + 1) if xs else (0, 0)
 
 
 def options(sets, at=700, cur=0, hold=False):
@@ -76,6 +96,20 @@ def eq_keys(low=0, mid=0, high=0, on=False, at=700):
             t += 100
     out += [f"{t}:8", f"{t + 50}:8^", f"{t + 150}:8", f"{t + 200}:8^"]
     return ",".join(out), t + 200
+
+
+def usb_ask(frames, ms):
+    """fm1-live headless with a computer on USB that sends frames [(at ms, bytes)]: fm1-dock's replies
+    [(cmd, seq, payload)] (hbdeploy.parse)"""
+    import dock
+    import hbdeploy
+    with tempfile.TemporaryDirectory() as wd:
+        (Path(wd) / "work").mkdir()
+        env = dict(os.environ, FM1_USB_SEND=";".join(f"{t}:{f.hex()}" for t, f in frames))
+        r = subprocess.run([str(dock.live()), "--bin", str(APP), "--shot", str(ms), "--usb"], cwd=wd, env=env,
+                           capture_output=True, text=True)
+    got = bytes.fromhex("".join(ln.split("usb in:")[1] for ln in r.stdout.splitlines() if "usb in:" in ln))
+    return [x for x in (hbdeploy.parse(m) for m in re.findall(rb"\xf0\x7dHB[^\xf7]*\xf7", got)) if x]
 
 
 def rms_left(s, t0, t1):
@@ -395,6 +429,34 @@ def main():
     s, log = run("boot_safe", "0:1,400:1^,1000:14,1600:14^", 2200)
     check("boot_safe", "safe boot" in log and "started 00000000" in log and peak(s, 0.9, 1.3) > 1000 and peak(s, 1.8, 2.0) == 0,
           "OCT+ held at power-on: the built-in sine starts and plays a key")
+
+    # OPTIONS, ABOUT: its page, the version on its first line in the accent colour (8 px a character, from x 4);
+    # HOME: OPTIONS again, ABOUT the line picked
+    at = f"700:8,750:8^,900:e6:{1 + len(names) + O_ABOUT},1100:3,1150:3^"
+    _, log = run("about", at, 1700)
+    ver = (re.findall(r"fm1-dock (\S+) boot", log) or ["?"])[-1]
+    x0, x1 = acc_span("about", 28, 44)
+    _, _ = run("about_back", at + ",1500:8,1550:8^", 2000)
+    y = 50 + O_ABOUT * 18                   # (dock.c OPT_Y)
+    b0, b1 = acc_span("about_back", y, y + 18)
+    n = len(f"fm1-dock {ver}") + (10 if "." in ver else 0)   # (a release's: " (abc1234)" after it)
+    check("about", re.fullmatch(r"\d\.\d(\.\d)?|[0-9a-f]{7}\+?|unknown", ver) is not None and x0 >= 2 and
+          abs(x1 - x0 - 8 * n) <= 8 and acc_span("about_back", 28, 44) == (0, 0) and b1 - b0 >= 30,
+          f"ABOUT: fm1-dock {ver} (the boot log) on its page, {x1 - x0} px; HOME: OPTIONS, ABOUT picked ({b1 - b0} px)")
+
+    # INFO (0x03) over USB, as tools/dock.py info and the page ask it: ABOUT's facts in a record; an unknown command
+    # (0x04) answered bad message, as an older fm1-dock answers INFO
+    import hbdeploy
+    rep = usb_ask([(1500, hbdeploy.frame(hbdeploy.INFO, 5)), (1600, hbdeploy.frame(0x04, 6))], 2000)
+    info = [d for c, q, d in rep if c == hbdeploy.INFO and q == 5]
+    i = hbdeploy.info(type("P", (), {"ask": lambda self, *_: info[0]})()) if info else None
+    check("info", i is not None and i["version"] == ver and i["model"] == "FM-1" and i["board"] == "FM-1" and
+          i["flash_id"] in (0x856014, 0xEB6014) and i["flash_size"] == 1 << 20 and i["soc"] == "AC791N" and
+          i["mod_ram"] == 0x44000 and 0 < i["largest"] <= i["free"] and i["cores"] in (1, 2) and
+          any(c == 0x04 and q == 6 and d[:1] == b"\x0a" for c, q, d in rep),
+          f"INFO: fm1-dock {i and i['version']} ({i and i['build']}) on {i and i['model']}, {i and i['soc']}, flash "
+          f"{i and i['flash_id']:06X}, {i and i['cores']}CPU, add-ons {i and i['free'] // 1024} KiB free; 0x04: bad message"
+          if i else f"INFO: no record ({rep})")
 
     if "SINE" in names:
         # (a top-row key: a sensed one's lift is seen at the key scan's phase, which the picker shifts)

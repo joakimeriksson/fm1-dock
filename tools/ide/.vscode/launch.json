@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "FM-1 Monitor (emulator)",
+            "type": "fm1-dock",
+            "request": "launch",
+            "emu": true
+        },
+        {
+            "name": "FM-1 Monitor (live)",
+            "type": "fm1-dock",
+            "request": "attach",
+            "port": ""
+        },
+        {
+            "name": "FM-1 Monitor (mock)",
+            "type": "fm1-dock",
+            "request": "attach",
+            "mock": true
+        },
+        {
+            "name": "FM-1 Monitor (RAM dump)",
+            "type": "fm1-dock",
+            "request": "attach",
+            "ram": "build/emu/ram.bin"
+        }
+    ]
+}

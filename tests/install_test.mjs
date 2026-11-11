@@ -194,8 +194,10 @@ ok(sameKeyboard("ota-SMK-37 Elite", "SMK-37 Pro") && !sameKeyboard("FM-1", "SMK-
 // ------------------------------------------------------------------ a module into fm1-dock ---
 // an FM-1 running fm1-dock (firmware/src/dock.c's deploys, as docs/dock.js speaks them), on WebMIDI
 class FakeDock {
-  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0, largest = 400000 } = {}) {
-    this.largest = largest;
+  // info: INFO's answer: null none (fm1-dock 0.8 and before: silent here), "bad" a bad-message reply (as dock.c's
+  // default), else the record (dock.c info_fill)
+  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0, largest = 400000, info = null } = {}) {
+    this.largest = largest; this.info = info;
     this.abi = abi; this.mods = modules; this.got = null; this.committed = null; this.frames = 0;
     this.cur = cur; this.refuse = refuse; this.tune = null; this.played = null;
     const listeners = new Set();
@@ -212,7 +214,14 @@ class FakeDock {
     const d = r.d;
     const u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
     if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, this.cur, 0, 0, 0, ...u32(this.largest), ...u32(500000), ...u32(300000), ...new Array(16).fill(0), ...u32(this.logText.length), ...new Array(4).fill(0)]);
-    else if (r.cmd === CMD.LIST) {
+    else if (r.cmd === CMD.INFO && this.info === "bad") this.reply(r.cmd, r.seq, [10]);
+    else if (r.cmd === CMD.INFO && this.info) {
+      const b = new Array(88).fill(0), str = (o, s) => [...new TextEncoder().encode(s)].forEach((c, k) => { b[o + k] = c; });
+      b.splice(1, 11, 1, 1, 3, 1, 1, 0x11, 0x22, 0x33, 0x44, 0x55, 0xC6);
+      [[12, 0xEB6014], [16, this.largest + 4096], [20, this.largest], [24, 0x44000], [28, 9000], [32, 360]].forEach(([o, v]) => b.splice(o, 4, ...u32(v)));
+      str(36, "AC791N"); str(44, this.info.version); str(60, this.info.build); str(72, "SMK-37 Pro");
+      this.reply(r.cmd, r.seq, b);
+    } else if (r.cmd === CMD.LIST) {
       this.mods.forEach((n, i) => this.reply(r.cmd, r.seq, [0, i, 0, 2, ...u32(1), ...u32(1000), ...u32(0), ...new TextEncoder().encode(n.padEnd(24, "\0"))]));
       this.reply(r.cmd, r.seq, [0, 0xff]);
     } else if (r.cmd === CMD.BEGIN) {
@@ -318,6 +327,15 @@ if (dir && existsSync(`${dir}/index.json`)) {
   ok(e && e.code === "notadded", "removeModule: a name fm1-dock has not added: refused, nothing sent");
   const v = await inspectDevice(new FakeDock().access, { log: false });
   ok(v.dock && v.dock.version === null, "inspectDevice { log: false }: no log read");
+  ok(got.dock.info === null, "inspectDevice: an fm1-dock that does not answer INFO (0.8 and before): no info, the log's version");
+  const bad = await inspectDevice(new FakeDock({ info: "bad" }).access);
+  ok(bad.dock && bad.dock.info === null && bad.dock.version === "0.7", "inspectDevice: INFO answered bad message: no info, the log's version");
+  const t0 = Date.now(), inf = await inspectDevice(new FakeDock({ info: { version: "2dcbfbf+", build: "2dcbfbf+" } }).access, { log: false });
+  const i = inf.dock && inf.dock.info;
+  ok(i && inf.dock.version === "2dcbfbf+" && i.model === "SMK-37 Pro" && i.board === "smk37" && i.flashId === "EB6014" &&
+    i.flashSize === 1 << 20 && i.cores === 2 && i.soc === "AC791N" && i.mhz === 360 && i.largest === 400000 &&
+    i.bleAddr === "C6:55:44:33:22:11" && i.modRam === 0x44000,
+    `inspectDevice: INFO's record, its version without the log (${i && `${i.model}, flash ${i.flashId}, ${i.cores}CPU, BLE ${i.bleAddr}`}; ${Date.now() - t0} ms)`);
 }
 {
   const ota = await inspectDevice(new FakeFM1(image, "ota-FM-1_900", "FM-1_921").access);

@@ -30,6 +30,7 @@ complete source under the same licence too.
 | The supplies' start-up `firmware/hal/fm1_power.h`; the second core's hold (`fm1_core1_stop`, `fm1_sys.h`), its own stack limit and the paced wait (`fm1_cpu1.h`), DBG's bits by core (`fm1_irq.h`) | Kerem Kilic (Ellic Studio) ([Melodee](https://github.com/keremimo/melodee)); the hold with portions by Leo Kuroshita (@kurogedelic), Hügelton Instruments (Felucca 1.6.1); the supplies in the form of w0ts's `fm1_supply.h` ([Optimist](https://github.com/w0ts/optimist)); brought in by Joakim Eriksson |
 | Its use in the host: `firmware/src/cpu1.c` | after SLOOP's `cpu1.c` (Andre Rezemini); the screening and the checks: Joakim Eriksson |
 | FM-1 SID `modules/sid/` (with reSID 0.16 by Dag Lem, GPL-2.0-or-later) | Joakim Eriksson |
+| The DAP adapter `tools/fm1dap.py`, IDE configs `tools/ide/`, DAP tests `tests/dap_test.py`, DAP docs `docs/DAP.md` | Dmitry Kireev (@DimmKirr) |
 | The base: Dinghy's app `firmware/src/dinghy.c`, the wiring `platform.c`, the host mode `tests/`, `docs/API.md`, `RULES.md`, `MAKE-IT-YOURS.md` | zvenson ([Dinghy](https://github.com/zvenson/dinghy)) |
 
 ## Third-party material

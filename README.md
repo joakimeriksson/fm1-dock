@@ -15,16 +15,18 @@
 <p align="center">
   <a href="https://joakimeriksson.github.io/fm1-dock/"><b>The page</b></a>:
   <a href="https://joakimeriksson.github.io/fm1-dock/#install">install</a> ·
+  <a href="https://joakimeriksson.github.io/fm1-dock/guide.html"><b>the player's guide</b></a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#modules">the catalog</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#play">the video</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#console">the console</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#emulator">the emulator</a> ·
-  <a href="https://thefirmwarehub.com/#fw-fm1dock">on the FM-1 Firmware Hub</a>
+  <a href="https://thefirmwarehub.com/#fw-fm1dock">on the FM-1 Firmware Hub</a> ·
+  <a href="ROADMAP.md">the roadmap</a>
 </p>
 
 fm1-dock is installed once. The synths are modules in its flash: hold HOME, pick another one, play. No reinstall.
-Twelve modules so far, each its author's own code: four come with it, eight more go in from the page with one click,
-and out again. Every one can be tried first, without an FM-1: its card's **Try it** runs it in the emulator on the page. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
+Fifteen synths so far, each its author's own code: three come with it (and a sine), twelve more go in from the page
+with one click, and out again. Every one can be tried first, without an FM-1: its card's **Try it** runs it in the emulator on the page. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
 crash record and the render load are one click away in the browser. It also runs on the M-Vave SMK-37 keyboards.
 
 <p align="center">
@@ -147,6 +149,7 @@ fm1-dock starts whatever played last. The options, for every module:
 | **EQ** | LOW (a 150 Hz shelf), MID (a 1 kHz peak), HIGH (a 6 kHz shelf), ±12 dB each, before MASTER, in the chip's hardware EQ (about 3 % of a block). **SELECT** picks a band, **ALGORITHM** or **KNOB1..3** turn it, **SEL** switches the EQ ON / OFF or puts a band back to 0 dB. OFF by default; a boost can clip a loud module |
 | **KNOBS CC** | ON: KNOB1..4 send CC 74, 71, 73, 72 (cutoff, resonance, attack, release) over USB and BLE-MIDI instead of turning the module's knobs. OFF by default |
 | **MIDI THRU** | ON: the TRS MIDI jack's input (not clock or SysEx) goes on to USB-MIDI and BLE-MIDI, and the module plays it too. OFF by default |
+| **ABOUT** | **SEL**: a page with the version (a release's `0.8.1 (abc1234)` with its source; any other build's is its source, git's short hash, `+` with changes not committed), the board and model, 1CPU / 2CPU, the chip, the flash chip's JEDEC id and size, the module RAM, the add-ons' free flash (all and the largest piece), the BLE address, and each module's name, version and KiB. **SELECT / PRESETS** scroll, **HOME** goes back |
 | **BLUETOOTH** | BLE-MIDI, OFF by default (below) |
 
 ### Bluetooth MIDI
@@ -198,13 +201,16 @@ has every call the host gives it.
 python3 tools/hbmod.py modules/mysynth                                        # -> build/modules/mysynth.dock
 uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock   # into the FM-1, running
 uv run --with python-rtmidi tools/dock.py modules | logs | select NAME | delete NAME
+uv run --with python-rtmidi tools/dock.py info                                # the build, the board, the flash chip, the room (ABOUT's)
 uv run --with python-rtmidi tools/dock.py send FILE [--arg N]                 # a file into the RAM of the module playing
 ```
 
 Or drop the `.dock` on the [console](https://joakimeriksson.github.io/fm1-dock/#console). A module has 272 KiB of RAM,
 16 KiB of RAM code, a settings record and flash banks for presets; a deploy file is up to 272 KiB. A module that sets
 `HB_F_DATA` gets what the computer sends it in its `data()` call, never written to flash: FM-1 SID takes a `.sid` that
-way and plays it at once. A module ported to fm1-dock comes to the page's catalog with an entry in
+way and plays it at once. One that sets `HB_F_XBTN` also gets an SMK-37's own buttons (KNOB BANK, FADER BANK, <,
+>) as `HB_BTN_KNOB_BANK` .. `HB_BTN_RIGHT` (14..17), and lights them with `HB_LED_XBTN(id)`; an FM-1 never sends
+them ([SMK37.md](SMK37.md)). A module ported to fm1-dock comes to the page's catalog with an entry in
 [docs/modules/modules.json](docs/modules/modules.json), its `.dock` and a screenshot.
 
 **Probes** measure the real chip: a small C program run once from RAM inside fm1-dock, its result back as JSON, and

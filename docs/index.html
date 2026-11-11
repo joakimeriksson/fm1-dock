@@ -29,7 +29,7 @@
   <a class="brand" href="#top" aria-label="fm1-dock, to the top"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></a>
   <nav aria-label="Sections">
     <a href="#install">Install</a><a href="#new">New</a><a href="#modules">Modules</a><a href="#dock">In the dock</a><a href="#play">Play</a>
-    <a href="midi.html">Test MIDI</a><a href="#console">Console</a><a href="#emulator">Emulator</a><a href="#debug">Debug</a><a href="#build">Build a module</a><a href="#protocol">Protocol</a>
+    <a href="guide.html">Guide</a><a href="midi.html">Test MIDI</a><a href="#console">Console</a><a href="#emulator">Emulator</a><a href="#debug">Debug</a><a href="#build">Build a module</a><a href="#protocol">Protocol</a>
   </nav>
 </header>
 
@@ -42,7 +42,7 @@
     <p class="lede">fm1-dock is installed once on your M-VAVE FM-1 or SMK-37. The synths are modules in its flash: hold HOME and
       pick another one, no reinstall. Add the ones you want from this page and take them out again; your settings and presets stay.</p>
     <div class="cta">
-      <button type="button" class="btn primary big" id="hero-connect">Connect your FM-1</button>
+      <button type="button" class="btn primary big" id="hero-connect">Connect your FM-1 or SMK-37</button>
       <a class="btn big" href="#modules">Browse the modules</a>
     </div>
     <p class="cta-note" id="hero-nomidi" hidden>Installing needs Chrome or Edge on a computer; the modules and the rest of the page are here for any browser.</p>
@@ -88,6 +88,7 @@
         <div class="dev-row"><a class="btn small" href="#modules">Open the catalog ↓</a></div>
       </li>
     </ol>
+    <p class="hint">New to fm1-dock? <a href="guide.html">The player's guide</a>: switching synths, every button on the FM-1 and the SMK-37, OPTIONS, and each synth's first 30 seconds.</p>
     <p class="hint">Bluetooth or TRS MIDI not working? <a href="midi.html">Test MIDI</a> plays the FM-1 over USB or Bluetooth,
       shows what it sends and checks its TRS jack.</p>
   </aside>
@@ -407,6 +408,7 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
         <tr><th>cmd</th><th>name</th><th>payload → reply</th></tr>
         <tr><td>01</td><td>HELLO</td><td>— → proto, abi, modules, current, receiving; free, largest gap, max file, crash PC, crash module, worst, overruns, log length, block ticks</td></tr>
         <tr><td>02</td><td>LIST</td><td>— → one reply per module: index, state, kind, version, size, address, name[24]; index FF ends</td></tr>
+        <tr><td>03</td><td>INFO</td><td>— → format (1), board (0 FM-1, 1 SMK-37), second core's state (3, 5: two cores), reset cause, BLE address set, BLE address[6]; flash JEDEC id, free, largest gap, module RAM, its use, MHz; SoC[8], version[16], build[12], model[16]. 88 bytes, grown only at the end (after 0.8; older: bad message)</td></tr>
         <tr><td>10</td><td>BEGIN</td><td>size, CRC-32, name[24] → status (the module stops)</td></tr>
         <tr><td>11</td><td>DATA</td><td>offset, ≤ 256 bytes → status</td></tr>
         <tr><td>12</td><td>COMMIT</td><td>— → status, flash address (written, checked, running)</td></tr>
