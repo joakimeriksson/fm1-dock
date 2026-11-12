@@ -24,7 +24,9 @@ static int npoly(const sc_synth_t *s)
 void sc_reprep(sc_synth_t *s)
 {
     for (int k = 0; k < 2; k++) sc_prep(&s->layer[k].prep, &s->patch.layer[k], &s->perf);
+#ifndef SC_HOST_REVERB
     sc_reverb_prep(&s->rev, &s->patch.fx.reverb);
+#endif
 }
 
 void sc_init(sc_synth_t *s, const sc_patch_t *patch)
@@ -68,6 +70,11 @@ static void layer_on(sc_synth_t *s, int k, int note, int32_t vel)
     const sc_layer_t *L = &s->patch.layer[k];
     int nv = npoly(s);
     uint32_t now = ++s->clock;
+    /* The layer's one LFO: the firmware strobes the LFO board's SYNC line, which restarts the oscillator
+     * and its delay ramp, when a key goes down while no other key of the layer is held, and only if the
+     * DELAY knob is off its stop ($F5FD-$F61B, the flags in $019F). As synth.ts's layerNoteOn. */
+    if (ls->nheld == 0 && L->lfo[0].delay > 0)
+        for (int i = 0; i < SC_VOICES; i++) sc_voice_lfo_sync(&ls->v[i], &ls->prep);
     if (ls->nheld < sizeof ls->held) ls->held[ls->nheld++] = (uint8_t)note;
 
     switch (L->key_assign) {
@@ -500,12 +507,18 @@ void sc_render_end(sc_synth_t *s, const int32_t (*more)[256], int32_t *out, uint
     for (int k = 0; k < layers; k++) {
         sc_layer_state_t *ls = &s->layer[k];
         int32_t *bus = s->bus[k];
+        for (int i = 0; i < SC_VOICES; i++) {   /* the voices that were not rendered: their LFOs run on */
+            if (!ls->v[i].stepped) sc_voice_advance(&ls->v[i], &ls->prep, n);
+            ls->v[i].stepped = 0;
+        }
         if (more)                               /* the other core's voices (integer sums: the same in any order) */
             for (uint32_t i = 0; i < n; i++) bus[i] += more[k][i];
         chorus(&ls->chorus, &s->patch.fx.chorus, bus, l2, r2, n);
         for (uint32_t i = 0; i < n; i++) { L[i] += l2[i]; R[i] += r2[i]; }
     }
+#ifndef SC_HOST_REVERB
     if (s->rev.on) sc_reverb_run(&s->rev, L, R, n);
+#endif
     /* master volume, the limiter (as the patch's master.limiter), Q15 with a hard ceiling */
     for (uint32_t i = 0; i < n; i++) { L[i] = sc_mul(L[i], vol, 16); R[i] = sc_mul(R[i], vol, 16); }
     if (s->patch.limiter) limit(&s->lim, L, R, n);

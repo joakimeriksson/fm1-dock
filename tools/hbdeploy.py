@@ -19,6 +19,7 @@ import zlib
 MAN = bytes([0x7D, 0x48, 0x42])                 # 7D: non-commercial; "HB"
 HELLO, LIST, BEGIN, DATA, COMMIT, ABORT, DELETE, LOG, SAFE, SELECT = 0x01, 0x02, 0x10, 0x11, 0x12, 0x13, 0x14, 0x20, 0x21, 0x22
 RUN, RESULT = 0x30, 0x31                       # probes (tools/probe.py): RUN in place of COMMIT, from RAM
+INFO = 0x03                                    # the unit and the build (dock.c info_fill; fm1-dock after 0.8)
 MODULE = 0x23                                  # a payload for the module playing (its data(): FM-1 SID takes a tune)
 STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed", "data missing",
           "not started", "not found", "bad message", "refused"]
@@ -219,6 +220,21 @@ def hello(p):
                  cpu1_job=struct.unpack_from("<I", d, 48)[0], cpu1_worst=struct.unpack_from("<I", d, 52)[0],
                  cpu1_stack_free=struct.unpack_from("<I", d, 56)[0])
     return h
+
+
+def info(p):
+    """INFO's record (format 1, dock.c info_fill), or None from an fm1-dock without it (it answers bad message)"""
+    d = p.ask(INFO)
+    if len(d) < 88 or d[0] != 0 or d[1] < 1:
+        return None
+    s = lambda o, n: d[o:o + n].split(b"\0")[0].decode("latin-1")
+    flash, free, big, ram, used, mhz = struct.unpack_from("<6I", d, 12)
+    return dict(format=d[1], board=("FM-1", "SMK-37")[d[2]] if d[2] < 2 else d[2], cpu1_state=d[3],
+                cpu1=CPU1[d[3]] if d[3] < len(CPU1) else d[3], cores=2 if d[3] in (3, 5) else 1, reset=d[4],
+                ble_addr=":".join(f"{x:02X}" for x in reversed(d[6:12])) if d[5] else None, flash_id=flash,
+                flash_size=1 << (flash & 0xFF) if 16 <= flash & 0xFF <= 26 else None, free=free, largest=big,
+                mod_ram=ram, mod_ram_used=used, mhz=mhz, soc=s(36, 8), version=s(44, 16), build=s(60, 12),
+                model=s(72, 16))
 
 
 def modules(p):

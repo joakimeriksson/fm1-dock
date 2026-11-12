@@ -41,7 +41,27 @@ def pick(name):
     return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
 
 
-O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU = range(7)   # the OPTIONS lines (dock.c), past the list's modules
+O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU, O_ABOUT = range(8)   # the OPTIONS lines (dock.c), past the
+# list's modules; then BLUETOOTH, the last
+ACC = (180, 140, 255)                   # dock.c C_ACC, as the panel shows it (RGB565)
+
+
+def acc_span(case, y0, y1):
+    """the x span of the accent-coloured pixels in rows y0..y1 of the run's screen, (0, 0): none. The screen is
+    fm1-live's panel picture's (1280 x 820, the LCD at 370, 42, two pixels a pixel: its panel.rs)"""
+    ppm = OUT / case / "panel.ppm"
+    if ppm.exists():                        # (P6 as fm1-live writes it: tools/dock.py keeps it without Pillow)
+        raw = ppm.read_bytes()
+        hdr = raw.split(b"\n", 3)
+        w, px = int(hdr[1].split()[0]), hdr[3]
+        at = lambda x, y: tuple(px[3 * (y * w + x):3 * (y * w + x) + 3])
+    else:
+        from PIL import Image
+        img = Image.open(OUT / case / "panel.png").convert("RGB")
+        at = lambda x, y: img.getpixel((x, y))
+    xs = [x for y in range(y0, y1) for x in range(240)
+          if all(abs(c - a) <= 12 for c, a in zip(at(370 + 2 * x, 42 + 2 * y), ACC))]
+    return (min(xs), max(xs) + 1) if xs else (0, 0)
 
 
 def options(sets, at=700, cur=0, hold=False):
@@ -76,6 +96,20 @@ def eq_keys(low=0, mid=0, high=0, on=False, at=700):
             t += 100
     out += [f"{t}:8", f"{t + 50}:8^", f"{t + 150}:8", f"{t + 200}:8^"]
     return ",".join(out), t + 200
+
+
+def usb_ask(frames, ms):
+    """fm1-live headless with a computer on USB that sends frames [(at ms, bytes)]: fm1-dock's replies
+    [(cmd, seq, payload)] (hbdeploy.parse)"""
+    import dock
+    import hbdeploy
+    with tempfile.TemporaryDirectory() as wd:
+        (Path(wd) / "work").mkdir()
+        env = dict(os.environ, FM1_USB_SEND=";".join(f"{t}:{f.hex()}" for t, f in frames))
+        r = subprocess.run([str(dock.live()), "--bin", str(APP), "--shot", str(ms), "--usb"], cwd=wd, env=env,
+                           capture_output=True, text=True)
+    got = bytes.fromhex("".join(ln.split("usb in:")[1] for ln in r.stdout.splitlines() if "usb in:" in ln))
+    return [x for x in (hbdeploy.parse(m) for m in re.findall(rb"\xf0\x7dHB[^\xf7]*\xf7", got)) if x]
 
 
 def rms_left(s, t0, t1):
@@ -259,6 +293,157 @@ def prophet_cases():
           "a bank sent to PROPHET (three programs) plays and is there after a power-on (12 programs)")
 
 
+def fmini_cases():
+    """FMINI-1: FMini-1's FMINI engine and its 200 factory patches (modules/fmini)"""
+    # MINI LEAD (F001, LEGATO): a key sounds, silent before, and stops
+    s, log = run("fmini", pick("FMINI-1") + ",1800:21,2800:21^", 4200)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fmini", "fmini: FMini-1 2.2.0, patches 000000c8" in log and peak(s, 0.0, 1.5) == 0 and
+          peak(s, 1.9, 2.7) > 1000 and peak(s, 3.9, 4.1) < peak(s, 1.9, 2.7) // 20 and " 0 overruns" in log,
+          f"FMINI-1 plays MINI LEAD on a key and stops; worst {worst} % of a block")
+
+    # SINE SOLO (F005: a triangle at 8', LEGATO, GLIDE on) by program change: E4 held, then A3 legato (FMini-1's
+    # LOW note priority: the lower key wins): the pitch glides from 330 Hz down to 220 Hz on one contour (no gap); A3
+    # let go: back to E4, still held
+    m = (pick("FMINI-1") + ",1300:mc004,1500:m904064,2400:m903964,3600:m803900,4600:m804000")
+    s, log = run("fmini_glide", m, 5000)
+    t = onset_frames(s)                           # (times from the first note, 1.5 s)
+    f1, fmid, f2, f3 = upward(t, 0.4, 0.85), upward(t, 0.92, 1.0), upward(t, 1.6, 2.05), upward(t, 2.6, 3.0)
+    gap = min(rms_left(t, 0.85 + 0.01 * i, 0.86 + 0.01 * i) for i in range(20))
+    check("fmini_glide", abs(f1 - 329.6) < 8 and f2 + 10 < fmid < f1 - 10 and abs(f2 - 220) < 6 and abs(f3 - 329.6) < 8
+          and gap > 0.2 * rms_left(t, 0.4, 0.85), f"LEGATO and GLIDE: E4 {f1:.0f} Hz, gliding ({fmid:.0f}) to A3 "
+          f"{f2:.0f} Hz on one contour (the lowest 10 ms {gap:.0f}), back to E4 {f3:.0f} Hz")
+
+    # PAD SWELL (F004, POLY): an eight-note chord, half of its voices on the second core
+    chord = "".join(f",1800:{k},3400:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26))
+    s, log = run("fmini_poly", pick("FMINI-1") + ",1300:e6:3" + chord, 4000)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fmini_poly", "cpu1: 2 cores" in log and peak(s, 2.0, 3.3) > 1000 and " 0 overruns" in log and worst < 70,
+          f"FMINI-1 plays PAD SWELL as an eight-note chord on two cores; core 0's worst {worst} % of a block")
+
+    # four patches on one note sound different: MOOG BASS, UFO, MOOG FLUTE, ACID LEAD (program changes 1, 9, 20, 15);
+    # then CC 74 (CUTOFF) down closes MOOG BASS's ladder
+    m = pick("FMINI-1")
+    for i, p in enumerate((1, 9, 20, 15)):
+        m += f",{1300 + 1000 * i}:mc0{p:02x},{1500 + 1000 * i}:m903064,{2100 + 1000 * i}:m803000"
+    m += ",5300:mc001,5500:m903064,5900:mb04a08,6300:m803000"
+    s, log = run("fmini_presets", m, 6600)
+    t = onset_frames(s)
+    b = [brightness(t, 0.15 + i, 0.5 + i) for i in range(4)] + [brightness(t, 4.15, 4.35), brightness(t, 4.55, 4.75)]
+    r = [rms_left(t, 0.15 + i, 0.5 + i) for i in range(4)]
+    differ = all(abs(b[i] - b[j]) > 0.02 or abs(r[i] - r[j]) > 0.2 * max(r[i], r[j]) for i in range(4) for j in range(i))
+    check("fmini_presets", all(x > 300 for x in r) and differ and b[5] < 0.6 * b[4],
+          f"four factory patches, four sounds (brightness {', '.join(f'{x:.2f}' for x in b[:4])}); CC 74 closes the "
+          f"ladder ({b[4]:.2f} -> {b[5]:.2f})")
+
+    # the arpeggiator: SINE SOLO (its TEMPO 120), ARP on (the ARP button: UP, 1/16, one octave), C4 and G4 held: the two
+    # notes in turn, a step each 125 ms; with HOLD (CC 60) the arpeggio goes on after the keys are let go
+    def steps(t, t0, t1):
+        f = [upward(t, t0 + 0.125 * i + 0.02, t0 + 0.125 * i + 0.06) for i in range(int((t1 - t0) / 0.125))]
+        return sum(1 for x in f if abs(x - 261.6) < 40), sum(1 for x in f if abs(x - 392) < 50), f
+    m = pick("FMINI-1") + ",1300:mc004,1500:10,1550:10^,1800:m903c64,1800:m904364,3300:m803c00,3300:m804300"
+    s, log = run("fmini_arp", m, 4200)
+    lo, hi, f = steps(s, 1.9 - 0.2, 3.1 - 0.2)    # (the WAV starts ~0.2 s after boot)
+    after = rms_left(s, 3.6 - 0.2, 4.0 - 0.2)
+    check("fmini_arp", lo >= 4 and hi >= 4 and after < 0.1 * rms_left(s, 2.0, 2.9),
+          f"ARP on SINE SOLO: C4 and G4 in turn at 1/16 (steps: {lo} C4, {hi} G4), silent once the keys are let go")
+    s, log = run("fmini_hold", m.replace(",1800:m903c64", ",1700:mb03c7f,1800:m903c64"), 4600)
+    lo2, hi2, _ = steps(s, 3.5 - 0.2, 4.4 - 0.2)
+    check("fmini_hold", lo2 >= 2 and hi2 >= 2, f"HOLD: the arpeggio goes on after the keys are let go ({lo2} C4, {hi2} G4 steps)")
+
+    # PLUCK ARP (F003): its own arpeggio on recall (UP-DOWN, 1/16, three octaves): one key held, the steps climb and fall
+    # over three octaves
+    s, log = run("fmini_arppatch", pick("FMINI-1") + ",1300:mc002,1800:m903064,3300:m803000", 3600)
+    f = [upward(s, 1.6 + 0.125 * i + 0.02, 1.6 + 0.125 * i + 0.09) for i in range(10)]
+    check("fmini_arppatch", min(f) > 0 and max(f) > 2.5 * min(f),
+          f"PLUCK ARP arpeggiates by itself over its octaves (steps from {min(f):.0f} to {max(f):.0f} crossings a second)")
+
+    # the effects: SINE SOLO (its sends: chorus 51, delay 32, reverb 32; the delay ANALOG, 374 ms), a short note: its tail
+    # 0.4 .. 1.2 s after the note, with the effects and with every send at 0 (CC 91, 94, 93)
+    k = pick("FMINI-1") + ",1300:mc004,1800:m904564,1900:m804500"
+    s, log = run("fmini_fx", k, 3400)
+    s2, log2 = run("fmini_dry", k.replace(",1800:", ",1500:mb05b00,1520:mb05e00,1540:mb05d00,1800:"), 3400)
+    wet, dry = rms_left(s, 2.1, 2.9), rms_left(s2, 2.1, 2.9)
+    check("fmini_fx", wet > 3 * dry and wet > 20 and " 0 overruns" in log,
+          f"FMini-1's effects: a short note's tail {wet:.0f} with them, {dry:.0f} with every send at 0")
+
+    # a user patch: MOOG BASS with its cutoff down (CC 74), SAVE twice into U001; after a power-off FMINI-1 lists
+    # 201 patches and starts on it
+    flash = OUT / "fmini_flash.bin"
+    flash.unlink(missing_ok=True)
+    k = pick("FMINI-1") + ",1300:mc001,1500:mb04a10,1700:9,1750:9^,1900:9,1950:9^"
+    s, log = run("fmini_save", k, 5000, extra=("--flash", str(flash)))
+    s2, log2 = run("fmini_saved", "1800:21,2300:21^", 2600, extra=("--flash", str(flash)))
+    ram = (OUT / "fmini_saved" / "ram.bin").read_bytes()
+    check("fmini_save", "patches 000000c9" in log2 and peak(s2, 1.9, 2.3) > 1000 and b"MOOG BASS" in ram,
+          "a sound saved into U001 is there after a power-off (201 patches) and plays")
+
+
+def dx7_voice(name, coarse):
+    """a DX7 single-voice dump (VCED, 155 bytes: OP6 first): OP1 alone, a sine at coarse x the note, made here"""
+    v = []
+    for op in range(6):                         # R1-4, L1-4, BP, LD, RD, LC, RC, RS, AMS, KVS, OL, MODE, FC, FF, DET
+        v += [99, 99, 99, 99, 99, 99, 99, 0, 39, 0, 0, 0, 0, 0, 0, 0, 99 if op == 5 else 0, 0, coarse, 0, 7]
+    v += [99] * 4 + [50] * 4 + [0, 0, 1, 35, 0, 0, 0, 1, 0, 3, 24] + list(name.encode().ljust(10))
+    return bytes([0xF0, 0x43, 0x00, 0x00, 0x01, 0x1B] + v + [-sum(v) & 0x7F, 0xF7])
+
+
+def fm6_cases():
+    """FM6: Melodee's six-operator FM engine and its own voices (modules/fm6)"""
+    import hbdeploy
+    # TINE EP (F1, the first voice): a key sounds, silent before, and dies away
+    s, log = run("fm6", pick("FM6") + ",1800:21,2600:21^", 5000)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fm6", "fm6: Melodee 165d177, voices 00000019" in log and peak(s, 0.0, 1.5) == 0 and
+          peak(s, 1.7, 2.5) > 1000 and peak(s, 4.6, 5.0) < peak(s, 1.7, 2.5) // 20 and " 0 overruns" in log,
+          f"FM6 plays TINE EP on a key and it dies away; worst {worst} % of a block")
+
+    # STRINGS (F16: six operators, held) as a 16-note chord, half of its voices on the second core
+    chord = "".join(f",1800:{k},3600:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26, 28, 30, 31, 33, 35, 37, 38, 40))
+    s, log = run("fm6_chord", pick("FM6") + ",1300:e6:15" + chord, 4200)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fm6_chord", "cpu1: 2 cores" in log and peak(s, 2.0, 3.4) > 1000 and " 0 overruns" in log and worst < 80,
+          f"FM6 plays STRINGS as a 16-note chord on two cores; core 0's worst {worst} % of a block")
+    s, log = run("fm6_flaky", pick("FM6") + ",1300:e6:15" + chord, 4200, extra=("--flaky-core1", "1e-6", "--seed", "2"))
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("fm6_flaky", "cpu1: misread RAM, 1 core" in log and peak(s, 2.0, 3.4) > 1000 and " 0 overruns" in log
+          and worst < 85, f"a faulty second core: FM6 plays ten voices on core 0; worst {worst} %")
+
+    # four voices on one note sound different: TINE EP, GLASS BELL, BRASS SECT, SOLID BASS (program changes 1, 2, 10, 11)
+    m = pick("FM6")
+    for i, p in enumerate((1, 2, 10, 11)):
+        m += f",{1300 + 1000 * i}:mc0{p:02x},{1500 + 1000 * i}:m903c64,{2100 + 1000 * i}:m803c00"
+    s, log = run("fm6_presets", m, 5400)
+    t = onset_frames(s)
+    b = [brightness(t, 0.05 + i, 0.4 + i) for i in range(4)]
+    r = [rms_left(t, 0.05 + i, 0.4 + i) for i in range(4)]
+    differ = all(abs(b[i] - b[j]) > 0.02 or abs(r[i] - r[j]) > 0.2 * max(r[i], r[j]) for i in range(4) for j in range(i))
+    check("fm6_presets", all(x > 300 for x in r) and differ,
+          f"four of Melodee's voices, four sounds (brightness {', '.join(f'{x:.2f}' for x in b)}, "
+          f"RMS {', '.join(f'{x:.0f}' for x in r)})")
+
+    # a DX7 voice dump (tools/dock.py send FILE.syx: MODULE frames, here into the DIN jack): OP1 alone at x2, played at
+    # once (A4 over MIDI: 880 Hz), kept in the module's flash banks; the next power-on lists it after Melodee's 25
+    syx = dx7_voice("HARBOR X2", 2)
+    steps = [b"B" + struct.pack("<II", len(syx), 0)]
+    steps += [b"D" + struct.pack("<I", a) + syx[a:a + 256] for a in range(0, len(syx), 256)] + [b"E"]
+    k, at = [pick("FM6")], 1500
+    for i, st in enumerate(steps):
+        f = hbdeploy.frame(hbdeploy.MODULE, i, st)
+        k.append(f"{at}:m{f.hex()}")
+        at += int(len(f) * hbdeploy.BYTE_MS) + 30
+    flash = OUT / "fm6_flash.bin"
+    flash.unlink(missing_ok=True)
+    s, log = run("fm6_sysex", ",".join(k) + f",{at + 400}:m904564,{at + 1400}:m804500", at + 1600,
+                 extra=("--flash", str(flash)))
+    t = onset_frames(s)
+    f1 = upward(t, 0.2, 0.9)
+    s2, log2 = run("fm6_sysex2", pick("FM6") + ",1800:21,2300:21^", 2600, extra=("--flash", str(flash)))
+    check("fm6_sysex", "fm6: voices in 00000001" in log and abs(f1 - 880) < 10 and "voices 0000001a" in log2
+          and peak(s2, 1.7, 2.2) > 1000,
+          f"a DX7 voice dump sent to FM6 plays at once (A4 at {f1:.0f} Hz: its OP1 at x2) and is there after a power-on")
+
+
 def niagara_cases():
     """NIAGARA: Evan Yerburgh's Niagara Drift (modules/niagara), two drones"""
     k = pick("NIAGARA") + ",2000:12,2050:12^"   # PLAY: the drones fade in (its start animation ends on the press)
@@ -309,6 +494,34 @@ def main():
     s, log = run("boot_safe", "0:1,400:1^,1000:14,1600:14^", 2200)
     check("boot_safe", "safe boot" in log and "started 00000000" in log and peak(s, 0.9, 1.3) > 1000 and peak(s, 1.8, 2.0) == 0,
           "OCT+ held at power-on: the built-in sine starts and plays a key")
+
+    # OPTIONS, ABOUT: its page, the version on its first line in the accent colour (8 px a character, from x 4);
+    # HOME: OPTIONS again, ABOUT the line picked
+    at = f"700:8,750:8^,900:e6:{1 + len(names) + O_ABOUT},1100:3,1150:3^"
+    _, log = run("about", at, 1700)
+    ver = (re.findall(r"fm1-dock (\S+) boot", log) or ["?"])[-1]
+    x0, x1 = acc_span("about", 28, 44)
+    _, _ = run("about_back", at + ",1500:8,1550:8^", 2000)
+    y = 50 + O_ABOUT * 18                   # (dock.c OPT_Y)
+    b0, b1 = acc_span("about_back", y, y + 18)
+    n = len(f"fm1-dock {ver}") + (10 if "." in ver else 0)   # (a release's: " (abc1234)" after it)
+    check("about", re.fullmatch(r"\d\.\d(\.\d)?|[0-9a-f]{7}\+?|unknown", ver) is not None and x0 >= 2 and
+          abs(x1 - x0 - 8 * n) <= 8 and acc_span("about_back", 28, 44) == (0, 0) and b1 - b0 >= 30,
+          f"ABOUT: fm1-dock {ver} (the boot log) on its page, {x1 - x0} px; HOME: OPTIONS, ABOUT picked ({b1 - b0} px)")
+
+    # INFO (0x03) over USB, as tools/dock.py info and the page ask it: ABOUT's facts in a record; an unknown command
+    # (0x04) answered bad message, as an older fm1-dock answers INFO
+    import hbdeploy
+    rep = usb_ask([(1500, hbdeploy.frame(hbdeploy.INFO, 5)), (1600, hbdeploy.frame(0x04, 6))], 2000)
+    info = [d for c, q, d in rep if c == hbdeploy.INFO and q == 5]
+    i = hbdeploy.info(type("P", (), {"ask": lambda self, *_: info[0]})()) if info else None
+    check("info", i is not None and i["version"] == ver and i["model"] == "FM-1" and i["board"] == "FM-1" and
+          i["flash_id"] in (0x856014, 0xB36014, 0xEB6014) and i["flash_size"] == 1 << 20 and i["soc"] == "AC791N" and
+          i["mod_ram"] == 0x44000 and 0 < i["largest"] <= i["free"] and i["cores"] in (1, 2) and
+          any(c == 0x04 and q == 6 and d[:1] == b"\x0a" for c, q, d in rep),
+          f"INFO: fm1-dock {i and i['version']} ({i and i['build']}) on {i and i['model']}, {i and i['soc']}, flash "
+          f"{i and i['flash_id']:06X}, {i and i['cores']}CPU, add-ons {i and i['free'] // 1024} KiB free; 0x04: bad message"
+          if i else f"INFO: no record ({rep})")
 
     if "SINE" in names:
         # (a top-row key: a sensed one's lift is seen at the key scan's phase, which the picker shifts)
@@ -483,6 +696,12 @@ def main():
 
     if "PROPHET" in names:
         prophet_cases()
+
+    if "FMINI-1" in names:
+        fmini_cases()
+
+    if "FM6" in names:
+        fm6_cases()
 
     if "B3 ORGAN" in names:
         # Standard B (88 8000 000) under ten keys; then over MIDI every drawbar out (CC 70..78 at 0, as setBfree),

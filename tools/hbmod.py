@@ -163,11 +163,17 @@ def link(objs, out, base, libs=(), probe=False):
     names = [f"{s}.{base:08x}.bin" for s in ("text", "data", "rt")]
     for n in names:
         (out / n).unlink(missing_ok=True)
-    _, _, _, syms = build.tc_all(
+    _, hdrs, syms = build.tc_all(
         ("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, out / names[0]),
-        ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, out / names[1]),
-        ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, out / names[2]),
+        ("common/bin/objdump", "-h", elf),
         ("common/bin/objdump", "-t", elf))
+    # .data and .ram_text only when they hold something: the toolchain's objcopy fails now and then on a section of
+    # nothing (in Docker on a Mac, one run in three: "error :No such file or directory"), and its file is not needed
+    size = {m[1]: int(m[2], 16) for m in re.finditer(r"^\s*\d+\s+(\.\S+)\s+([0-9a-fA-F]+)", hdrs, re.M)}
+    rest = [("common/bin/objcopy", "-O", "binary", "-j", s, elf, out / n)
+            for s, n in ((".data", names[1]), (".ram_text", names[2])) if size.get(s)]
+    if rest:
+        build.tc_all(*rest)
     sym = symbols(syms)
     parts = [(out / n).read_bytes() if (out / n).exists() else b"" for n in names]
     if len(parts[0]) != sym["_hb_text_end"] - base:
@@ -242,6 +248,7 @@ def build_module(d):
         errors.append(f".ram_text {rt} B > {MOD_RT_SIZE}")
     dis = build.tc("common/bin/objdump", "-d", elf_a)
     (out / "module.dis").write_text(dis)
+    (out / "module.syms").write_text(syms)      # (its statics' addresses in the module RAM: tests read a RAM dump)
     for ln in dis.splitlines():                 # as the host: nothing may call or load the chip ROM
         mm = build.LINE.match(ln)
         if mm:

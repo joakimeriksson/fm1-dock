@@ -26,8 +26,8 @@ static void hbf_event(uint32_t ev, int32_t arg)
     switch (HB_EV_KIND(ev)) {
     case HB_EV_KEY_DOWN: if (id < 27u) { fm1_in.notes |= 1u << id; hbf_taps |= 1u << id; } break;
     case HB_EV_KEY_UP: if (id < 27u) fm1_in.notes &= ~(1u << id); break;
-    case HB_EV_BTN_DOWN: if (id < 14u) { fm1_in.buttons |= 1u << id; hbf_pressed |= 1u << id; } break;
-    case HB_EV_BTN_UP: if (id < 14u) { fm1_in.buttons &= ~(1u << id); hbf_released |= 1u << id; } break;
+    case HB_EV_BTN_DOWN: if (id <= HB_BTN_RIGHT) { fm1_in.buttons |= 1u << id; hbf_pressed |= 1u << id; } break;
+    case HB_EV_BTN_UP: if (id <= HB_BTN_RIGHT) { fm1_in.buttons &= ~(1u << id); hbf_released |= 1u << id; } break;
     case HB_EV_ENC: if (id < 7u) hbf_enc[id] += arg; break;
     default: break;
     }

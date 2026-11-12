@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+"""modules/fmini/fmini/ from FMini-1's own tree (github.com/ruppert/fmini-1, Ruppert, GPL-3.0): its FMINI engine
+(firmware/src/eng_fmini.c: three polyBLEP oscillators and a noise source, the mixer that overloads softly, the
+Minimoog-style transistor ladder with its contour, the 200 factory patches of eng_fmini_presets.h and the ladder's
+laws of eng_fmini_filter.h) unchanged but for one line: the engine's preset list is its factory table itself
+(FMini-1 fills a RAM copy of it from its preset bank: fmini_bank.c, not taken); and its effects (Felucca's fx.c as
+FMini-1 builds it: three runs of its lines as fx_taken.c, below). With them Felucca-Engines' DSP
+helpers (github.com/hugelton/Felucca-Engines, MIT, the submodule FMini-1 builds with, at c46e008): dsp.c and the
+engine interface felucca_engine.h, unchanged.
+
+Not taken: Felucca's host under the engine (the tracks, voice.c, the sequencer and songs, the projects, the
+arpeggiator, the master, the FX hold layer, the screens and the editor). fmini_module.c gives the engine the slice of voice.c it
+reads (fmini_platform.inc: the part, its voices, the amplitude contour, glide, the LFO, the bend) and an interface
+of its own on the FM-1's panel.
+
+The tables the engine and dsp.c read are made here, by the formulas of Felucca-Engines' tools/gen_engine_tables.py
+(SINE, PITCH_OCT / pitch_inc, SVF_G, TANH_Q15) and FMini-1's tools/gen_tables.py (ENV_LIN, ENV_EXP, LFO_INC,
+LEVEL_Q12, TIME_MS_X10): FS 44100, CTL 32, as both build them; the per-sample ones (SINE, TANH_Q15) in RAM.
+Run it again on a new FMini-1:
+    modules/fmini/take.py ~/src/fmini-1 ~/src/Felucca-Engines     (FMini-1 7619d90, v2.2.0; Felucca-Engines c46e008)"""
+import math
+import shutil
+import sys
+from pathlib import Path
+
+src, fe = Path(sys.argv[1]), Path(sys.argv[2])
+fw = src / "firmware/src"
+out = Path(__file__).resolve().parent / "fmini"
+out.mkdir(parents=True, exist_ok=True)
+for f in ["eng_fmini.c", "eng_fmini_presets.h", "eng_fmini_filter.h"]:
+    shutil.copy(fw / f, out / f)
+shutil.copy(src / "LICENSE", out / "LICENSE")
+shutil.copy(src / "LICENSING.md", out / "LICENSING.md")
+for f in ["dsp.c", "felucca_engine.h"]:
+    shutil.copy(fe / "src" / f, out / f)
+shutil.copy(fe / "LICENSE", out / "LICENSE-Felucca-Engines")
+
+
+def sub(name, old, new, count=1):
+    t = (out / name).read_text()
+    assert t.count(old) == count, (name, old, t.count(old))
+    (out / name).write_text(t.replace(old, new))
+
+
+# FMini-1's effects (Felucca's fx.c as FMini-1 2.2.0 builds it, Leo Kuroshita, GPL-3.0): three runs of its lines, unchanged but for its
+# .pool sections (the firmware's second RAM region: a module's RAM is one), as fx_taken.c. Taken: the buses' buffers and state, the DIST
+# (SOFT, TUBE), the tempo's note values, the delay's TIME, the five reverbs (ROOM, HALL, PLATE, SPRING, CLOUD), the chorus (STEREO, JUNO,
+# MULTI), the delay (ANALOG DIGITAL TAPE P-PONG MULTI SLAP REVERSE A-SYNC), fx_buses and rev_side_mix. Not taken: the master (limiter,
+# low cut, the speaker's BASS+), the metronome, the FX hold layer (perform.c), the INSERT, the SLICER, the parts' mix (fmini_module.c mixes
+# the one part as FMini-1's mix_part does)
+fx = (fw / "fx.c").read_text().split("\n")
+
+
+def run(first, last, a, b):
+    assert fx[first - 1].startswith(a), (first, fx[first - 1])
+    assert fx[last - 1].startswith(b), (last, fx[last - 1])
+    return fx[first - 1:last]
+
+
+body = (run(1, 183, "/* SPDX-License-Identifier: GPL-3.0-only", "}")
+        + ["", "/* (fm1-dock, take.py: fx.c's master, lines 185 .. 285, not taken) */", ""]
+        + run(286, 297, "static const uint8_t DIV_DEN[6]", "}")
+        + ["", "/* (fm1-dock, take.py: fx.c's #include of perform.c and click.c not taken) */", ""]
+        + run(302, 1292, "/* the delay's TIME (params.c N_DTIME)", "}"))
+assert fx[184].startswith("/* master: peak limiter") and fx[298].startswith('#include "perform.c"')
+assert fx[1293].startswith("/* INSERT (1.5")
+t = "\n".join(body) + "\n"
+assert t.count(' __attribute__((section(".pool")))') == 7, t.count(' __attribute__((section(".pool")))')
+t = t.replace(' __attribute__((section(".pool")))', "")
+(out / "fx_taken.c").write_text(t)
+
+E = "eng_fmini.c"
+sub(E, "static preset_t fmini_pre[FMINI_NSLOT];",
+    "/* fm1-dock: the factory table itself (take.py; FMini-1 keeps a RAM copy its preset bank fills) */")
+sub(E, "    .presets = fmini_pre,", "    .presets = FMINI_PRESETS,")
+
+# ---- the tables (FS 44100, CTL 32)
+FS, CTL = 44100, 32
+
+
+def arr(name, ctype, vals, per=8, ram=False):
+    sec = ' __attribute__((section(".data.fmini_tables")))' if ram else ""   # (RAM, not XIP flash: read every sample)
+    o = [f"static {'' if ram else 'const '}{ctype} {name}[{len(vals)}]{sec} = {{"]
+    for i in range(0, len(vals), per):
+        o.append("    " + ", ".join(str(v) for v in vals[i:i + per]) + ",")
+    return o + ["};"]
+
+
+L = ["/* generated by modules/fmini/take.py, by the formulas of Felucca-Engines' tools/gen_engine_tables.py (MIT) and",
+     " * FMini-1's tools/gen_tables.py: do not edit */", "/* SPDX-License-Identifier: GPL-3.0-only */", "#pragma once",
+     "#include <stdint.h>", f"#define FS {FS}", f"#define CTL {CTL}", ""]
+L += arr("SINE", "int16_t", [int(round(32767 * math.sin(2 * math.pi * i / 1024))) for i in range(1025)], 12, ram=True)
+inc = [min(int(440.0 * 2 ** ((p / 16 - 69) / 12) / FS * 2 ** 32), 0x7FFFFFFF) for p in range(128 * 16)]
+oct_ = inc[1856:2048]
+assert all(inc[q] == oct_[(q + 64) % 192] >> (10 - (q + 64) // 192) for q in range(2048))
+assert all((q + 64) * 21846 >> 22 == (q + 64) // 192 for q in range(2048))
+L += arr("PITCH_OCT", "uint32_t", oct_)
+L += ["/* phase increment of pitch p in 1/16 semitone, 0..2047 (MIDI 0..127): 440 Hz * 2^((p / 16 - 69) / 12) */",
+      "static inline uint32_t pitch_inc(uint32_t p)", "{",
+      "    uint32_t i = p + 64u, o = (i * 21846u) >> 22;     /* i / 192: the octave above PITCH_OCT's - 10 */",
+      "    return PITCH_OCT[i - o * 192u] >> (10u - o);", "}"]
+fc = [30.0 * ((16000 / 30) ** (v / 127)) for v in range(128)]
+L += arr("SVF_G", "uint16_t", [int(4096 * math.tan(math.pi * min(f, 0.45 * FS) / FS)) for f in fc], 12)
+L += arr("TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)], 12, ram=True)
+ms = [1.0 * (12000 ** (v / 127)) for v in range(128)]
+L += arr("TIME_MS_X10", "uint32_t", [int(round(m * 10)) for m in ms], 10)
+L += arr("ENV_LIN", "uint32_t", [max(1, int((1 << 24) * CTL / (m * FS / 1000))) for m in ms])
+L += arr("ENV_EXP", "uint16_t", [max(1, min(65535, int(65536 * (1 - math.exp(-CTL / (m / 1000 / 2.8 * FS))))))
+                                 for m in ms], 12)
+hz = [0.05 * (800 ** (v / 127)) for v in range(128)]
+L += arr("LFO_HZ_X100", "uint32_t", [int(round(h * 100)) for h in hz], 10)
+L += arr("LFO_INC", "uint32_t", [int(h * CTL / FS * 2 ** 32) for h in hz])
+L += arr("LEVEL_Q12", "uint16_t", [0] + [int(round(4096 * 10 ** ((v - 112) / 2 / 20))) for v in range(1, 128)], 12)
+(out / "fmini_tables.h").write_text("\n".join(L) + "\n")
+print("fmini/fmini/: taken from", src, "and", fe)

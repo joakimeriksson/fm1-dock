@@ -30,7 +30,9 @@ typedef struct {
 } sc_chorus_t;
 
 /* The reverb: eight delay lines in a Hadamard feedback loop, standing in for the app's convolution
- * with a noise impulse (fx/reverb.ts); sc_synth.c says what is matched. 64 KB. */
+ * with a noise impulse (fx/reverb.ts); sc_synth.c says what is matched. 64 KB. Built with
+ * -DSC_HOST_REVERB, the synth omits its 64 KB reverb state and render pass; the host renders the
+ * patch's fx.reverb after the module (fm1-dock's hb_fx.c). The type and functions remain for tools. */
 #define SC_REV_LINES 8
 #define SC_REV_LEN 2048                         /* each line's ring (power of two); the longest is 1949 */
 typedef struct {
@@ -69,7 +71,9 @@ typedef struct {
     volatile uint32_t q_w, q_r;
     int32_t bus[2][256];                        /* scratch: each layer's voices, mono Q20 */
     sc_limiter_t lim;
+#ifndef SC_HOST_REVERB
     sc_reverb_t rev;                            /* after both layers' choruses: one for the two */
+#endif
 } sc_synth_t;
 
 void sc_init(sc_synth_t *s, const sc_patch_t *patch);

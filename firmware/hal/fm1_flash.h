@@ -44,7 +44,9 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #define FL_GUARD(off, n) (FL_RANGE_OK(off, n) && !FL_PROTECTED(off, n))
 #else
 #define FL_PLAIN_LO     0x00093000u                /* the plain XIP window: from the FM-1's VM */
-#define FL_JEDEC_OK(id) ((id) == 0x856014u)
+/* the FM-1's flash chips: the Puya P25Q80 (0x856014), and the UC25HQ80 (0xB36014) of the units sold since autumn 2026
+ * (1 MiB, the same generic SPI NOR commands, as Dinghy 0.5 accepts it): without it they saved to RAM only */
+#define FL_JEDEC_OK(id) ((id) == 0x856014u || (id) == 0xB36014u)
 #define FL_DATA_LO      0x00097000u                /* Felucca main store */
 #define FL_DATA_HI      0x000E0000u
 #define FL_GLOB_LO      0x000FC000u                /* Felucca superblock / globals */

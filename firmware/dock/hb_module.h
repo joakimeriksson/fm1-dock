@@ -31,6 +31,8 @@
                                                  * the picker (the module gets the HOME release first) */
 #define HB_F_DATA   4u                          /* the descriptor has data(): what the computer sends the module
                                                  * (tools/dock.py's MODULE frames) reaches it */
+#define HB_F_XBTN   8u                          /* the SMK-37's own buttons reach ui() too, as HB_BTN_KNOB_BANK ..
+                                                 * HB_BTN_RIGHT (never on an FM-1); their LEDs are HB_LED_XBTN(id) */
 
 /* ui() events: kind in the top byte, the id below; arg is the encoder's clicks */
 enum {
@@ -53,6 +55,9 @@ enum { HB_BTN_OCT_DOWN = 0, HB_BTN_OCT_UP = 1, HB_BTN_FX = 2, HB_BTN_SEL = 3, HB
 enum { HB_ENC_SELECT = 0, HB_ENC_ALGORITHM = 1, HB_ENC_KNOB1 = 2, HB_ENC_KNOB2 = 3, HB_ENC_KNOB3 = 4,
        HB_ENC_KNOB4 = 5, HB_ENC_PRESETS = 6 };
 #define HB_LED_KEY(k) (14u + (k))               /* note key k's LED (0 = F3 .. 26 = G5) */
+/* the SMK-37's buttons beyond the FM-1's (HB_F_XBTN), and their LEDs: not HB_LED_KEY's ids, which are the keys' */
+enum { HB_BTN_KNOB_BANK = 14, HB_BTN_FADER_BANK = 15, HB_BTN_LEFT = 16, HB_BTN_RIGHT = 17 };
+#define HB_LED_XBTN(id) (0x80u | (id))
 
 /* the descriptor: at the start of the module's image (modules/module.ld) */
 #ifndef HB_DESC
@@ -136,7 +141,14 @@ typedef struct hb_host {
      * the same rules as render(), and no host call but ticks() */
     int (*c1_run)(void (*fn)(uint32_t), uint32_t arg);
     int (*c1_wait)(void);
+    /* the board the host runs on (a module checks size first): HB_BOARD_FM1, HB_BOARD_SMK37 (its K5..K8 are
+     * the FM-1's KNOB1..4, for a module that names them) */
+    uint32_t board;
+    /* a panel module (HB_F_PANEL) with its own octave says the note its key 0 (F3) plays, n 0 none (the host's
+     * octave): an SMK-37's outer keys, the host's, go on from it (a module checks size first) */
+    void (*key_base)(uint32_t n);
 } hb_host_t;
+enum { HB_BOARD_FM1 = 0, HB_BOARD_SMK37 = 1 };
 /* the host has field f of hb_host_t (an older one ends before it) */
 #define HB_HOST_HAS(h, f) ((h)->size >= (uint32_t)(__builtin_offsetof(hb_host_t, f) + sizeof (h)->f))
 #define HB_BANK_MAX 8176u

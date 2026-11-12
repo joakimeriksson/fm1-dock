@@ -15,16 +15,18 @@
 <p align="center">
   <a href="https://joakimeriksson.github.io/fm1-dock/"><b>The page</b></a>:
   <a href="https://joakimeriksson.github.io/fm1-dock/#install">install</a> ·
+  <a href="https://joakimeriksson.github.io/fm1-dock/guide.html"><b>the player's guide</b></a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#modules">the catalog</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#play">the video</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#console">the console</a> ·
   <a href="https://joakimeriksson.github.io/fm1-dock/#emulator">the emulator</a> ·
-  <a href="https://thefirmwarehub.com/#fw-fm1dock">on the FM-1 Firmware Hub</a>
+  <a href="https://thefirmwarehub.com/#fw-fm1dock">on the FM-1 Firmware Hub</a> ·
+  <a href="ROADMAP.md">the roadmap</a>
 </p>
 
 fm1-dock is installed once. The synths are modules in its flash: hold HOME, pick another one, play. No reinstall.
-Twelve modules so far, each its author's own code: four come with it, eight more go in from the page with one click,
-and out again. Every one can be tried first, without an FM-1: its card's **Try it** runs it in the emulator on the page. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
+Fifteen synths so far, each its author's own code: three come with it (and a sine), twelve more go in from the page
+with one click, and out again. Every one can be tried first, without an FM-1: its card's **Try it** runs it in the emulator on the page. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
 crash record and the render load are one click away in the browser. It also runs on the M-Vave SMK-37 keyboards.
 
 <p align="center">
@@ -75,6 +77,19 @@ its own package; the installers refuse an FM-1 package on an SMK-37, and the oth
 Back to any other firmware, or the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing firmware is at your own risk.
 
+## New in 0.8.1
+
+- **Scintilla as its 0.3**: the Laser Harp without its click, the ring modulator and cross-mod read from the Synthex's
+  voice-board schematic, one LFO per layer, and the forty ROM presets closer to a recording of the real instrument
+  ([preset by preset](https://joakimeriksson.github.io/scintilla-fm1/tuning/)).
+- **Newer FM-1s**: the units sold since autumn 2026 carry another flash chip (0xB36014). fm1-dock accepts it now;
+  before, such a unit kept its saves in RAM only. Tested in fm1-emu, not yet on such a unit.
+- **The SMK-37's own controls** reach a module that asks for them; Scintilla takes them.
+- **OPTIONS > ABOUT**: the build, the board, the flash chip, the room left for add-ons.
+- **[The player's guide](https://joakimeriksson.github.io/fm1-dock/guide.html)**.
+
+The [0.8.1 release notes](https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.8.1).
+
 ## New in 0.8
 
 - **Four new synths**: PROPHET (a Prophet-5 on Melodee's engine), B3 ORGAN (a tonewheel organ after setBfree),
@@ -118,8 +133,10 @@ RAM needs it. The originals are linked; their manuals apply.
 | **FoMni** | Charles Vestal | 16 strings, a 3-note chord, a bass | 139 KiB | A chord harp after the Omnichord: chords on the black keys, strummed on the white ones, with a rhythm box. [The original](https://charlesvestal.github.io/fm1-fomni/), its code unchanged. |
 | **ARTIHIVE** | KHAV | 8, as four FM pairs | 84 KiB | An experimental drone and polyphonic synth: four interacting FM pairs on the white keys (DRONE) or all 27 keys (POLY), a Hyper LFO, stereo motion, a modulated two-line delay, distortion, compression, mutation and an arpeggiator. [The original](https://github.com/KHAVld/ARTIHIVE), its app and DSP unchanged; here its delay lines are 1 s (2 s there) and its six textured themes are plain. |
 | **PROPHET** | Kerem Kilic (Melodee) | 8, half on the second core (5 on one core) | 31 KiB | A Prophet-5 Rev 4 on Melodee's engine: band-limited oscillators, Poly-Mod, two filter characters, both envelopes, glide, unison and Vintage; INIT and eight patches of its own. Sequential's factory programs are not included: send your own bank with `tools/dock.py send FILE.syx`. [The original](https://github.com/keremimo/melodee), its engine unchanged. |
+| **FM6** | Kerem Kilic (Melodee) | 16, half on the second core (10 on one core) | 42 KiB | A DX7-style six-operator FM synth on Melodee's engine: 32 algorithms, feedback, DX7 envelopes, key scaling, LFO and pitch envelope, three renderers (MODERN, MARK I, OPL); the 24 voices of its own (Melodee's and Felucca's), a page per operator. No Yamaha voices are included: send your own DX7 SysEx (a 32-voice bank or single voices) with `tools/dock.py send FILE.syx`. [The original](https://github.com/keremimo/melodee), its engine unchanged. |
 | **B3 ORGAN** | R-Jeb | every key, 91 tonewheels | 77 KiB | A tonewheel organ modelled on setBfree: nine drawbars, key click, vibrato and chorus, percussion, overdrive, reverb and a Leslie; setBfree's 110 programs and its MIDI controllers. [The original](https://github.com/R-Jeb/setBfree-fm1), its organ and screen unchanged. |
 | **Niagara Drift** | Evan Yerburgh | 2 drones | 156 KiB | A drone synth after the SOMA Lyra-8, the Moog Subharmonicon and the Stylophone DS-2: two virtual-analog drones that breathe and drift, scenes on the white keys that the keys' pressure glides into, gestures, an LFO, a delay and a reverb. [The original](https://evanyerburgh.github.io/niagara-drift/), its code unchanged but for a module's RAM: the delay reaches 270 ms (450), the knob loop keeps 2048 events (4096). |
+| **FMINI-1** | Ruppert | 1 (MONO, LEGATO) or 12 (POLY, half on the second core) | 61 KiB | FMini-1's monosynth in the style of the classic three-oscillator Moogs: three oscillators and noise into the mixer's soft overload, the 24 dB ladder with its own contour, glide and the mod wheel's vibrato; its 200 factory patches and your own, with FMini-1's own effects (DRIVE, CHORUS, a 1.5 s DELAY of seven kinds, five REVERBs) and an arpeggiator (UP, DOWN, UP-DOWN, RANDOM, AS PLAYED, 1-4 octaves, HOLD, MIDI clock). [The original](https://github.com/ruppert/fmini-1), its engine, patches and effects unchanged; its sequencer is not in the module. |
 | **ATEK303** | Animatek | 1 (mono), its effects on the second core | 93 KiB | A TB-303 style acid machine: the ATEK303 voice from VCV Rack (Open303 with a diode ladder and a modelled oscillator, 14 oscillators on WAVE) and its own pattern generator, so PLAY plays a line; generate, mutate and edit up to 64 steps in a piano roll, drive, chorus or flanger, a synced ping-pong delay and a plate reverb, 12 factory presets in 32 slots. [The original](https://github.com/animatek/FM1-Animatek/tree/main/atek303), its app and DSP unchanged; here its plate keeps its lines in 16 bits. |
 
 The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas); the page's meter shows what
@@ -147,6 +164,7 @@ fm1-dock starts whatever played last. The options, for every module:
 | **EQ** | LOW (a 150 Hz shelf), MID (a 1 kHz peak), HIGH (a 6 kHz shelf), ±12 dB each, before MASTER, in the chip's hardware EQ (about 3 % of a block). **SELECT** picks a band, **ALGORITHM** or **KNOB1..3** turn it, **SEL** switches the EQ ON / OFF or puts a band back to 0 dB. OFF by default; a boost can clip a loud module |
 | **KNOBS CC** | ON: KNOB1..4 send CC 74, 71, 73, 72 (cutoff, resonance, attack, release) over USB and BLE-MIDI instead of turning the module's knobs. OFF by default |
 | **MIDI THRU** | ON: the TRS MIDI jack's input (not clock or SysEx) goes on to USB-MIDI and BLE-MIDI, and the module plays it too. OFF by default |
+| **ABOUT** | **SEL**: a page with the version (a release's `0.8.1 (abc1234)` with its source; any other build's is its source, git's short hash, `+` with changes not committed), the board and model, 1CPU / 2CPU, the chip, the flash chip's JEDEC id and size, the module RAM, the add-ons' free flash (all and the largest piece), the BLE address, and each module's name, version and KiB. **SELECT / PRESETS** scroll, **HOME** goes back |
 | **BLUETOOTH** | BLE-MIDI, OFF by default (below) |
 
 ### Bluetooth MIDI
@@ -198,13 +216,16 @@ has every call the host gives it.
 python3 tools/hbmod.py modules/mysynth                                        # -> build/modules/mysynth.dock
 uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock   # into the FM-1, running
 uv run --with python-rtmidi tools/dock.py modules | logs | select NAME | delete NAME
+uv run --with python-rtmidi tools/dock.py info                                # the build, the board, the flash chip, the room (ABOUT's)
 uv run --with python-rtmidi tools/dock.py send FILE [--arg N]                 # a file into the RAM of the module playing
 ```
 
 Or drop the `.dock` on the [console](https://joakimeriksson.github.io/fm1-dock/#console). A module has 272 KiB of RAM,
 16 KiB of RAM code, a settings record and flash banks for presets; a deploy file is up to 272 KiB. A module that sets
 `HB_F_DATA` gets what the computer sends it in its `data()` call, never written to flash: FM-1 SID takes a `.sid` that
-way and plays it at once. A module ported to fm1-dock comes to the page's catalog with an entry in
+way and plays it at once. One that sets `HB_F_XBTN` also gets an SMK-37's own buttons (KNOB BANK, FADER BANK, <,
+>) as `HB_BTN_KNOB_BANK` .. `HB_BTN_RIGHT` (14..17), and lights them with `HB_LED_XBTN(id)`; an FM-1 never sends
+them ([SMK37.md](SMK37.md)). A module ported to fm1-dock comes to the page's catalog with an entry in
 [docs/modules/modules.json](docs/modules/modules.json), its `.dock` and a screenshot.
 
 **Probes** measure the real chip: a small C program run once from RAM inside fm1-dock, its result back as JSON, and

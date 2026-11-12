@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player's guide · fm1-dock</title>
+<meta name="description" content="How to play fm1-dock on the M-VAVE FM-1 and the SMK-37: switching synths, every button and knob, OPTIONS, each synth's first 30 seconds, and what to do when something goes wrong.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0d0c11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f5fb" media="(prefers-color-scheme: light)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="media/fm1-dock-icon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <a class="brand" href="./" aria-label="fm1-dock, its page"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></a>
+  <nav aria-label="Sections">
+    <a href="./">fm1-dock</a><a href="#start">Start</a><a href="#fm1">FM-1</a><a href="#smk37">SMK-37</a>
+    <a href="#options">OPTIONS</a><a href="#synths">Synths</a><a href="#help">Help</a><a href="midi.html">Test MIDI</a>
+  </nav>
+</header>
+
+<main id="main">
+<section id="start" class="mt-top" aria-labelledby="start-h">
+  <h2 id="start-h">Player's guide</h2>
+  <p class="sub">fm1-dock is one firmware with many synths in it. You install it once; the synths are modules you switch
+    between with HOME, and you add or remove them from <a href="./#modules">the page</a>. It runs on the M-VAVE FM-1
+    and on the M-Vave SMK-37.</p>
+
+  <div class="grid g-tasks">
+    <div class="box">
+      <h3>I want to switch synths</h3>
+      <ol class="g-steps">
+        <li>Press <b>HOME</b>. In most synths, <b>hold HOME alone for 1.5 s</b> (a short press is the synth's own HOME).</li>
+        <li>Turn <b>SELECT</b> or <b>PRESETS</b> to the synth you want.</li>
+        <li>Press <b>SEL</b>, <b>PLAY</b> or <b>HOME</b>. It starts; fm1-dock remembers it for the next power-on.</li>
+      </ol>
+    </div>
+    <div class="box">
+      <h3>I want more synths</h3>
+      <ol class="g-steps">
+        <li>Open <a href="./">the page</a> in Chrome or Edge, plug in a USB <b>data</b> cable, press <b>Connect</b>.</li>
+        <li>In the catalog, press <b>Add</b> on a synth. The meter shows what still fits.</li>
+        <li><b>Remove</b> takes one out again. Your settings and presets of the others stay.</li>
+      </ol>
+    </div>
+    <div class="box">
+      <h3>The top line</h3>
+      <p>The synth's name, then <code>2CPU 44%</code>: both cores running, and how much of the time the last sound block
+        took. <code>1CPU</code>: one core (after a crash, until power-off). <code>OCT +0</code>: the octave.
+        <b>BT</b>: a Bluetooth device is connected.</p>
+    </div>
+  </div>
+</section>
+
+<section id="fm1" aria-labelledby="fm1-h">
+  <div class="sec-h"><h2 id="fm1-h">The FM-1</h2></div>
+  <p class="sub">What each control does in the module list, in OPTIONS, and in a synth. In a synth most controls are the
+    synth's own: its card below says what they do.</p>
+  <figure class="g-fig"><img src="media/guide_fm1.png" width="1280" height="820" alt="The FM-1 with numbered controls: 1 MASTER, 2 SELECT, 3 PRESETS, 4 ALGORITHM, 5 OCT- and OCT+, 6 the screen, 7 KNOB1 to KNOB4, 8 the top button row, 9 HOME, 10 SAVE, 11 ARP and SEQ, 12 PLAY and REC, 13 the keys, 14 SEL" loading="lazy"></figure>
+  <div class="table-scroll">
+  <table class="g-table">
+    <thead><tr><th>#</th><th>Control</th><th>In the module list</th><th>In OPTIONS</th><th>In a synth</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>MASTER</td><td colspan="3">The volume, everywhere (with <a href="#options">MASTER CC7</a> it also sends CC 7)</td></tr>
+      <tr><td>2</td><td>SELECT</td><td>Move up and down</td><td>Move; on the EQ page, pick a band</td><td>The synth's</td></tr>
+      <tr><td>3</td><td>PRESETS</td><td>Move up and down</td><td>Move</td><td>The synth's: usually its sounds</td></tr>
+      <tr><td>4</td><td>ALGORITHM</td><td>&ndash;</td><td>On the EQ page, turn the band</td><td>The synth's</td></tr>
+      <tr><td>5</td><td>OCT&minus; OCT+</td><td colspan="3">The octave. Held at power-on: <a href="#help">safety nets</a></td></tr>
+      <tr><td>6</td><td>The screen</td><td colspan="3">The top line (above), then the list or the synth's own screen</td></tr>
+      <tr><td>7</td><td>KNOB1&ndash;4</td><td>&ndash;</td><td>On the EQ page, KNOB1&ndash;3 turn LOW, MID, HIGH</td><td>The synth's; with KNOBS CC on they send MIDI instead</td></tr>
+      <tr><td>8</td><td>FX ENV LFO EDIT GLO</td><td>&ndash;</td><td>&ndash;</td><td>The synth's pages</td></tr>
+      <tr><td>14</td><td>SEL (the 2nd button of the top row)</td><td>Load the synth</td><td>Change the line</td><td>The synth's</td></tr>
+      <tr><td>9</td><td>HOME</td><td>Load the synth</td><td>Back to the list</td><td>Tap: the synth's. Hold alone 1.5 s: the module list (PROPHET and SINE: a tap)</td></tr>
+      <tr><td>10</td><td>SAVE</td><td>&ndash;</td><td>&ndash;</td><td>The synth's (saving its presets)</td></tr>
+      <tr><td>11</td><td>ARP SEQ</td><td>&ndash;</td><td>&ndash;</td><td>The synth's</td></tr>
+      <tr><td>12</td><td>PLAY REC</td><td>PLAY: load the synth</td><td>PLAY: change the line</td><td>The synth's: starts drones and sequences</td></tr>
+      <tr><td>13</td><td>The keys</td><td colspan="3">Play, with velocity and pressure on the force-sensed rows (in the synths that use them)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="dim g-note">The FM-1 also has a TRS MIDI IN jack: notes from a keyboard or sequencer play the synth (and go on to
+    USB and Bluetooth with MIDI THRU on).</p>
+</section>
+
+<section id="smk37" aria-labelledby="smk-h">
+  <div class="sec-h"><h2 id="smk-h">The SMK-37</h2><span class="pill">SMK-37 Pro · Elite · MKE-P37</span></div>
+  <p class="sub">fm1-dock treats the SMK-37 as an FM-1 with extras. The middle 27 keys are the FM-1's keys; the outer keys,
+    pads, faders and wheels play the synth as MIDI and go out over USB too. <b>Where a synth's manual says KNOB1&ndash;4,
+    use K5&ndash;K8.</b> The labels printed under the keys and pads (CHN, PRE, 1/4, &#9654; &#10074;&#10074; &hellip;) belong to
+    M-Vave's own firmware: fm1-dock doesn't use them.</p>
+  <figure class="g-fig"><img src="media/guide_smk37.png" width="1920" height="880" alt="The SMK-37 with numbered controls: 1 pitch wheel, 2 mod wheel, 3 the screen, 4 K1, 5 K2 to K4, 6 K5 to K8, 7 the 16 pads, 8 the 4 faders, 9 KNOB BANK and FADER BANK, 10 the arrow buttons, 11 OCTAVE- and OCTAVE+, 12 ARP, 13 NOTE REPEAT, SCALE, CHORD, GLOBE, BT, 14 PATCH, 15 PARA, FX, SEQ, 16 SEQ PLAY and SEQ REC, 17 the middle 27 keys, 18 and 19 the outer keys" loading="lazy"></figure>
+  <div class="table-scroll">
+  <table class="g-table">
+    <thead><tr><th>#</th><th>SMK-37</th><th>Is the FM-1's</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Pitch wheel</td><td>&ndash;</td><td>Pitch bend to the synth</td></tr>
+      <tr><td>2</td><td>Mod wheel</td><td>&ndash;</td><td>CC 1 (modulation) to the synth</td></tr>
+      <tr><td>3</td><td>The screen</td><td>The screen</td><td>As on the FM-1</td></tr>
+      <tr><td>4</td><td>K1</td><td>MASTER</td><td>The volume</td></tr>
+      <tr><td>5</td><td>K2 &middot; K3 &middot; K4</td><td>SELECT &middot; ALGORITHM &middot; PRESETS</td><td>Move in the list; the synth's in a synth</td></tr>
+      <tr><td>6</td><td>K5 &middot; K6 &middot; K7 &middot; K8</td><td>KNOB1 &middot; 2 &middot; 3 &middot; 4</td><td>The synth's knobs; EQ bands on the EQ page</td></tr>
+      <tr><td>7</td><td>16 pads</td><td>&ndash;</td><td>Notes 36&ndash;51 on channel 10, with velocity (bottom row 36&ndash;43, top row 44&ndash;51, left to right); a hit lights the pad</td></tr>
+      <tr><td>8</td><td>4 faders</td><td>&ndash;</td><td>CC 70, 71, 72, 73 on channel 1</td></tr>
+      <tr><td>9</td><td>KNOB BANK &middot; FADER BANK</td><td>&ndash;</td><td>The synth&rsquo;s, if it uses them (Scintilla: FADER BANK what the faders do, KNOB BANK the layer); unused otherwise</td></tr>
+      <tr><td>10</td><td>&lt; &middot; &gt;</td><td>&ndash;</td><td>The synth&rsquo;s, if it uses them (Scintilla: the previous / next page); unused otherwise</td></tr>
+      <tr><td>11</td><td>OCTAVE&minus; &middot; OCTAVE+</td><td>OCT&minus; &middot; OCT+</td><td>The octave. At power-on: OCTAVE&minus; the USB rescue, OCTAVE+ the safe start</td></tr>
+      <tr><td>12</td><td>ARP</td><td>ARP</td><td>The synth's</td></tr>
+      <tr><td>13</td><td>NOTE REPEAT &middot; SCALE &middot; CHORD &middot; GLOBE &middot; BT</td><td>LFO &middot; <b>SEL</b> &middot; ENV &middot; GLO &middot; SAVE</td><td>SCALE loads the synth picked in the list; the rest are the synth's</td></tr>
+      <tr><td>14</td><td>PATCH</td><td><b>HOME</b></td><td>The module list (in most synths: hold it alone 1.5 s)</td></tr>
+      <tr><td>15</td><td>PARA &middot; FX &middot; SEQ</td><td>EDIT &middot; FX &middot; SEQ</td><td>The synth's</td></tr>
+      <tr><td>16</td><td>SEQ PLAY &middot; SEQ REC</td><td>PLAY &middot; REC</td><td>Start drones and sequences; load the synth in the list</td></tr>
+      <tr><td>17</td><td>Keys F3&ndash;G5 (the middle 27)</td><td>The keys</td><td>Play, with velocity (the unit's own factory curves)</td></tr>
+      <tr><td>18, 19</td><td>Keys C3&ndash;E3 and G&#9839;5&ndash;C6</td><td>&ndash;</td><td>Notes below and above, as MIDI, with the octave and velocity</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="dim g-note">The SMK-37 has no MIDI IN jack, so MIDI THRU and the TRS test don't apply. It has more room for
+    add-ons than the FM-1: 416 KiB in two areas (288 + 128). Before installing on an SMK-37, read
+    <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/SMK37.md">SMK37.md</a> (make a full backup first).</p>
+</section>
+
+<section id="options" aria-labelledby="opt-h">
+  <div class="sec-h"><h2 id="opt-h">OPTIONS</h2></div>
+  <p class="sub">Past the last synth in the list. <b>SEL</b> changes a line, <b>HOME</b> goes back. They apply to every synth
+    and are kept.</p>
+  <div class="table-scroll">
+  <table class="g-table">
+    <thead><tr><th>Line</th><th>What it does</th><th>When you want it</th><th>Default</th></tr></thead>
+    <tbody>
+      <tr><td>CC7 VOLUME</td><td>MIDI CC 7 sets the level of whatever plays, on top of MASTER (the line shows the level when it is under 127)</td><td>A computer or controller rides the volume</td><td>OFF: CC 7 goes to the synth</td></tr>
+      <tr><td>MASTER CC7</td><td>Turning MASTER sends CC 7 on the keys' channel, over USB and Bluetooth</td><td>MASTER should set a computer's volume too</td><td>OFF</td></tr>
+      <tr><td>MIDI CH</td><td>ALL, or 1&ndash;16: only that channel gets in (the synth hears it as channel 1), and the keys send on it</td><td>Several instruments share one MIDI line</td><td>ALL (OberVave's tracks want ALL)</td></tr>
+      <tr><td>LOCAL</td><td>OFF: the keys only send MIDI, the synth plays only what comes in</td><td>Recording into a computer that plays it back (no doubled notes)</td><td>ON</td></tr>
+      <tr><td>EQ</td><td>LOW (150 Hz), MID (1 kHz), HIGH (6 kHz), &plusmn;12 dB, for every synth. SEL opens its page: SELECT picks, ALGORITHM or KNOB1&ndash;3 (K5&ndash;K7) turn, SEL switches it on/off or puts a band back to 0 dB</td><td>Tame or brighten the speaker or a PA</td><td>OFF (a boost can clip a loud synth)</td></tr>
+      <tr><td>KNOBS CC</td><td>KNOB1&ndash;4 send CC 74, 71, 73, 72 (cutoff, resonance, attack, release) over USB and Bluetooth, on a synth's own screen (in the list they move the list)</td><td>The FM-1 as a controller for a computer synth</td><td>OFF</td></tr>
+      <tr><td>MIDI THRU</td><td>The TRS jack's MIDI (not clock or SysEx) goes on to USB and Bluetooth; the synth plays it too</td><td>A hardware keyboard through the FM-1 into a computer</td><td>OFF</td></tr>
+      <tr><td>ABOUT</td><td>SEL opens a page: the fm1-dock version (a release's with its source, <code>0.8.1 (abc1234)</code>; any other build is its source, <code>2dcbfbf+</code>), the model, one or two CPU cores, the chip, the flash chip's id and size, the RAM for synths, the room left for add-ons (all of it and the largest piece), the Bluetooth address, and every synth with its version and size. SELECT scrolls, HOME goes back</td><td>Asking for help, or checking what a unit runs</td><td>&ndash;</td></tr>
+      <tr><td>BLUETOOTH</td><td>Bluetooth MIDI. <b>OFF</b>; <b>ON</b> (advertising as <code>FM1-DOCK xxxx</code>); <b>LINKED</b> (connected); <b>READY</b> (connected and listening); <b>HELD</b> (saved ON, but not started after a safe or failed start: switch it again); <b>NO CAL</b> (the unit's radio calibration from the stock firmware isn't there: the radio is never started); <b>MISSING</b> (the Bluetooth part of fm1-dock is damaged: install again)</td><td>Play from a phone, a tablet or a computer without a cable</td><td>OFF</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="dim g-note">Bluetooth: turning it on pauses the sound for about 0.2 s while the radio calibrates. On a Mac:
+    Audio MIDI Setup &rarr; MIDI Studio &rarr; the Bluetooth button &rarr; Connect. In Chrome or Edge,
+    <a href="midi.html">Test MIDI</a> connects directly. More in the
+    <a href="https://github.com/joakimeriksson/fm1-dock#bluetooth-midi">README</a>.</p>
+</section>
+
+<section id="synths" aria-labelledby="syn-h">
+  <div class="sec-h"><h2 id="syn-h">Each synth's first 30 seconds</h2></div>
+  <p class="sub">How to get a sound out of it, the controls worth trying first, and where its author explains the rest.
+    Each synth is its author's own program: its manual is the full story.</p>
+  <div class="g-cards">
+    <article class="box g-card"><img src="media/screen_cs1.png" alt="" loading="lazy"><div>
+      <h3>CS-1 <span class="dim">twochannels &middot; built in</span></h3>
+      <p><b>Start:</b> play the keys; it's a CS-80-style poly with two layers.</p>
+      <ul><li>PRESETS: its sounds and your presets</li><li>SELECT: the ribbon (bends)</li><li>ALGORITHM: the next tone or page</li><li>Press harder: aftertouch</li></ul>
+      <p><a href="https://github.com/twochannels/CS-1">Its manual</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_scintilla.png" alt="" loading="lazy"><div>
+      <h3>Scintilla <span class="dim">Joakim Eriksson &middot; built in</span></h3>
+      <p><b>Start:</b> play the keys: the 1981 Elka Synthex, 80 factory sounds.</p>
+      <ul><li>PRESETS: the sounds (PRE 10&ndash;49, MEM 10&ndash;49). Try PRE 46 Ring mod. (the laser harp), PRE 42 Take-off</li><li>KNOB1&ndash;4: the four values on the screen</li><li>SELECT / ALGORITHM: the joystick (bend, LFO 2)</li><li>Velocity and aftertouch: switch them on on its SETTINGS page</li></ul>
+      <p><a href="https://joakimeriksson.github.io/scintilla-fm1/">Its page</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_obervave.png" alt="" loading="lazy"><div>
+      <h3>OberVave <span class="dim">zvenson &middot; built in</span></h3>
+      <p><b>Start:</b> play the keys; four tracks of an analog-style poly with arpeggiator, sequencer and effects.</p>
+      <ul><li>Its pages, presets and patterns are saved in fm1-dock</li><li>Keep MIDI CH on ALL for its tracks</li></ul>
+      <p><a href="https://github.com/zvenson/obervave">Its manual</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_prophet.png" alt="" loading="lazy"><div>
+      <h3>PROPHET <span class="dim">Kerem Kilic (Melodee)</span></h3>
+      <p><b>Start:</b> play the keys; a Prophet-5 Rev 4, eight voices.</p>
+      <ul><li>PRESETS: the patch (INIT and eight of its own)</li><li>SELECT: the page (MAIN, OSC A &hellip; BEND)</li><li>KNOB1&ndash;4: that page's controls</li><li>Your own bank: <code>tools/dock.py send FILE.syx</code></li></ul>
+      <p><a href="https://github.com/keremimo/melodee">Melodee</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_fm106.png" alt="" loading="lazy"><div>
+      <h3>FM-106 <span class="dim">PatttF</span></h3>
+      <p><b>Start:</b> play the keys; the Roland Juno-106, six voices, 128 factory presets.</p>
+      <ul><li>Its chorus, arpeggiator and sequencer</li><li>MIDI: bank select + program change pick a preset</li></ul>
+      <p><a href="https://github.com/PatttF/fm-106">Its manual</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_fm1sid.png" alt="" loading="lazy"><div>
+      <h3>FM-1 SID <span class="dim">Joakim Eriksson</span></h3>
+      <p><b>Start:</b> play the keys for its synth; its songs and their GoatTracker editor are on the knobs.</p>
+      <ul><li>C64 sound: a cycle-exact 6510 and reSID</li></ul>
+      <p><a href="https://github.com/joakimeriksson/fm1-sid#your-first-chiptune-step-by-step">Your first chiptune</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_gator.png" alt="" loading="lazy"><div>
+      <h3>GATOR <span class="dim">npi3pak, on Plaits</span></h3>
+      <p><b>Start:</b> hold a key: a mono macro-oscillator, 24 models.</p>
+      <ul><li>HOME held + a key: pick a model</li><li>16 presets, two LFOs, a modulation matrix (its manual)</li><li>Press harder: aftertouch</li></ul>
+      <p><a href="https://github.com/npi3pak/fm1-gator/blob/main/docs/MANUAL.md">Its manual</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_artihive.png" alt="" loading="lazy"><div>
+      <h3>ARTIHIVE <span class="dim">KHAV</span></h3>
+      <p><b>Start:</b> silent until you press <b>PLAY</b>: eight drones on four FM pairs.</p>
+      <ul><li>HOME on its first page: POLY mode, play chords</li><li>A MIDI note latches a voice</li><li>Its delay reaches 1 s here (2 s in the original)</li></ul>
+      <p><a href="https://github.com/KHAVld/ARTIHIVE">Its manual</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_amb.png" alt="" loading="lazy"><div>
+      <h3>AMB-1 <span class="dim">Charles Vestal</span></h3>
+      <p><b>Start:</b> it plays itself: pads, bells on tape loops, a gliding bass.</p>
+      <ul><li>PLAY: rest it or let it grow again</li><li>You tend it rather than play notes</li></ul>
+      <p><a href="https://charlesvestal.github.io/fm1-amb/manual/">Its manual</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_niagara.png" alt="" loading="lazy"><div>
+      <h3>Niagara Drift <span class="dim">Evan Yerburgh</span></h3>
+      <p><b>Start:</b> press <b>PLAY</b>: two drones fade in and drift.</p>
+      <ul><li>Lower 12 white keys: presets and scenes; press harder to crossfade into one</li><li>Top 4 white keys: gestures (Weight, Shift, Clean, Wash)</li><li>Black keys: switches; black key 4 unlocks the pitch, then KNOB1 and KNOB3 tune</li></ul>
+      <p><a href="https://github.com/evanyerburgh/niagara-drift">Its manual</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_fomni.png" alt="" loading="lazy"><div>
+      <h3>FoMni <span class="dim">Charles Vestal</span></h3>
+      <p><b>Start:</b> hold a black key for a chord, then strum the white keys.</p>
+      <ul><li>A chord harp after the Omnichord, with a bass and a rhythm box</li></ul>
+      <p><a href="https://charlesvestal.github.io/fm1-fomni/">Its page</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_monk.png" alt="" loading="lazy"><div>
+      <h3>MONK-1 <span class="dim">Charles Vestal</span></h3>
+      <p><b>Start:</b> play the keys: a singer. Velocity and pressure shape the voice.</p>
+      <ul><li>ALGORITHM: the vowel</li><li>PRESETS: the singer (twelve of them)</li></ul>
+      <p><a href="https://charlesvestal.github.io/fm1-monk/manual/">Its manual</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_dub.png" alt="" loading="lazy"><div>
+      <h3>DUB-1 <span class="dim">sbegueria</span></h3>
+      <p><b>Start:</b> it plays itself once its launch screen is over: dub techno.</p>
+      <ul><li>PRESETS: the piece (eight)</li><li>A key: takes its note out of the scale</li><li>PLAY: rests it</li></ul>
+      <p><a href="https://sbegueria.github.io/fm1-dub/manual/">Its manual</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_b3.png" alt="" loading="lazy"><div>
+      <h3>B3 ORGAN <span class="dim">R-Jeb, after setBfree</span></h3>
+      <p><b>Start:</b> play chords: a tonewheel organ.</p>
+      <ul><li>SELECT a drawbar, ALGORITHM its level (0&ndash;8); PRESETS the registrations (5 Standard B, 104 Jimmy Smith &hellip;)</li><li>KNOB1 overdrive, KNOB2 vibrato, KNOB3 Leslie stop/slow/fast, KNOB4 reverb</li><li>ENV percussion, LFO Leslie, EDIT overdrive on/off</li></ul>
+      <p><a href="https://github.com/R-Jeb/setBfree-fm1#controls">Its controls</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_fimba.png" alt="" loading="lazy"><div>
+      <h3>FiMba-1 <span class="dim">Adam Sowers</span></h3>
+      <p><b>Start:</b> the white keys are tines; the black keys roll chords.</p>
+      <ul><li>Hit harder: a harder pluck</li><li>Press and hold: you cover the sound hole (a wah)</li></ul>
+      <p><a href="https://jadamsowers.github.io/fm1-fimba/">Its page</a></p></div></article>
+    <article class="box g-card"><img src="media/screen_sine.png" alt="" loading="lazy"><div>
+      <h3>SINE <span class="dim">Dinghy &middot; built in</span></h3>
+      <p><b>Start:</b> play the keys: a plain sine.</p>
+      <ul><li>The fallback when a synth fails, and the start in safe mode</li></ul>
+      <p><a href="https://github.com/zvenson/dinghy">Dinghy</a></p></div></article>
+  </div>
+</section>
+
+<section id="help" aria-labelledby="help-h">
+  <div class="sec-h"><h2 id="help-h">When something goes wrong</h2></div>
+  <div class="grid g-tasks">
+    <div class="box">
+      <h3>Hold at power-on</h3>
+      <ul class="mt-list">
+        <li><b>OCT+</b> (SMK-37: OCTAVE+): the safe start. Only the sine, Bluetooth and the EQ not started.</li>
+        <li><b>OCT&minus;</b> (OCTAVE&minus;): the USB rescue. No sound, only the updater: install again from the page.</li>
+        <li><b>HOME</b>: fm1-dock stays, even with a firmware in its boot slot (a developer's tool).</li>
+      </ul>
+      <p class="dim">Hold the key from before you switch on until the screen shows something.</p>
+    </div>
+    <div class="box">
+      <h3>"too slow" or the sine plays</h3>
+      <p>A synth that can't keep up is stopped and the sine plays, so USB keeps working. Play fewer notes, pick a lighter
+        sound, or check that the top line says <code>2CPU</code>. A synth that crashes twice in a row is skipped at the
+        next start until you pick it again.</p>
+    </div>
+    <div class="box">
+      <h3>The top line says 1CPU</h3>
+      <p>After a crash with both cores, fm1-dock runs on one until power-off. Right after installing fm1-dock the first
+        start can show it too. <b>Switch off and on</b>: both cores come back.</p>
+    </div>
+    <div class="box">
+      <h3>No sound</h3>
+      <ul class="mt-list">
+        <li>MASTER (SMK-37: K1) turned up?</li>
+        <li>ARTIHIVE and Niagara Drift wait for <b>PLAY</b>; AMB-1 and DUB-1 may be resting (PLAY).</li>
+        <li>OPTIONS: LOCAL ON? MIDI CH on ALL? EQ not cut?</li>
+        <li>CC7 VOLUME ON and something sent CC 7 = 0? Turn it off, or send CC 7 again.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Bluetooth doesn't connect</h3>
+      <ul class="mt-list">
+        <li>OPTIONS, BLUETOOTH must say <b>ON</b>. HELD: switch it again. NO CAL: see the README.</li>
+        <li>A device connected elsewhere (Audio MIDI Setup, a DAW) stops it advertising: disconnect it there.</li>
+        <li>Windows apps need a BLE-MIDI driver; <a href="midi.html">Test MIDI</a> in Chrome or Edge needs none.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>The TRS MIDI jack</h3>
+      <p>Use the right adapter (if nothing arrives, try the other type: A or B). <a href="midi.html#trs">Test MIDI's TRS test</a>
+        times every note through the jack and tells you if it works.</p>
+    </div>
+    <div class="box">
+      <h3>"no space" though the meter shows room</h3>
+      <p>The free room can be in pieces: the total is enough, but no single piece is. Remove an add-on next to a gap
+        and add the new one first; then add the removed one again. (0.9 will pack them together for you.)</p>
+    </div>
+    <div class="box">
+      <h3>The page doesn't find the FM-1</h3>
+      <ul class="mt-list">
+        <li>Chrome or Edge on a computer or Android; iPhone and iPad have no Web MIDI.</li>
+        <li>A USB <b>data</b> cable, straight into the computer.</li>
+        <li>Close other tabs and programs using its MIDI (the Firmware Hub, a DAW, M-VAVE's app).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="g-foot"><p>fm1-dock is free software (GPL-3.0). <a href="./">The page</a> &middot;
+  <a href="https://github.com/joakimeriksson/fm1-dock">Source</a> &middot;
+  <a href="https://github.com/joakimeriksson/fm1-dock/issues">Questions and problems</a></p></footer>
+</main>
+</body>
+</html>
