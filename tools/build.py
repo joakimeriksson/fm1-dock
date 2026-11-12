@@ -397,7 +397,7 @@ def main():
                     "elite or mke")
     ap.add_argument("--release", metavar="X.Y", help="release build: version string X.Y (the identity stays fm1-dock's)")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
-    ap.add_argument("--modules", help=f"the modules to pack, in slot order (default: {','.join(PACKAGE)}; every "
+    ap.add_argument("--modules", help=f"the modules to pack, in slot order (default: {','.join(PACKAGE)}; none: only the built-in sine; every "
                     "other modules/<dir> is built as a .dock to deploy)")
     ap.add_argument("--no-package", action="store_true", help="no .fwsc (and no SDK needed): the app and its XIP image")
     ap.add_argument("--no-ble", action="store_true", help="no BLE-MIDI (HX) in the image: no BLUETOOTH line, its "
@@ -447,7 +447,9 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     import hbmod
     every = sorted(d for d in (SRC / "modules").iterdir() if d.is_dir() and d.name != "lib" and any(d.glob("*.c")))
-    dirs = [Path(d).resolve() if "/" in d else SRC / "modules" / d for d in (a.modules or ",".join(PACKAGE)).split(",")]
+    names = ",".join(PACKAGE) if a.modules is None else a.modules
+    dirs = [Path(d).resolve() if "/" in d else SRC / "modules" / d
+            for d in names.split(",") if d and d != "none"]    # --modules none: an empty dock, only the sine
     ota = build_loader()
     host, syms, dis, rt, hx = build_app()
     errors, notes = check(host, syms, dis, rt)
