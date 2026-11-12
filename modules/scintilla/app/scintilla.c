@@ -247,7 +247,7 @@ enum { BTN_KNOB_BANK = 14, BTN_FADER_BANK = 15, BTN_LEFT = 16, BTN_RIGHT = 17 };
 
 /* The ranges take in the Synthex's own (synthex-web's tools/synthex-rom/gen_factory.py maps the ROM
  * presets' knobs to the engine) and synthex-web's panel: ENV +-3.08, cutoff -0.26..1.48 (the knob with the key
- * tracking folded in; the engine clamps the note to 0..132), OSC2 detune +-1250 cents (the transposes folded
+ * tracking folded in; the engine clamps the note to 0..120), OSC2 detune +-1250 cents (the transposes folded
  * in), envelope stages to 13.2 s, LFO 0.07..27.7 Hz and its delay to 18.5 s, glide -32..31 st, 5 ms..1 s.
  * Not here, because the engine does not play them (nor does VoiceCore): the master and fine tune, a layer's
  * pan, velocity into the filter envelope, the stick's Y into the LFO's filter depth. */
