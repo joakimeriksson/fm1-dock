@@ -434,7 +434,7 @@ def main():
         PRODUCT = a.identity
     name = f"{APP}.fwsc"
     if a.release:                   # one digit each (X.Y; a .Z only in the text)
-        m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9]+)?", a.release)
+        m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9-]+)?", a.release)
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix, one digit each")
         VERSION = m[1] + "." + m[2] + (m[3] or "")
