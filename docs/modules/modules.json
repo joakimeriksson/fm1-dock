@@ -355,6 +355,26 @@
   "screenshot": "media/screen_fmini.png",
   "accent": "#e0752b",
   "alt": "FMINI-1's screen: the patch PAD SWELL, F004 of 200, its FILTER page with cutoff, emphasis, contour and keyboard control"
+  },
+ "atek303": {
+  "file": "atek303.dock",
+  "version": "1.2",
+  "source": "modules/atek303: animatek/FM1-Animatek 564b7a0 (ATEK303 1.2; modules/atek303/take.py), fm1-dock",
+  "by": "Animatek",
+  "songs": "",
+  "title": "ATEK303",
+  "module": "ATEK303",
+  "author_url": "https://github.com/animatek",
+  "original": "https://animatek.github.io/FM1-Animatek/",
+  "links": [{ "label": "cheat sheet", "url": "https://animatek.github.io/FM1-Animatek/atek303/cheatsheet/" }, { "label": "source", "url": "https://github.com/animatek/FM1-Animatek" }],
+  "license": "GPL-3.0-or-later (Open303: MIT)",
+  "voices": "1 (mono), with its sequencer",
+  "description": "A TB-303 style acid machine with its own pattern generator: press PLAY and a line plays. Generate, mutate and edit up to 64 steps, 14 oscillators, drive, chorus, a synced delay and a plate reverb, 12 factory presets in 32 slots.",
+  "tags": ["synth", "mono", "acid", "sequencer"],
+  "kind": "analog",
+  "screenshot": "media/screen_atek303.png",
+  "accent": "#2c7fff",
+  "alt": "ATEK303's screen: the preset COSMIC TRAX playing, cutoff, resonance, env mod and decay, the 16 steps under them"
  },
  "keys": {
   "file": "keys.dock",

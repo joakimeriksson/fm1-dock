@@ -388,6 +388,21 @@ def dx7_voice(name, coarse):
     return bytes([0xF0, 0x43, 0x00, 0x00, 0x01, 0x1B] + v + [-sum(v) & 0x7F, 0xF7])
 
 
+def atek_cases():
+    """ATEK303: Animatek's acid machine (modules/atek303): its effects on the second core, on core 0 without it"""
+    s, log = run("atek303", pick("ATEK303") + ",2000:12,2050:12^", 5000)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("atek303", "atek303: ATEK303 1.2" in log and peak(s, 0.0, 1.8) == 0 and peak(s, 2.5, 5.0) > 1000 and
+          " 0 overruns" in log and worst < 85, f"ATEK303: PLAY starts its pattern; worst {worst} % of a block")
+    s, log = run("atek303_key", pick("ATEK303") + ",2000:21,3500:21^", 4000)
+    check("atek303_key", peak(s, 0.0, 1.8) == 0 and peak(s, 2.1, 3.4) > 1000 and " 0 overruns" in log,
+          "ATEK303: a key plays its voice")
+    s, log = run("atek303_flaky", pick("ATEK303") + ",2000:12,2050:12^", 5000,
+                 extra=("--flaky-core1", "1e-6", "--seed", "2"))
+    check("atek303_flaky", "cpu1: misread RAM, 1 core" in log and peak(s, 2.5, 5.0) > 1000 and " 0 overruns" in log,
+          "ATEK303 with a faulty second core: its effects on core 0, still in time")
+
+
 def fm6_cases():
     """FM6: Melodee's six-operator FM engine and its own voices (modules/fm6)"""
     import hbdeploy
@@ -756,6 +771,8 @@ def main():
 
     if "FM6" in names:
         fm6_cases()
+    if "ATEK303" in names:
+        atek_cases()
 
     if "B3 ORGAN" in names:
         # Standard B (88 8000 000) under ten keys; then over MIDI every drawbar out (CC 70..78 at 0, as setBfree),
