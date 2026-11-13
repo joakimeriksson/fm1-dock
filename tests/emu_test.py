@@ -498,6 +498,60 @@ def niagara_cases():
           "to its bank, loaded back)")
 
 
+def keys_cases():
+    """KEYS: a clavinet, an electric piano and a piano from physical models (modules/keys)"""
+    # each family on a key (program changes 0, 4, 7: CLAV BRIGHT, EP SOFT, GRAND), silent before; the key let go
+    # lowers the damper: quiet within a second
+    for case, prog in (("keys_clav", 0), ("keys_ep", 4), ("keys_piano", 7)):
+        s, log = run(case, pick("KEYS") + f",1300:mc0{prog:02x},1800:21,2600:21^", 3800)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check(case, "keys: presets 0000000a" in log and peak(s, 0.0, 1.5) == 0 and peak(s, 1.7, 2.3) > 1000 and
+              peak(s, 3.4, 3.6) < peak(s, 1.7, 2.3) // 20 and " 0 overruns" in log,
+              f"KEYS plays {case[5:].upper()} on a key and damps it; worst {worst} % of a block")
+
+    # the velocity: a hard key louder (and so brighter) than a soft one, in each family
+    for fam, prog in (("clav", 0), ("ep", 4), ("piano", 7)):
+        k = pick("KEYS") + f",1300:mc0{prog:02x}"
+        a, _ = run(f"keys_{fam}_soft", k + ",1800:23@25,2600:23^", 2800)
+        b, _ = run(f"keys_{fam}_hard", k + ",1800:23@127,2600:23^", 2800)
+        check(f"keys_{fam}_vel", peak(b, 1.5, 2.3) > 2 * peak(a, 1.5, 2.3) > 0,
+              f"KEYS {fam.upper()} at the key's velocity (peak {peak(a, 1.5, 2.3)} soft, {peak(b, 1.5, 2.3)} hard)")
+
+    # GRAND (the heaviest: two strings a voice) as a 16-note chord, half of its voices on the second core; then the
+    # same on a faulty second core: all 16 voices on core 0
+    chord = "".join(f",1800:{k},3600:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26, 28, 30, 31, 33, 35, 37, 38, 40))
+    s, log = run("keys_chord", pick("KEYS") + ",1300:mc007" + chord, 4200)
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("keys_chord", "cpu1: 2 cores" in log and peak(s, 2.0, 3.4) > 1000 and " 0 overruns" in log and worst < 80,
+          f"KEYS plays GRAND as a 16-note chord on two cores; core 0's worst {worst} % of a block")
+    s, log = run("keys_flaky", pick("KEYS") + ",1300:mc007" + chord, 4200, extra=("--flaky-core1", "1e-6", "--seed", "2"))
+    worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+    check("keys_flaky", "cpu1: misread RAM, 1 core" in log and peak(s, 2.0, 3.4) > 1000 and " 0 overruns" in log
+          and worst < 85, f"a faulty second core: KEYS plays its 16 voices on core 0; worst {worst} %")
+
+    # one family after another on the same voices (what one leaves in a voice is not the next one's): EP BELL's chord,
+    # then CLAV WAH's and GRAND's on the same keys while the last still rings
+    keys = (14, 18, 21, 25, 28)
+    m = pick("KEYS")
+    for i, p in enumerate((6, 3, 7)):
+        m += f",{1300 + 700 * i}:mc0{p:02x}" + "".join(f",{1400 + 700 * i}:{k},{1900 + 700 * i}:{k}^" for k in keys)
+    s, log = run("keys_switch", m, 3800)
+    check("keys_switch", all(peak(s, 1.3 + 0.7 * i, 1.7 + 0.7 * i) > 1000 for i in range(3)) and " 0 overruns" in log
+          and "strikes: none" in log, "KEYS: E.PIANO, CLAV and PIANO in turn on the same voices")
+
+    # the families on one note sound different: CLAV BRIGHT, EP SOFT, HONKY (program changes 0, 4, 9)
+    m = pick("KEYS")
+    for i, p in enumerate((0, 4, 9)):
+        m += f",{1300 + 1000 * i}:mc0{p:02x},{1500 + 1000 * i}:m903c64,{2100 + 1000 * i}:m803c00"
+    s, log = run("keys_presets", m, 4400)
+    t = onset_frames(s)
+    b = [brightness(t, 0.02 + i, 0.4 + i) for i in range(3)]
+    r = [rms_left(t, 0.02 + i, 0.4 + i) for i in range(3)]
+    differ = all(abs(b[i] - b[j]) > 0.02 or abs(r[i] - r[j]) > 0.2 * max(r[i], r[j]) for i in range(3) for j in range(i))
+    check("keys_presets", all(x > 300 for x in r) and differ,
+          f"three families, three sounds (brightness {', '.join(f'{x:.2f}' for x in b)}, RMS {', '.join(f'{x:.0f}' for x in r)})")
+
+
 def main():
     names = [n for n, _, _ in slots()]
     print(f"slots: {', '.join(names)}")
@@ -739,6 +793,8 @@ def main():
               f"worst {worst} % of a block")
     if "NIAGARA" in names:
         niagara_cases()
+    if "KEYS" in names:
+        keys_cases()
     if "ARTIHIVE" in names:
         # DRONE: silent until PLAY, which starts all eight drones (four FM pairs, the delay, the compressor);
         # POLY (HOME on its first page): an eight-note chord on the keys; a MIDI note latches voice 4 (60 & 7)
