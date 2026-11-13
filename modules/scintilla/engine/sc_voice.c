@@ -58,7 +58,7 @@ uint32_t sc_pitch_inc(int32_t n)
     return (a + (uint32_t)(((uint64_t)(b - a) * fr) >> 10)) >> (11u - oct);
 }
 
-/* cutoff note (Q16, 0..132) -> g = tan(pi fc / fs), Q28 */
+/* cutoff note (Q16, 0..132; the voice asks for no more than SC_CUT_CEIL) -> g = tan(pi fc / fs), Q28 */
 static uint32_t cut_g(int32_t n)
 {
     uint32_t u = (uint32_t)n, i = u >> 13, fr = u & 8191u;
@@ -695,6 +695,9 @@ void sc_voice_note_off(sc_voice_t *v, const sc_prep_t *p)
 
 /* VoiceCore.cutoffNote: the modulated cutoff in semitones (Q16), from this sample's envelope and LFO
  * values and the portamento pitch (key_q16 = cur >> 16) */
+/* The highest cutoff the filter reaches, a note in Q16: VoiceCore's CUTOFF_CEILING (120 = 8.4 kHz), fitted to the
+ * recording's onsets (the plucked presets' envelopes snap far past the top: without it a hard hit on every note). */
+#define SC_CUT_CEIL (120 << 16)
 static inline int32_t cutoff_note(const sc_voice_t *v, const sc_prep_t *p, int32_t e1, int32_t l1, int32_t l2,
                                   int32_t key_q16)
 {
@@ -704,7 +707,7 @@ static inline int32_t cutoff_note(const sc_voice_t *v, const sc_prep_t *p, int32
     c += ((int64_t)e1 * p->kc_env) >> 30;
     c += ((int64_t)(e1 - SC_ONE30 / 2) * p->kc_env1) >> 30;
     c += ((int64_t)(key_q16 - (60 << 16)) * p->kc_key) >> 16;
-    return c < 0 ? 0 : c > (132 << 16) ? (132 << 16) : (int32_t)c;
+    return c < 0 ? 0 : c > SC_CUT_CEIL ? SC_CUT_CEIL : (int32_t)c;
 }
 
 /* did the cutoff move SC_CUTOFF_STEP from the coefficients' note */
@@ -729,7 +732,7 @@ static inline env_cut_t env_cut(const sc_voice_t *v, const sc_prep_t *p, int32_t
 static inline int32_t env_cut_at(const env_cut_t *c, int32_t e1)
 {
     int64_t x = c->base + (((int64_t)e1 * c->ke) >> 30) + (((int64_t)(e1 - SC_ONE30 / 2) * c->ke1) >> 30);
-    return x < 0 ? 0 : x > (132 << 16) ? (132 << 16) : (int32_t)x;
+    return x < 0 ? 0 : x > SC_CUT_CEIL ? SC_CUT_CEIL : (int32_t)x;
 }
 
 /* The first sample in [a, b) on which the cutoff, moved by the filter envelope e1[] alone, has

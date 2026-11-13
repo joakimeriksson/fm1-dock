@@ -27,6 +27,7 @@ import json
 import os
 import struct
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -38,10 +39,8 @@ RAM_BASE = 0x01C00000
 RAM_END = 0x01C80000  # 512 KiB
 XIP_BASE = 0x02000000  # flash in the XIP window (FM1_XIP(0x4000))
 XIP_END = 0x02100000  # 1 MiB flash window
-NV_MAGIC = 0x564E4248
 CRASH_MAGIC = 0x48535243
 LOG_SIZE = 2048
-SLOTS = 32
 
 SEQ_LOCK = threading.Lock()
 SEQ = 0
@@ -51,8 +50,6 @@ FRAME_ID = 1
 SCOPE_CRASH = 1000
 SCOPE_STATS = 2000
 SCOPE_MODULES = 3000
-
-KIND = ["built in", "image", "deployed", "boot"]
 
 
 # ---------------------------------------------------------------------------
@@ -232,23 +229,14 @@ class RamSession:
     """Offline session from an emulator RAM dump (tools/dock.py emu produces build/emu/ram.bin)."""
 
     def __init__(self, ram_path):
+        import dock
         self.ram = Path(ram_path).read_bytes()
-        self.nv_off = self._find_nv()
+        self.nv_off = dock.nv_addr(self.ram)
         self.hello_data = {}
         self.module_list = []
         self.log_pos = 0
         self.running = False
         self.lock = threading.Lock()
-
-    def _find_nv(self):
-        syms = SRC / "build" / "fm1-dock.syms"
-        if syms.exists():
-            import re
-            m = re.search(r"^([0-9a-f]{8}) .*\shb_nv$", syms.read_text(), re.M)
-            if m:
-                return int(m.group(1), 16) - RAM_BASE
-        i = self.ram.find(struct.pack("<I", NV_MAGIC))
-        return i if i >= 0 else None
 
     def refresh(self):
         if self.nv_off is None:
@@ -517,7 +505,8 @@ def handle_variables(session, req):
         cur = h.get("cur", -1)
         for m in (session.module_list if session else []):
             prefix = "> " if m["index"] == cur else "  "
-            kind = KIND[m["kind"]] if m["kind"] < len(KIND) else str(m["kind"])
+            import hbdeploy
+            kind = hbdeploy.KIND[m["kind"]] if m["kind"] < len(hbdeploy.KIND) else str(m["kind"])
             at = m.get("at", 0)
             val = f"{kind} v{m['version']} {m['size'] // 1024} KiB [{m['state']}]"
             variables.append(_var(f"{prefix}{m['name']}", val, "module",
@@ -734,25 +723,26 @@ def _boot_emulator(ms=2000):
 
     Uses dock.live() for the emulator binary (FM1_LIVE env or the repo default).
     Prefers build/fm1-dock.fwsc (your own build) over the shipped release package.
+    Runs fm1-live in a tempdir (with work/ for its panel output) so it never writes
+    to the repo root or overwrites build/emu/ram.bin from tools/dock.py emu.
     """
     import subprocess
     import dock
     emu = str(dock.live())
-    # Prefer the tree's build; fall back to the shipped release package
     fwsc = SRC / "build" / "fm1-dock.fwsc"
     if not fwsc.exists():
         fwsc = SRC / "docs" / "fm1-dock-0.5.fwsc"
     if not fwsc.exists():
         sys.exit(f"Firmware not found: need build/fm1-dock.fwsc or docs/fm1-dock-0.5.fwsc")
-    ram_dir = SRC / "build" / "emu"
-    ram_dir.mkdir(parents=True, exist_ok=True)
-    ram = ram_dir / "ram.bin"
+    wd = Path(tempfile.mkdtemp(prefix="fm1dap_"))
+    (wd / "work").mkdir()
+    ram = wd / "ram.bin"
     print(f"[fm1dap] emulator: {emu}", file=sys.stderr)
     print(f"[fm1dap] firmware: {fwsc}", file=sys.stderr)
     print(f"[fm1dap] booting for {ms} ms...", file=sys.stderr)
     env = {**os.environ, "FM1_DUMPRAM": str(ram)}
     subprocess.run([emu, "--fwsc", str(fwsc), "--shot", str(ms)],
-                   env=env, stdout=sys.stderr, stderr=sys.stderr, check=True)
+                   cwd=str(wd), env=env, stdout=sys.stderr, stderr=sys.stderr, check=True)
     print(f"[fm1dap] RAM dump: {ram} ({ram.stat().st_size} bytes)", file=sys.stderr)
     return str(ram)
 

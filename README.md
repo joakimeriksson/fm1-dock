@@ -77,6 +77,14 @@ its own package; the installers refuse an FM-1 package on an SMK-37, and the oth
 Back to any other firmware, or the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing firmware is at your own risk.
 
+## New in 0.8.2
+
+- **Scintilla without the hard hit at a note's start** (its 0.3.2): Laser Harp and the other plucked sounds began
+  each note too bright, the filter standing wide open for the first 20 ms. It now opens no further than 8.4 kHz, as
+  two recordings of real Synthexes have it. Heard and measured on an SMK-37 Pro.
+
+The [0.8.2 release notes](https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.8.2).
+
 ## New in 0.8.1
 
 - **Scintilla as its 0.3**: the Laser Harp without its click, the ring modulator and cross-mod read from the Synthex's
@@ -164,7 +172,7 @@ fm1-dock starts whatever played last. The options, for every module:
 | **EQ** | LOW (a 150 Hz shelf), MID (a 1 kHz peak), HIGH (a 6 kHz shelf), ±12 dB each, before MASTER, in the chip's hardware EQ (about 3 % of a block). **SELECT** picks a band, **ALGORITHM** or **KNOB1..3** turn it, **SEL** switches the EQ ON / OFF or puts a band back to 0 dB. OFF by default; a boost can clip a loud module |
 | **KNOBS CC** | ON: KNOB1..4 send CC 74, 71, 73, 72 (cutoff, resonance, attack, release) over USB and BLE-MIDI instead of turning the module's knobs. OFF by default |
 | **MIDI THRU** | ON: the TRS MIDI jack's input (not clock or SysEx) goes on to USB-MIDI and BLE-MIDI, and the module plays it too. OFF by default |
-| **ABOUT** | **SEL**: a page with the version (a release's `0.8.1 (abc1234)` with its source; any other build's is its source, git's short hash, `+` with changes not committed), the board and model, 1CPU / 2CPU, the chip, the flash chip's JEDEC id and size, the module RAM, the add-ons' free flash (all and the largest piece), the BLE address, and each module's name, version and KiB. **SELECT / PRESETS** scroll, **HOME** goes back |
+| **ABOUT** | **SEL**: a page with the version (a release's `0.8.2 (abc1234)` with its source; any other build's is its source, git's short hash, `+` with changes not committed), the board and model, 1CPU / 2CPU, the chip, the flash chip's JEDEC id and size, the module RAM, the add-ons' free flash (all and the largest piece), the BLE address, and each module's name, version and KiB. **SELECT / PRESETS** scroll, **HOME** goes back |
 | **BLUETOOTH** | BLE-MIDI, OFF by default (below) |
 
 ### Bluetooth MIDI
