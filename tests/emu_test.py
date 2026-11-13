@@ -514,6 +514,16 @@ def keys_cases():
     check("keys_flaky", "cpu1: misread RAM, 1 core" in log and peak(s, 2.0, 3.4) > 1000 and " 0 overruns" in log
           and worst < 85, f"a faulty second core: KEYS plays its 16 voices on core 0; worst {worst} %")
 
+    # one family after another on the same voices (what one leaves in a voice is not the next one's): EP BELL's chord,
+    # then CLAV WAH's and GRAND's on the same keys while the last still rings
+    keys = (14, 18, 21, 25, 28)
+    m = pick("KEYS")
+    for i, p in enumerate((6, 3, 7)):
+        m += f",{1300 + 700 * i}:mc0{p:02x}" + "".join(f",{1400 + 700 * i}:{k},{1900 + 700 * i}:{k}^" for k in keys)
+    s, log = run("keys_switch", m, 3800)
+    check("keys_switch", all(peak(s, 1.3 + 0.7 * i, 1.7 + 0.7 * i) > 1000 for i in range(3)) and " 0 overruns" in log
+          and "strikes: none" in log, "KEYS: E.PIANO, CLAV and PIANO in turn on the same voices")
+
     # the families on one note sound different: CLAV BRIGHT, EP SOFT, HONKY (program changes 0, 4, 9)
     m = pick("KEYS")
     for i, p in enumerate((0, 4, 9)):

@@ -145,6 +145,7 @@ RAM needs it. The originals are linked; their manuals apply.
 | **B3 ORGAN** | R-Jeb | every key, 91 tonewheels | 77 KiB | A tonewheel organ modelled on setBfree: nine drawbars, key click, vibrato and chorus, percussion, overdrive, reverb and a Leslie; setBfree's 110 programs and its MIDI controllers. [The original](https://github.com/R-Jeb/setBfree-fm1), its organ and screen unchanged. |
 | **Niagara Drift** | Evan Yerburgh | 2 drones | 156 KiB | A drone synth after the SOMA Lyra-8, the Moog Subharmonicon and the Stylophone DS-2: two virtual-analog drones that breathe and drift, scenes on the white keys that the keys' pressure glides into, gestures, an LFO, a delay and a reverb. [The original](https://evanyerburgh.github.io/niagara-drift/), its code unchanged but for a module's RAM: the delay reaches 270 ms (450), the knob loop keeps 2048 events (4096). |
 | **FMINI-1** | Ruppert | 1 (MONO, LEGATO) or 12 (POLY, half on the second core) | 61 KiB | FMini-1's monosynth in the style of the classic three-oscillator Moogs: three oscillators and noise into the mixer's soft overload, the 24 dB ladder with its own contour, glide and the mod wheel's vibrato; its 200 factory patches and your own, with FMini-1's own effects (DRIVE, CHORUS, a 1.5 s DELAY of seven kinds, five REVERBs) and an arpeggiator (UP, DOWN, UP-DOWN, RANDOM, AS PLAYED, 1-4 octaves, HOLD, MIDI clock). [The original](https://github.com/ruppert/fmini-1), its engine, patches and effects unchanged; its sequencer is not in the module. |
+| **KEYS** | Joakim Eriksson | 24, half on the second core (16 on one core) | 20 KiB | A clavinet, an electric piano and a piano from physical models: a plucked string after Plaits' (Emilie Gillet) with two pickups, a resonant filter or a wah and the yarn damper; eight modes of a struck tine into a magnetic pickup that barks when hit hard; two stiff strings a voice with a felt hammer, over a soundboard. Ten presets, TONE, DECAY, PICKUP or HARDNESS and VOLUME on the knobs, the keys' velocity in all three. |
 
 The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas); the page's meter shows what
 fits before you add one. FM-1 SID, MONK-1, DUB-1, GATOR and Niagara Drift are large: with one of them added, only
@@ -278,7 +279,8 @@ The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `pla
 - **The modules**: CS-1, twochannels. OberVave, zvenson. FM-106, PatttF (its DSP after
   [ultramaster_kr106](https://github.com/kayrockscreenprinting/ultramaster_kr106)). AMB-1, FoMni and MONK-1, Charles
   Vestal (MONK-1's voice: Jonathan Taylor's MonkSynth). FiMba-1, Adam Sowers. GATOR, npi3pak (Plaits and stmlib:
-  Emilie Gillet). DUB-1, sbegueria (after AMB-1). ARTIHIVE, KHAV. reSID: Dag Lem.
+  Emilie Gillet). DUB-1, sbegueria (after AMB-1). ARTIHIVE, KHAV. KEYS, Joakim Eriksson (its string's excitation, filter
+  and generator after Plaits and stmlib: Emilie Gillet). reSID: Dag Lem.
 - **The base**: [Dinghy](https://github.com/zvenson/dinghy) (zvenson), on the platform of
   [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton Instruments) as
   [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) carries it.

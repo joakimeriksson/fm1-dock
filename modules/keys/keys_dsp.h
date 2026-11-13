@@ -141,10 +141,12 @@ static inline void kd_line_write(kd_line_t *s, float v)
     s->w = (s->w + 1u) & KD_MASK;
 }
 /* a fresh string: silence in what the loop reads before it writes again (the n samples behind w; the pickups' taps
- * are within them), not the whole line: a note-on in the audio interrupt stays short */
+ * are within them), not the whole line: a note-on in the audio interrupt stays short. (w may be what another
+ * instrument left in the voice: in range first) */
 static void kd_line_clear(kd_line_t *s)
 {
     uint32_t i;
+    s->w &= KD_MASK;
     for (i = 1; i <= s->n + 2u; i++)
         s->d[(s->w - i) & KD_MASK] = 0.0f;
     s->thx = s->thy = 0.0f;
@@ -204,7 +206,8 @@ static void kd_clav_on(kd_clav_t *c, float f0, float vn, float key, const kd_par
     c->exc = (uint32_t)(KD_SR / f0);
     c->rng = c->rng * 69069u + (uint32_t)(f0 * 16.0f) + 1u;
     km_svf_set(&c->ef, km_excite_cutoff(f0 / KD_SR, 0.35f + 0.6f * p->tone, vn, kd_exp2), 0.5f);
-    c->eamp = (0.12f + 0.88f * vn * vn) * kd_exp2(-(key - 60.0f) * (1.0f / 19.0f));   /* (level across the keys) */
+    /* (the level evened out across the keys: the pickups and the filter give a high string more) */
+    c->eamp = (0.12f + 0.88f * vn * vn) * kd_exp2(-(kd_clamp(key, 36.0f, 96.0f) - 60.0f) * (1.0f / 19.0f));
     /* the filter: its cutoff from the tone, opened by the velocity and the envelope */
     if (p->x[3] > 0.5f)                         /* the wah: a band from 250 Hz (a pedal's travel), not by the key */
         c->fbase = 250.0f * kd_exp2(2.0f * p->tone) / KD_SR;

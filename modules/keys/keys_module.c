@@ -3,9 +3,9 @@
 /* KEYS: a clavinet, an electric piano and a piano from physical models (keys_dsp.h; the string's excitation, the SVF
  * and the generator after Mutable Instruments' Plaits and stmlib, keys_mi.h, MIT), as a fm1-dock module.
  *   - three families, a few presets each (PRESETS); ALGORITHM jumps from family to family;
- *   - KNOB1..4: TONE, DECAY, PICKUP (CLAV, E.PIANO) or HARDNESS (PIANO), VOLUME: a preset's starting values, turned
- *     for the next notes (a struck string keeps what it was struck with); MIDI CC 74, 71, 73, 72 the same (fm1-dock's
- *     KNOBS CC), 64 the sustain pedal, program change the preset;
+ *   - KNOB1..4: TONE, DECAY, PICKUP (CLAV, E.PIANO) or HARDNESS (PIANO), VOLUME: a preset's starting values; the
+ *     first three turned for the next notes (a struck string keeps what it was struck with), VOLUME at once; MIDI
+ *     CC 74, 71, 73, 72 the same (fm1-dock's KNOBS CC), 64 the sustain pedal, program change the preset;
  *   - the velocity: the hammer (its contact time, so the brightness) and the level, in all three;
  *   - the voices: up to NVOICE with the second core (half of them on it), NV_1 on core 0 alone; a key struck again
  *     strikes its string (or tine) again, as it still rings;
@@ -56,7 +56,9 @@ static const char *const KNOB_NAME[NFAM][4] = {
  * torn between two edits is still one of them) */
 static volatile uint32_t play_fam;
 static kd_par_t play_par;
-static volatile float play_gain = 1.0f;         /* the preset's level x VOLUME */
+static volatile float play_gain = 1.0f;         /* the preset's level */
+static volatile float out_vol = 1.0f;           /* VOLUME, on the part (as Q15 x 12000) */
+static float out_now;                           /* where its ramp is */
 
 /* ---- the voices (the audio interrupt's) */
 typedef struct {
@@ -284,8 +286,16 @@ static void part_block(int32_t *out, uint32_t n)
         }
         sb_lvl = pk;
     }
+    {
+        float to = out_vol * 12000.0f, step = (to - out_now) / (float)n;   /* (VOLUME turned: a ramp, no steps) */
+        for (i = 0; i < n; i++) {
+            out_now += step;
+            bus0[0][i] = km_dc(&dc, bus0[0][i]) * out_now;
+        }
+        out_now = to;
+    }
     for (i = 0; i < n; i++) {                   /* Q15, a soft knee above -2.5 dBFS (chords) */
-        float x = km_dc(&dc, bus0[0][i]) * 12000.0f;
+        float x = bus0[0][i];
         int32_t s = (int32_t)x, a = s < 0 ? -s : s;
         if (a > 24576) {
             a = 24576 + ((a - 24576) >> 2);
@@ -330,7 +340,8 @@ static void par_update(void)
     q.vol = v * v;
     memcpy(q.x, p->x, sizeof q.x);
     memcpy(&play_par, &q, sizeof q);
-    play_gain = p->gain * q.vol;
+    play_gain = p->gain;
+    out_vol = q.vol;
     play_fam = p->fam;
 }
 static void preset_select(uint32_t k)

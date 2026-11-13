@@ -356,6 +356,27 @@
   "accent": "#e0752b",
   "alt": "FMINI-1's screen: the patch PAD SWELL, F004 of 200, its FILTER page with cutoff, emphasis, contour and keyboard control"
  },
+ "keys": {
+  "file": "keys.dock",
+  "version": "1",
+  "source": "modules/keys, fm1-dock",
+  "by": "Joakim Eriksson",
+  "songs": "",
+  "title": "KEYS",
+  "module": "KEYS",
+  "author_url": "https://github.com/joakimeriksson",
+  "original": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/keys",
+  "links": [{ "label": "source", "url": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/keys" }],
+  "license": "GPL-3.0-only (Plaits / stmlib parts: MIT)",
+  "voices": "24, half on the second core (16 on one core)",
+  "description": "A clavinet, an electric piano and a piano from physical models: a plucked string after Mutable Instruments' Plaits (Emilie Gillet) with two pickups and a wah, a struck tine into a magnetic pickup that barks when hit hard, two stiff strings over a soundboard; ten presets, the keys' velocity in all three.",
+  "tags": ["poly", "physical model", "piano"],
+  "kind": "keys",
+  "untested": true,
+  "screenshot": "media/screen_keys.png",
+  "accent": "#ffaa28",
+  "alt": "KEYS' screen: the preset EP BARK, E.PIANO 2 of 3, the three families, Tone, Decay, Pickup and Volume"
+ },
  "sine": {
   "hub": "dinghy",
   "title": "SINE",
