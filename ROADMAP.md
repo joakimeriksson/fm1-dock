@@ -41,10 +41,10 @@ large ones can fill it. 0.9 makes every synth an add-on.
    are offered on the page. Tested in fm1-emu first (an older version with add-ons, a power cut half way), then on
    an FM-1 and an SMK-37.
 5. **Packs on the page**, one click each, the flash meter showing what fits:
-   - **Analog**: Scintilla, CS-1, OberVave, PROPHET, FM-106, FMINI-1
+   - **Analog**: Scintilla, CS-1, OberVave, PROPHET, FM-106, FMINI-1, ATEK303
    - **Digital & chip**: FM-1 SID, GATOR, ARTIHIVE, FM6
    - **Ambient & texture**: AMB-1, Niagara Drift, FoMni, MONK-1, DUB-1
-   - **Keys & acoustic**: B3 ORGAN, FiMba-1
+   - **Keys & acoustic**: B3 ORGAN, FiMba-1, KEYS
    - **Empty**: pick your own
 6. **On the Firmware Hub**: one package, and maybe one "with the classics" (CS-1, Scintilla and OberVave already
    added) for those who install from the Hub.

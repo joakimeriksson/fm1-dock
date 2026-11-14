@@ -77,6 +77,17 @@ its own package; the installers refuse an FM-1 package on an SMK-37, and the oth
 Back to any other firmware, or the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing firmware is at your own risk.
 
+## New add-ons
+
+On the page now, for 0.8.2 and later; an add-on needs no new firmware:
+
+- **KEYS**: a clavinet, an electric piano and a piano from physical models, 24 voices in 20 KiB. Velocity shapes
+  each: a brighter pluck, more of the tine's bark, a harder hammer.
+- **ATEK303** (Animatek): a TB-303 style acid machine with its own pattern generator; press PLAY and a line plays.
+- **FM6** (Melodee): a six-operator FM synth with 16 voices, its own 24 voices and DX7 SysEx over USB.
+- **FMINI-1** (Ruppert): a three-oscillator monosynth in the classic Moog style, with its 200 factory patches and
+  an arpeggiator.
+
 ## New in 0.8.2
 
 - **Scintilla without the hard hit at a note's start** (its 0.3.2): Laser Harp and the other plucked sounds began
