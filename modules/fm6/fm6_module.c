@@ -389,6 +389,44 @@ static void ev_play(const ev_t *e)
 /* ---- the sound: control blocks of CTL frames, as Melodee's voice.c renders a part */
 static int32_t mono_buf[CTL];
 
+#define LIM_T 26000                             /* Melodee mix.c: -2 dBFS, only overs */
+static int32_t lim_env = LIM_T;                 /* its envelope (as Melodee starts it) */
+/* Melodee's soft clip (dsp.c softclip, tools/gen_tables.py TANH_Q15): tanh(x / 32768) * 32767 for |x| up to
+ * 65536, 256 a step, interpolated */
+static const int16_t TANH_Q15[257] = {
+    0, 255, 511, 767, 1023, 1279, 1534, 1790, 2045, 2300, 2554, 2809,
+    3062, 3316, 3569, 3822, 4074, 4326, 4577, 4828, 5078, 5328, 5577, 5825,
+    6072, 6319, 6565, 6811, 7055, 7299, 7542, 7784, 8025, 8265, 8504, 8742,
+    8980, 9216, 9451, 9685, 9918, 10150, 10381, 10611, 10840, 11067, 11293, 11518,
+    11742, 11964, 12186, 12405, 12624, 12841, 13057, 13272, 13485, 13697, 13908, 14117,
+    14325, 14531, 14736, 14940, 15142, 15342, 15541, 15739, 15935, 16130, 16323, 16515,
+    16705, 16894, 17081, 17267, 17451, 17633, 17814, 17994, 18172, 18349, 18524, 18697,
+    18869, 19039, 19208, 19375, 19541, 19705, 19868, 20029, 20188, 20346, 20503, 20658,
+    20811, 20963, 21114, 21263, 21410, 21556, 21701, 21844, 21985, 22125, 22264, 22401,
+    22536, 22670, 22803, 22935, 23064, 23193, 23320, 23445, 23570, 23693, 23814, 23934,
+    24053, 24170, 24286, 24401, 24514, 24626, 24737, 24847, 24955, 25062, 25167, 25271,
+    25375, 25476, 25577, 25676, 25775, 25872, 25967, 26062, 26156, 26248, 26339, 26429,
+    26518, 26606, 26692, 26778, 26862, 26946, 27028, 27109, 27190, 27269, 27347, 27424,
+    27500, 27576, 27650, 27723, 27795, 27867, 27937, 28006, 28075, 28142, 28209, 28275,
+    28340, 28404, 28467, 28529, 28591, 28652, 28712, 28771, 28829, 28886, 28943, 28999,
+    29054, 29108, 29162, 29215, 29267, 29318, 29369, 29419, 29468, 29517, 29565, 29612,
+    29658, 29704, 29750, 29794, 29838, 29882, 29925, 29967, 30008, 30049, 30090, 30130,
+    30169, 30208, 30246, 30283, 30320, 30357, 30393, 30428, 30463, 30498, 30532, 30565,
+    30598, 30631, 30663, 30694, 30726, 30756, 30786, 30816, 30846, 30874, 30903, 30931,
+    30959, 30986, 31013, 31039, 31065, 31091, 31116, 31141, 31166, 31190, 31214, 31238,
+    31261, 31284, 31306, 31328, 31350, 31371, 31393, 31413, 31434, 31454, 31474, 31494,
+    31513, 31532, 31551, 31570, 31588,
+};
+static int32_t softclip(int32_t x)
+{
+    int32_t a = x < 0 ? -x : x, i = a >> 8, y;
+    if (i >= 256)
+        y = TANH_Q15[256];
+    else
+        y = TANH_Q15[i] + (((TANH_Q15[i + 1] - TANH_Q15[i]) * (a & 255)) >> 8);
+    return x < 0 ? -y : y;
+}
+
 static void part_block(int32_t *out, uint32_t n)
 {
     track_t *t = &trk[0];
@@ -428,15 +466,21 @@ static void part_block(int32_t *out, uint32_t n)
         nr++;
     }
     ENG.post(t, mono_buf, n, nr);
-    /* a voice of Melodee's peaks near +-2000..10000 (fm6_output: VOICE_FS), as it is; a soft knee above -2.5 dBFS for
-     * chords */
+    /* Melodee's own mix (mix.c), which this module stands in for: the part at its default level (P_LEVEL 104,
+     * -4 dB), then the master's limiter (master_out: above LIM_T 26000, -2 dBFS, an envelope that rises fast and falls
+     * slowly, so a chord turns the whole down instead of its peaks being cut) and its soft clip (tanh, the same
+     * table). A voice peaks near +-2000..10000 (VOICE_FS); four to six of them sum to 40000..60000 */
     for (i = 0; i < n; i++) {
-        int32_t s = mono_buf[i], a = s < 0 ? -s : s;
-        if (a > 24576) {
-            a = 24576 + ((a - 24576) >> 2);
-            if (a > 32767) a = 32767;
-            s = s < 0 ? -a : a;
+        int32_t s = (mono_buf[i] * 2584) >> 12, a = s < 0 ? -s : s;     /* -4 dB (Melodee's LEVEL_Q12[104]) */
+        if (a > lim_env)
+            lim_env += (a - lim_env) >> 2;
+        else if (lim_env > LIM_T)
+            lim_env -= ((lim_env - LIM_T) >> 12) + 1;
+        if (lim_env > LIM_T) {
+            int32_t g = (int32_t)(((uint32_t)LIM_T << 15) / (uint32_t)lim_env);   /* < 32768 */
+            s = ((s >> 4) * g) >> 11;
         }
+        s = softclip(s);
         out[2u * i] += s;
         out[2u * i + 1u] += s;
     }
