@@ -41,7 +41,7 @@ def pick(name):
     return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
 
 
-O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU, O_ABOUT = range(8)   # the OPTIONS lines (dock.c), past the
+O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_AT, O_THRU, O_ABOUT = range(9)   # the OPTIONS lines (dock.c), past the
 # list's modules; then BLUETOOTH, the last
 ACC = (180, 140, 255)                   # dock.c C_ACC, as the panel shows it (RGB565)
 
@@ -517,7 +517,7 @@ def main():
     ver = (re.findall(r"fm1-dock (\S+) boot", log) or ["?"])[-1]
     x0, x1 = acc_span("about", 28, 44)
     _, _ = run("about_back", at + ",1500:8,1550:8^", 2000)
-    y = 50 + O_ABOUT * 18                   # (dock.c OPT_Y)
+    y = 50 + O_ABOUT * 16                   # (dock.c OPT_Y)
     b0, b1 = acc_span("about_back", y, y + 18)
     n = len(f"fm1-dock {ver}") + (10 if "." in ver else 0)   # (a release's: " (abc1234)" after it)
     check("about", re.fullmatch(r"\d\.\d(\.\d)?|[0-9a-f]{7}\+?|unknown", ver) is not None and x0 >= 2 and
@@ -930,6 +930,30 @@ def main():
         check("knobs_cc", out == [(0xB0, 74, 65 + i) for i in range(5)] + [(0xB0, 71, 63 - i) for i in range(3)] +
               [(0xB0, 74, 68), (0xB0, 74, 64), (0xB0, 74, 60)] and out2 == [],
               f"KNOBS CC: KNOB1 sends CC 74 64 -> 69, KNOB2 CC 71 down to 61, fast four a detent ({out}); OFF: none ({out2})")
+
+    if "CS-1" in names:
+        # AFTERTOUCH: CS-1 holds a DIN note while poly pressure rises on it; FILTER (CC 74, its brilliance) and
+        # MOD WHL (CC 1, its expression) change the sound from the first pressure on, not before; the same option
+        # with no pressure sent is the reference (fm1-emu is deterministic)
+        res = {}
+        for mode, n in (("filter", 3), ("mod", 2)):
+            for press in (False, True):
+                keys, t = options([(O_AT, n)])
+                idx = 1 + [nm for nm, _, _ in slots()].index("CS-1")
+                keys += f",{t + 200}:8,{t + 250}:8^,{t + 400}:e6:{idx},{t + 600}:8,{t + 650}:8^,{t + 1200}:m903c64"
+                if press:
+                    keys += "".join(f",{t + 2000 + 40 * i}:ma03c{16 + 8 * i:02x}" for i in range(14))
+                s, log = run(f"at_{mode}{'' if press else '_ref'}", keys, t + 3200)
+                res[mode, press] = s, t / 1000
+        why, ok = [], True
+        for mode in ("filter", "mod"):
+            (a, t0), (b, _) = res[mode, False], res[mode, True]
+            d = [x - y for x, y in zip(a, b)]     # (the WAV starts ~0.2 s after boot: the note at t0 + 1.0 in it,
+            pre, post = rms_left(d, t0 + 1.2, t0 + 1.75), rms_left(d, t0 + 2.0, t0 + 2.8)   # the pressure at 1.8)
+            ok = ok and rms_left(a, t0 + 1.2, t0 + 1.75) > 300 and pre == 0 and post > 100
+            why.append(f"{mode} {pre:.0f} before, {post:.0f} after")
+        check("aftertouch", ok, "AFTERTOUCH: poly pressure as CC 74 (FILTER) and as CC 1 (MOD WHL) changes CS-1 from "
+              f"the first pressure on, not before (RMS of the difference: {'; '.join(why)})")
 
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")
     return 1 if failures else 0
