@@ -77,6 +77,19 @@ its own package; the installers refuse an FM-1 package on an SMK-37, and the oth
 Back to any other firmware, or the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing firmware is at your own risk.
 
+## New in 0.9 (a test release)
+
+- **The empty dock**: `fm1-dock-0.9.0-empty.fwsc` (and `-empty-smk37`, `-elite`, `-mke`) carries only the sine; you
+  add the synths you want from the page. The first step of the open dock ([ROADMAP.md](ROADMAP.md)). Until CS-1,
+  Scintilla and OberVave are add-ons too, the empty dock has none of them: install the normal package to get them back.
+  Your added synths, settings and presets stay either way.
+- **Synth packs**: the same firmware with other synths built in. `fm1-dock-0.9.0-analog.fwsc` carries CS-1, Scintilla,
+  OberVave and PROPHET; `fm1-dock-0.9.0-digital.fwsc` FM6, ARTIHIVE and GATOR (the SMK-37's `-digital-smk37`: FM6,
+  ARTIHIVE and KEYS). A built-in synth leaves the add-on room free for others.
+- **OPTIONS > AFTERTOUCH**: the keys' pressure as it comes (AS IS), or turned into channel pressure, the mod wheel or the
+  filter (CC 74), so that synths which ignore poly aftertouch answer to pressing harder too (OberVave, for one, as MOD
+  WHL or FILTER). On the SMK-37, whose keys sense no pressure, it turns an external keyboard's aftertouch.
+
 ## New add-ons
 
 On the page now, for 0.8.2 and later; an add-on needs no new firmware:

@@ -49,6 +49,11 @@ large ones can fill it. 0.9 makes every synth an add-on.
 6. **On the Firmware Hub**: one package, and maybe one "with the classics" (CS-1, Scintilla and OberVave already
    added) for those who install from the Hub.
 
+**In 0.9.0**: the empty dock (1, with CS-1, Scintilla and OberVave not yet add-ons) and the packs as firmware
+packages (5 and 6 in part): `-analog` (CS-1, Scintilla, OberVave, PROPHET) and `-digital` (FM6, ARTIHIVE, GATOR)
+built in; the SMK-37's `-digital` also KEYS. ATEK303 does not fit beside them and stays an add-on. Items 2 to 4 need the update loader to leave
+the built-ins' flash alone, the next step.
+
 **With it**: the host's reverb (the processing section), one for every synth, so a synth need not carry its own:
 it wants a little of the lean firmware's flash, and Scintilla's build uses it instead of its own reverb.
 
