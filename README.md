@@ -87,7 +87,8 @@ Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. In
   OberVave and PROPHET; `fm1-dock-0.9.0-digital.fwsc` FM6, ARTIHIVE and GATOR (the SMK-37's `-digital-smk37`: FM6,
   ARTIHIVE and KEYS). A built-in synth leaves the add-on room free for others.
 - **OPTIONS > AFTERTOUCH**: the keys' pressure as it comes (AS IS), or turned into channel pressure, the mod wheel or the
-  filter (CC 74), so every synth answers to pressing harder, also those that ignore poly aftertouch.
+  filter (CC 74), so that synths which ignore poly aftertouch answer to pressing harder too (OberVave, for one, as MOD
+  WHL or FILTER). On the SMK-37, whose keys sense no pressure, it turns an external keyboard's aftertouch.
 
 ## New add-ons
 
