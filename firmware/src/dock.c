@@ -20,7 +20,9 @@
  *              whatever module plays, on top of MASTER; OFF by default, CC 7 goes to the module as before),
  *              MASTER CC7 (the MASTER knob sends CC 7), MIDI CH (ALL, or the one channel the module hears,
  *              as channel 1, and the keys send on), LOCAL (OFF: the keys only send MIDI), EQ (its page: the
- *              master EQ, eq.c), MIDI THRU (the DIN jack's messages on to USB and BLE-MIDI) and BLUETOOTH
+ *              master EQ, eq.c), AFTERTOUCH (the keys' pressure to the module as it comes, or as one value:
+ *              channel pressure, the mod wheel or CC 74; at_route), MIDI THRU (the DIN jack's messages on to
+ *              USB and BLE-MIDI) and BLUETOOTH
  *              (BLE-MIDI). All off by default.
  *   deploys    a module sent over SysEx (tools/dock.py deploy) goes into flash of its own, never
  *              the host's: received whole and checked first, the table written last (see below).
@@ -387,6 +389,8 @@ typedef struct {
 #define OPT_KNOBS 16u                           /* KNOBS CC: KNOB1..4 send CCs (knobs_cc), not the module's knobs */
 #define OPT_CH_SHIFT 8u                         /* MIDI CH in bits 8..12: 0 ALL, else the channel 1..16 */
 #define OPT_CH_MASK (31u << OPT_CH_SHIFT)
+#define OPT_AT_SHIFT 13u                        /* AFTERTOUCH in bits 13..14: AS IS, CHANNEL, MOD WHL, FILTER (at_route) */
+#define OPT_AT_MASK (3u << OPT_AT_SHIFT)
 static st_t st;
 static uint32_t st_dirty, st_changed;
 
@@ -450,6 +454,55 @@ static uint32_t opt_ch(void)
 {
     uint32_t c = (st.spare[1] & OPT_CH_MASK) >> OPT_CH_SHIFT;
     return c > 16u ? 0 : c;
+}
+
+/* AFTERTOUCH: 0 AS IS (poly and channel pressure to the module as they come), else the pressure as one value, the
+ * hardest-pressed key's (a poly message's) or the channel's, sent on only when it changes: 1 as channel pressure,
+ * 2 as CC 1 (the mod wheel), 3 as CC 74 (the filter, brilliance on most modules). For the modules that do nothing
+ * with pressure: what they have for the wheel or the cutoff follows the keys. The MIDI the keys send out stays poly. */
+static uint32_t opt_at(void) { return (st.spare[1] & OPT_AT_MASK) >> OPT_AT_SHIFT; }
+static uint8_t at_poly[128], at_last;           /* each note's pressure; the value last sent */
+static void at_send(const hb_module_t *m, uint32_t ch, uint32_t v)
+{
+    uint32_t mode = opt_at();
+    if (!m || !mode || v == at_last)
+        return;
+    at_last = (uint8_t)v;
+    if (mode == 1u) {
+        if (m->midi) m->midi(0xD0u | ch, v, 0);
+    } else if (m->midi) {
+        m->midi(0xB0u | ch, mode == 2u ? 1u : 74u, v);
+    } else if (m->cc) {
+        m->cc(ch, mode == 2u ? 1u : 74u, v);
+    }
+}
+static void at_max(const hb_module_t *m, uint32_t ch)
+{
+    uint32_t i, v = 0;
+    for (i = 0; i < 128u; i++)
+        if (at_poly[i] > v) v = at_poly[i];
+    at_send(m, ch, v);
+}
+static void at_route(const hb_module_t *m, uint32_t s, uint32_t d1, uint32_t d2)   /* (AFTERTOUCH not AS IS) */
+{
+    if ((s & 0xF0u) == 0xD0u) {
+        at_send(m, s & 15u, d1 & 127u);
+    } else {
+        at_poly[d1 & 127u] = (uint8_t)(d2 & 127u);
+        at_max(m, s & 15u);
+    }
+}
+static void at_note_off(const hb_module_t *m, uint32_t ch, uint32_t key)   /* a note let go: its pressure with it */
+{
+    if (!opt_at() || !at_poly[key & 127u])
+        return;
+    at_poly[key & 127u] = 0;
+    at_max(m, ch);
+}
+static void at_reset(void)
+{
+    memset(at_poly, 0, sizeof at_poly);
+    at_last = 0;
 }
 
 /* MASTER CC7: the MASTER knob as CC 7 on the keys' channel when it moves, not for where it is at power-on.
@@ -1161,15 +1214,15 @@ static void draw_top(int32_t oct)
 }
 
 /* the list, then OPTIONS (past the last module): the host's, ABOUT, then BLUETOOTH (the last line, as it was) */
-enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_THRU };
+enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_AT, O_THRU };
 #if BOARD_SMK37
-#define N_OPTS_HOST 7u                          /* (no DIN jack: no MIDI THRU, ABOUT in its place) */
+#define N_OPTS_HOST 8u                          /* (no DIN jack: no MIDI THRU, ABOUT in its place) */
 #else
-#define N_OPTS_HOST 8u
+#define N_OPTS_HOST 9u
 #endif
 #define O_ABOUT (N_OPTS_HOST - 1u)              /* the host's last: its page (draw_about) */
 #define N_OPTS (N_OPTS_HOST + hx_built)
-#define OPT_H 18u                               /* (nine lines above the footer) */
+#define OPT_H 16u                               /* (ten lines above the footer) */
 #define OPT_Y(i) (50u + (i) * OPT_H)
 static const char *const BLE_ST[] = {"OFF", "NO CAL", "HELD", "ON", "LINKED", "READY"};
 static char *put_u(char *p, uint32_t v)         /* v in decimal; the end */
@@ -1181,7 +1234,7 @@ static char *put_u(char *p, uint32_t v)         /* v in decimal; the end */
 }
 static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
 {
-    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "MIDI THRU"};
+    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "AFTERTOUCH", "MIDI THRU"};
     char v[8] = "OFF";
     uint32_t lit = 0, opt = st.spare[1];
     uint16_t col;
@@ -1212,6 +1265,11 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
         memcpy(v + (lit ? 2 : 3), " >", 3);
         break;
     case O_KNOBS: if ((lit = opt & OPT_KNOBS) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
+    case O_AT: { static const char *const AT[] = {"AS IS", "CHANNEL", "MOD WHL", "FILTER"};
+        const char *t = AT[lit = opt_at()];
+        uint32_t i = 0;
+        do v[i] = t[i]; while (t[i++]);
+        break; }
     default: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
     }
     col = o == O_EQ && eq_failed ? C_BAD : lit ? C_ACC : C_OFF;
@@ -2370,6 +2428,7 @@ static void play_note(uint32_t ch, uint32_t key, uint32_t vel)
 {
     const hb_module_t *m = hb_active;
     if (m) m->note(ch, key, vel);
+    if (!vel) at_note_off(m, ch, key);
 }
 
 #if BOARD_SMK37
@@ -2673,7 +2732,8 @@ static void app_main(void)
                 if (kpanel) {
                     m->ui(HB_EV_KEY_PRESSURE | k, (int32_t)pr);
                 } else {
-                    if (local && m && m->midi) m->midi(0xA0, held[k], pr);
+                    if (local && m && opt_at()) at_route(m, 0xA0u, held[k], pr);
+                    else if (local && m && m->midi) m->midi(0xA0, held[k], pr);
                     midi_send(0xA0u | och, held[k], pr);
                 }
             }
@@ -2698,6 +2758,10 @@ static void app_main(void)
             ch = s & 15u;
             if ((s & 0xE0u) == 0x80u) t_notes = fm1_ms;
             if ((s & 0xF0u) == 0xB0u && d1 == 7u && (st.spare[1] & OPT_CC7)) { cc7_set(d2); continue; }   /* CC7 VOLUME: the host's */
+            if (opt_at() && ((s & 0xF0u) == 0xA0u || (s & 0xF0u) == 0xD0u)) { at_route(m, s, d1, d2); continue; }
+            if ((s & 0xF0u) == 0x80u || ((s & 0xF0u) == 0x90u && !d2)) {
+                if (m && m->midi) { m->midi(s, d1, d2); at_note_off(m, ch, d1); continue; }
+            }
             if (m && m->midi) { m->midi(s, d1, d2); continue; }
             switch (s & 0xF0u) {
             case 0x90: play_note(ch, d1, d2); break;
@@ -2797,6 +2861,12 @@ static void app_main(void)
                     st.spare[1] ^= OPT_LOCAL_OFF;
                 } else if (o == O_KNOBS) {
                     st.spare[1] ^= OPT_KNOBS;
+                } else if (o == O_AT) {         /* SEL: the next; a knob: either way */
+                    int32_t a = (int32_t)opt_at() + (turn ? turn : 1);
+                    a = ((a % 4) + 4) % 4;
+                    at_send(m, 0, 0);           /* (the old way lets go first: the wheel or the filter back) */
+                    at_reset();
+                    st.spare[1] = (st.spare[1] & ~OPT_AT_MASK) | (uint32_t)a << OPT_AT_SHIFT;
                 } else if (o == O_THRU && o < O_ABOUT) {   /* (the SMK-37's O_THRU: ABOUT, its page) */
                     st.spare[1] ^= OPT_THRU;
                 }
