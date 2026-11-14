@@ -298,7 +298,7 @@ def fmini_cases():
     # MINI LEAD (F001, LEGATO): a key sounds, silent before, and stops
     s, log = run("fmini", pick("FMINI-1") + ",1800:21,2800:21^", 4200)
     worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
-    check("fmini", "fmini: FMini-1 2.2.0, patches 000000c8" in log and peak(s, 0.0, 1.5) == 0 and
+    check("fmini", "fmini: FMini-1 2.5.13, patches 000000c8" in log and peak(s, 0.0, 1.5) == 0 and
           peak(s, 1.9, 2.7) > 1000 and peak(s, 3.9, 4.1) < peak(s, 1.9, 2.7) // 20 and " 0 overruns" in log,
           f"FMINI-1 plays MINI LEAD on a key and stops; worst {worst} % of a block")
 
