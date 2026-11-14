@@ -64,7 +64,9 @@
 #define APP_SYSEX hb_sysex
 #define APP_MIDI_OUT ble_out                    /* BLE-MIDI (src/ble/hx.h): out from the audio ISR, in from TIMER5 */
 #define APP_T5_POLL t5_poll                     /* TIMER5: the DIN jack's UART flushed, BLE-MIDI in */
+#define APP_MIDI_RT rt_in                       /* USB-MIDI's clock and transport: rt_in, not the main loop's ring */
 #include <stdint.h>
+static void rt_in(uint32_t st);
 static void ble_out(uint32_t pkt);
 static void t5_poll(void);
 static void hb_boot_hook(uint32_t p3);
@@ -80,6 +82,34 @@ static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #include "hb_module.h"
 #include "sense.c"
 #include "eq.c"
+
+/* ---- clock and transport, on time. They used to reach the module from the main loop, which goes round only
+ * between screen frames: late and in bursts, so a module stepping on MIDI clock lost steps (ATEK303's 16ths from a
+ * Digitakt on the DIN jack at 120 BPM came every ~177 ms instead of 125 on an FM-1). Now USB's (usb.c, APP_MIDI_RT), BLE's and the DIN jack's go into rt_q from
+ * TIMER5, and the audio interrupt hands them to the module just before its render (HB_F_MIDI_RT), else on to
+ * rt_late for the main loop, as before. TIMER5 skips its part while a render runs (in_audio), so the two never
+ * meet; each queue has one writer and one reader */
+#define RTQ 64u
+static volatile uint8_t rt_q[RTQ], rt_late[RTQ];
+static volatile uint32_t rt_w, rt_r, rl_w, rl_r;
+static void rt_in(uint32_t st)                  /* TIMER5 */
+{
+    if (rt_w - rt_r < RTQ) {
+        rt_q[rt_w % RTQ] = (uint8_t)st;
+        RING_PUBLISH();
+        rt_w++;
+    }
+}
+static int rt_late_get(uint8_t *st_, uint8_t *d1, uint8_t *d2)   /* main loop */
+{
+    if (rl_r == rl_w)
+        return 0;
+    *st_ = rt_late[rl_r % RTQ];
+    RING_PUBLISH();
+    rl_r++;
+    *d1 = *d2 = 0;
+    return 1;
+}
 
 #define C_ACC RGB(180, 140, 255)                /* lilac, as the logo */
 #define C_OFF RGB(90, 90, 90)
@@ -596,6 +626,11 @@ static uint8_t ble_rec[4 + HX_KEPT];            /* the settings record: [0] ON, 
 static int ble_flash_read(uint32_t off, void *dst, uint32_t n) { return flash_ok ? st_read(off, dst, n) : -1; }
 static int ble_midi_in(uint32_t pkt)            /* TIMER5: the USB-MIDI ring's other producer, in the same ISR */
 {
+    uint32_t st = (pkt >> 8) & 0xFFu;
+    if ((pkt & 15u) == 0xFu && (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu)) {
+        rt_in(st);                              /* clock, transport: on time (rt_q) */
+        return 1;
+    }
     if (mi_w - mi_r >= MQ)
         return 0;
     midi_in_q[mi_w % MQ] = pkt;
@@ -1003,6 +1038,18 @@ static const hb_host_t HOST = {
 static void app_audio(int32_t *out, uint32_t n)
 {
     const hb_module_t *m = hb_active;
+    while (rt_r != rt_w) {                      /* clock and transport since the last block (rt_q) */
+        uint32_t st = rt_q[rt_r % RTQ];
+        RING_PUBLISH();
+        rt_r++;
+        if (m && m->midi && (m->flags & HB_F_MIDI_RT))
+            m->midi(st, 0, 0);
+        else if (rl_w - rl_r < RTQ) {
+            rt_late[rl_w % RTQ] = (uint8_t)st;
+            RING_PUBLISH();
+            rl_w++;
+        }
+    }
     cpu1_screen_begin();                        /* the second core's screening, beside the render */
     if (m) {
         uint32_t t0 = fm1_ticks(), dt;
@@ -1120,6 +1167,32 @@ static void hb_fault(const fm1_crash_t *c)
 #define DIN_RING 256u
 static volatile uint8_t din_ring[DIN_RING] __attribute__((aligned(16)));
 static uint32_t din_r;
+
+/* the DIN jack's ring, read in TIMER5 (din_pull): its clock and transport to rt_in, the rest into din_fifo for
+ * din_get in the main loop (a SysEx frame of a deploy waits there while the main loop is long) */
+#define DIN_FIFO 1024u
+static uint8_t din_fifo[DIN_FIFO];
+static volatile uint32_t din_fw, din_fr;
+static void __attribute__((unused)) din_pull(void)   /* (unused on the SMK-37: no MIDI in) */
+{
+    for (;;) {
+        uint32_t b = din_ring[din_r];
+        if (b == 0xFFu)
+            return;
+        din_ring[din_r] = 0xFFu;
+        din_r = (din_r + 1u) % DIN_RING;
+        if (b >= 0xF8u) {                       /* real time, anywhere (between a message's bytes too) */
+            if (b == 0xF8u || b == 0xFAu || b == 0xFBu || b == 0xFCu)
+                rt_in(b);
+            continue;                           /* active sensing, reset: ignored */
+        }
+        if (din_fw - din_fr < DIN_FIFO) {
+            din_fifo[din_fw % DIN_FIFO] = (uint8_t)b;
+            RING_PUBLISH();
+            din_fw++;
+        }
+    }
+}
 static void hb_early_init(void)
 {
     uint32_t i;
@@ -1138,6 +1211,7 @@ static void t5_poll(void)
 {
 #if !BOARD_SMK37
     fm1_uart1_rx_take();
+    din_pull();
 #endif
     ble_poll();
 }
@@ -1156,13 +1230,13 @@ static int din_get(uint8_t *st_, uint8_t *d1, uint8_t *d2)
         uint32_t b;
         if (df_din_n)
             return 0;                           /* a SysEx frame waits for the main loop (deploys) */
-        b = din_ring[din_r];
-        if (b == 0xFFu)
+        if (din_fr == din_fw)
             return 0;
-        din_ring[din_r] = 0xFFu;
-        din_r = (din_r + 1u) % DIN_RING;
+        b = din_fifo[din_fr % DIN_FIFO];
+        RING_PUBLISH();
+        din_fr++;
         if (b >= 0xF8u)
-            continue;                           /* real time: ignored */
+            continue;                           /* real time: din_pull took it (rt_in) */
         if (b == 0xF7u && din_sx > 1u)
             df_din_n = din_sx - 1u;
         if (din_sx && b < 0x80u) {
@@ -2746,7 +2820,7 @@ static void app_main(void)
         else
             mcc7 = 128u;                        /* (switched on: from where the knob is then) */
 
-        while ((from = midi_get(&s, &d1, &d2) ? 1u : din_get(&s, &d1, &d2) ? 2u : 0) != 0) {   /* USB / BLE-MIDI, the DIN jack */
+        while ((from = rt_late_get(&s, &d1, &d2) ? 3u : midi_get(&s, &d1, &d2) ? 1u : din_get(&s, &d1, &d2) ? 2u : 0) != 0) {   /* clock for a module without HB_F_MIDI_RT, USB / BLE-MIDI, the DIN jack */
             uint32_t ch;
             if (from == 2u && (st.spare[1] & OPT_THRU))
                 midi_send(s, d1, d2);           /* MIDI THRU: on to USB and BLE as it came */

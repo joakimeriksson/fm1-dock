@@ -246,7 +246,9 @@ Or drop the `.dock` on the [console](https://joakimeriksson.github.io/fm1-dock/#
 `HB_F_DATA` gets what the computer sends it in its `data()` call, never written to flash: FM-1 SID takes a `.sid` that
 way and plays it at once. One that sets `HB_F_XBTN` also gets an SMK-37's own buttons (KNOB BANK, FADER BANK, <,
 >) as `HB_BTN_KNOB_BANK` .. `HB_BTN_RIGHT` (14..17), and lights them with `HB_LED_XBTN(id)`; an FM-1 never sends
-them ([SMK37.md](SMK37.md)). A module ported to fm1-dock comes to the page's catalog with an entry in
+them ([SMK37.md](SMK37.md)). One that sets `HB_F_MIDI_RT` gets MIDI clock, start, continue and stop in its `midi()`
+just before each `render()`, from the audio interrupt, at most a block late (without it they come in the main loop,
+between screen frames). A module ported to fm1-dock comes to the page's catalog with an entry in
 [docs/modules/modules.json](docs/modules/modules.json), its `.dock` and a screenshot.
 
 **Probes** measure the real chip: a small C program run once from RAM inside fm1-dock, its result back as JSON, and

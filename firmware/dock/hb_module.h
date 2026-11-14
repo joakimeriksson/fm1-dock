@@ -31,6 +31,10 @@
                                                  * the picker (the module gets the HOME release first) */
 #define HB_F_DATA   4u                          /* the descriptor has data(): what the computer sends the module
                                                  * (tools/dock.py's MODULE frames) reaches it */
+#define HB_F_MIDI_RT 16u                        /* midi() gets clock, start, continue and stop (F8 FA FB FC, d1 = d2 = 0)
+                                                 * in the audio interrupt, just before render(): at most a block late,
+                                                 * whatever the main loop is doing (drawing). Without the flag they come
+                                                 * in the main loop, as before */
 #define HB_F_XBTN   8u                          /* the SMK-37's own buttons reach ui() too, as HB_BTN_KNOB_BANK ..
                                                  * HB_BTN_RIGHT (never on an FM-1); their LEDs are HB_LED_XBTN(id) */
 
