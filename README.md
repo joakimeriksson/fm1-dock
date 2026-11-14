@@ -86,6 +86,9 @@ Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. In
 - **Synth packs**: the same firmware with other synths built in. `fm1-dock-0.9.0-analog.fwsc` carries CS-1, Scintilla,
   OberVave and PROPHET; `fm1-dock-0.9.0-digital.fwsc` FM6, ARTIHIVE and GATOR (the SMK-37's `-digital-smk37`: FM6,
   ARTIHIVE and KEYS). A built-in synth leaves the add-on room free for others.
+- **Big chords without distortion**: FM6, PROPHET and KEYS (and the FMINI-1 add-on, PIPE ORGAN above all) cut a loud
+  chord flat at full scale before MASTER, so turning the volume down did not help. FM6 and PROPHET now mix as Melodee
+  does (its level, limiter and soft clip), FMINI-1 as FMini-1 does, KEYS with a limiter of its own.
 - **OPTIONS > AFTERTOUCH**: the keys' pressure as it comes (AS IS), or turned into channel pressure, the mod wheel or the
   filter (CC 74), so that synths which ignore poly aftertouch answer to pressing harder too (OberVave, for one, as MOD
   WHL or FILTER). On the SMK-37, whose keys sense no pressure, it turns an external keyboard's aftertouch.
