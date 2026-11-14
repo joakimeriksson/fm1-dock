@@ -10,6 +10,8 @@ tools/fm1_install.py checks a package before it installs one (identity, update l
 
 A release may carry the SMK-37's packages beside the FM-1's (fm1-dock: NAME-X.Y-smk37.fwsc, -smk37-elite, -smk37-mke):
 those go into the firmware's "variants", by the model their identity names, for the page to pick by the keyboard.
+The empty dock and the synth packs (NAME-X.Y.Z-empty.fwsc, -analog, -digital, and their -smk37...) stay on the
+release: the page installs the normal package.
 
 The modules the page adds to an fm1-dock (FM-1 SID, AMB-1, ...): a .dock attached to that firmware's latest release when
 there is one, else DIR's copy (DIR/modules.json says what it is; the page's catalog reads the rest of it). Each is checked
@@ -17,11 +19,14 @@ as tools/hbdeploy.py checks one (its header). An entry "packaged" (in fm1-dock's
 .dock is not in DIR yet is left out of index.json, and the page shows it without its button.
 """
 import hashlib
+import re
 import json
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+PACK = re.compile(r"-(empty|analog|digital)(-smk37[-a-z]*)?\.fwsc$")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fm1_install  # noqa: E402
@@ -90,7 +95,9 @@ def main(argv):
         fid, _, repo = arg.partition("=")
         rel = gh_json(f"repos/{repo}/releases/latest")
         releases[fid] = {**rel, "repo": repo}
-        assets = [a for a in rel["assets"] if a["name"].endswith(".fwsc")]
+        # the normal packages only: fm1-dock's empty dock and synth packs (NAME-X.Y.Z-empty.fwsc, -analog,
+        # -digital, each also -smk37...) are on the release for those who install by hand
+        assets = [a for a in rel["assets"] if a["name"].endswith(".fwsc") and not PACK.search(a["name"])]
         fm1 = [a for a in assets if "-smk37" not in a["name"]]
         if len(fm1) != 1:
             raise SystemExit(f"{repo} {rel['tag_name']}: {len(fm1)} FM-1 .fwsc assets, expected one")
