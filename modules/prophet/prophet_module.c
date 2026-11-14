@@ -419,11 +419,14 @@ static void ev_play(const ev_t *e)
 /* ---- the sound: control blocks of CTL frames, as Melodee's voice.c renders a part */
 static int32_t mono_buf[CTL];
 
+#define LIM_T 26000                             /* Melodee mix.c: -2 dBFS, only overs */
+static int32_t lim_env = LIM_T;                 /* its envelope */
+
 static void part_block(int32_t *out, uint32_t n)
 {
     track_t *t = &trk[0];
     uint32_t i, nr = 0, live = 0;
-    int32_t d = bend_target - bend_q8, bend16, bend_fine, sh;
+    int32_t d = bend_target - bend_q8, bend16, bend_fine;
     bend_q8 += d > 0 ? (d < 4 ? d : (d + 3) / 4) : (d > -4 ? d : (d - 3) / 4);
     for (i = 0; i < n; i++)
         mono_buf[i] = 0;
@@ -463,14 +466,28 @@ static void part_block(int32_t *out, uint32_t n)
         nr++;
     }
     ENG.post(t, mono_buf, n, nr);
-    /* one voice peaks near +-48000 (Melodee's 2 x VOICE_FS): 3/8 of it, a unison stack half that, and a soft
-     * knee above -2.5 dBFS */
-    sh = unison() ? 4 : 3;
+    /* Melodee's own mix (mix.c), which this module stands in for: the part at its default level (P_LEVEL 104, -4 dB),
+     * then the master's limiter (master_out: above LIM_T 26000, -2 dBFS, an envelope that rises fast and falls slowly,
+     * so a chord turns the whole down instead of its peaks being cut) and its soft clip (dsp.c softclip: tanh(x / 32768)
+     * x 32767, from take.py's P5_TANH, Melodee's own formula; at most 31588). A voice peaks at up to +-48000 (2 x
+     * VOICE_FS; the nine programs here near 20000); a chord sums far above Q15, where a 4:1 knee here bent each peak
+     * and cut at full scale */
     for (i = 0; i < n; i++) {
-        int32_t s = (mono_buf[i] * 3) >> sh, a = s < 0 ? -s : s;
-        if (a > 24576) {
-            a = 24576 + ((a - 24576) >> 2);
-            if (a > 32767) a = 32767;
+        int32_t s = (mono_buf[i] >> 2) * 2584 >> 10, a = s < 0 ? -s : s;    /* -4 dB (Melodee's LEVEL_Q12[104]) */
+        if (a > lim_env)
+            lim_env += (a - lim_env) >> 2;
+        else if (lim_env > LIM_T)
+            lim_env -= ((lim_env - LIM_T) >> 12) + 1;
+        if (lim_env > LIM_T) {
+            int32_t g = (int32_t)(((uint32_t)LIM_T << 15) / (uint32_t)lim_env);   /* < 32768 */
+            s = ((s >> 4) * g) >> 11;                    /* >> 4 first: |s| may be far above Q15 */
+            a = s < 0 ? -s : s;
+        }
+        {
+            uint32_t k = (uint32_t)a >> 8;
+            float y = k >= 256u ? P5_TANH[256]
+                                : P5_TANH[k] + (P5_TANH[k + 1u] - P5_TANH[k]) * (float)(a & 255) * (1.0f / 256.0f);
+            a = (int32_t)(y * 32767.0f);
             s = s < 0 ? -a : a;
         }
         out[2u * i] += s;
