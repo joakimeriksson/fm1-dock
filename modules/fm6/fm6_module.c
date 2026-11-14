@@ -389,6 +389,9 @@ static void ev_play(const ev_t *e)
 /* ---- the sound: control blocks of CTL frames, as Melodee's voice.c renders a part */
 static int32_t mono_buf[CTL];
 
+#define LIM_T 26000                             /* Melodee mix.c: -2 dBFS, only overs */
+static int32_t lim_env;                         /* its envelope */
+
 static void part_block(int32_t *out, uint32_t n)
 {
     track_t *t = &trk[0];
@@ -428,13 +431,26 @@ static void part_block(int32_t *out, uint32_t n)
         nr++;
     }
     ENG.post(t, mono_buf, n, nr);
-    /* a voice of Melodee's peaks near +-2000..10000 (fm6_output: VOICE_FS), as it is; a soft knee above -2.5 dBFS for
-     * chords */
+    /* Melodee's own mix (mix.c), which this module stands in for: the part at its default level (P_LEVEL 104,
+     * -4 dB), then the master's limiter (master_out: above LIM_T 26000, -2 dBFS, an envelope that rises fast and falls
+     * slowly, so a chord turns the whole down instead of its peaks being cut) and a soft clip (Melodee's tanh; here a
+     * knee from 16384 that bends toward full scale and never reaches it). A voice peaks near +-2000..10000 (VOICE_FS);
+     * four to six of them sum to 40000..60000 */
     for (i = 0; i < n; i++) {
-        int32_t s = mono_buf[i], a = s < 0 ? -s : s;
-        if (a > 24576) {
-            a = 24576 + ((a - 24576) >> 2);
-            if (a > 32767) a = 32767;
+        int32_t s = (mono_buf[i] * 2584) >> 12, a = s < 0 ? -s : s;     /* -4 dB (Melodee's LEVEL_Q12[104]) */
+        if (a > lim_env)
+            lim_env += (a - lim_env) >> 2;
+        else if (lim_env > LIM_T)
+            lim_env -= ((lim_env - LIM_T) >> 12) + 1;
+        if (lim_env > LIM_T) {
+            int32_t g = (int32_t)(((uint32_t)LIM_T << 15) / (uint32_t)lim_env);   /* < 32768 */
+            s = ((s >> 4) * g) >> 11;
+            a = s < 0 ? -s : s;
+        }
+        if (a > 16384) {
+            uint32_t x = (uint32_t)a - 16384u;
+            if (x > 200000u) x = 200000u;       /* (x * 16383 stays in 32 bits) */
+            a = 16384 + (int32_t)((x * 16383u) / (x + 16383u));
             s = s < 0 ? -a : a;
         }
         out[2u * i] += s;
