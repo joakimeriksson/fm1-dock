@@ -754,6 +754,10 @@ static void midi_in_event(uint32_t pkt)
 #endif
     }
     if (cin == 0xFu && (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu)) {   /* clock, transport */
+#ifdef APP_MIDI_RT
+        APP_MIDI_RT(st);                               /* the app's (fm1-dock: to the module before its render) */
+        return;
+#endif
         if (mi_w - mi_r < MQ) {
             midi_in_q[mi_w % MQ] = 0xFu | st << 8;
             RING_PUBLISH();
