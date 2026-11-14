@@ -18,7 +18,7 @@ The tables the engine and dsp.c read are made here, by the formulas of Felucca-E
 (SINE, PITCH_OCT / pitch_inc, SVF_G, TANH_Q15) and FMini-1's tools/gen_tables.py (ENV_LIN, ENV_EXP, LFO_INC,
 LEVEL_Q12, TIME_MS_X10): FS 44100, CTL 32, as both build them; the per-sample ones (SINE, TANH_Q15) in RAM.
 Run it again on a new FMini-1:
-    modules/fmini/take.py ~/src/fmini-1 ~/src/Felucca-Engines     (FMini-1 7619d90, v2.2.0; Felucca-Engines c46e008)"""
+    modules/fmini/take.py ~/src/fmini-1 ~/src/Felucca-Engines     (FMini-1 74375d3, v2.5.13; Felucca-Engines c46e008)"""
 import math
 import shutil
 import sys
