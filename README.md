@@ -309,3 +309,5 @@ The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `pla
 
 GPL-3.0-only: you may change and share it, and whoever gets your firmware gets its source. Who made what, file by
 file, and the third-party parts: [LICENSING.md](LICENSING.md). Not affiliated with M-VAVE.
+
+You can also try fm1-dock in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
