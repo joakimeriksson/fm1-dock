@@ -529,3 +529,15 @@ dialog.ask .row { justify-content: flex-end; }
   .g-card img { width: 64px; height: 64px; }
   main section { padding-left: 16px; padding-right: 16px; }
 }
+
+/* the package picker above the Install button (install/fm1install.js) */
+.fm1-packs { border: 0; padding: 0; margin: 0 0 14px; display: grid; gap: 8px; min-width: 0; }
+.fm1-packs legend { padding: 0; margin-bottom: 6px; font-weight: 600; color: var(--fg); }
+.fm1-pack { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; }
+.fm1-pack:has(input:checked) { border-color: var(--acc-text); background: var(--acc-soft); }
+.fm1-pack input { margin: 4px 0 0; accent-color: var(--acc-text); }
+.fm1-pack > span { display: grid; gap: 2px; min-width: 0; }
+.fm1-pack-has { color: var(--fg-2); font-size: 0.92rem; }
+.fm1-pack-why { color: var(--muted); font-size: 0.86rem; }
+.fm1-pack-more { color: var(--muted); font-size: 0.86rem; margin: 2px 0 0; }

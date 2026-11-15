@@ -280,7 +280,7 @@ if (dir && existsSync(`${dir}/index.json`)) {
     ok(await addModule(dev3.access, mod, no, () => {}) === null && !dev3.got, `${id}: Cancel: nothing sent after the question`);
     const e = await reject(addModule(new FakeDock({ abi: 1 }).access, mod, yes, () => {}));
     ok(e && e.code === "abi", `${id}: an fm1-dock of another ABI: refused`);
-    const dev4 = new FakeDock({ largest: blob.length - 1 }), asked4 = [];
+    const dev4 = new FakeDock({ modules: ["SINE"], largest: blob.length - 1 }), asked4 = [];
     const e4 = await reject(addModule(dev4.access, mod, async (q) => { asked4.push(q); return true; }, () => {}));
     ok(e4 && e4.code === "space" && !asked4.length && !dev4.got, `${id}: no room in fm1-dock: said so, nothing sent ("${e4 && e4.message}")`);
   }

@@ -83,12 +83,12 @@ Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. In
 over USB.
 
 - **The empty dock**: `fm1-dock-0.9.0-empty.fwsc` (and `-empty-smk37`, `-elite`, `-mke`) carries only the sine; you
-  add the synths you want from the page. The first step of the open dock ([ROADMAP.md](ROADMAP.md)). Until CS-1,
-  Scintilla and OberVave are add-ons too, the empty dock has none of them: install the normal package to get them back.
-  Your added synths, settings and presets stay either way.
+  add the synths you want from the page, CS-1, Scintilla and OberVave among them (add-ons on the page too). The first
+  step of the open dock ([ROADMAP.md](ROADMAP.md)). Your added synths, settings and presets stay either way.
 - **Synth packs**: the same firmware with other synths built in. `fm1-dock-0.9.0-analog.fwsc` carries CS-1, Scintilla,
   OberVave and PROPHET; `fm1-dock-0.9.0-digital.fwsc` FM6, ARTIHIVE and GATOR (the SMK-37's `-digital-smk37`: FM6,
-  ARTIHIVE and KEYS). A built-in synth leaves the add-on room free for others.
+  ARTIHIVE and KEYS). A built-in synth leaves the add-on room free for others. The page's Install step lets you pick
+  any of them (Standard, Analog pack, Digital pack, Empty dock).
 - **Big chords without distortion**: FM6, PROPHET and KEYS (and the FMINI-1 add-on, PIPE ORGAN above all) cut a loud
   chord flat at full scale before MASTER, so turning the volume down did not help. FM6 and PROPHET now mix as Melodee
   does (its level, limiter and soft clip), FMINI-1 as FMini-1 does, KEYS with a limiter of its own.
