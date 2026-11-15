@@ -1011,6 +1011,38 @@ def main():
         check("aftertouch", ok, "AFTERTOUCH: poly pressure as CC 74 (FILTER) and as CC 1 (MOD WHL) changes CS-1 from "
               f"the first pressure on, not before (RMS of the difference: {'; '.join(why)})")
 
+        # AFTERTOUCH from the FM-1's own keys: a key held at velocity 80, then pressed harder (fm1-emu's `~`), in
+        # every mode, on CS-1 (which reads the keys' pressure itself) and OberVave (which takes none from the keys:
+        # AS IS leaves it alone, the others turn the pressure into D0 / CC 1 / CC 74 for it)
+        res = {}
+        for syn in ("CS-1", "OBERVAVE"):
+            w = 3500 if syn == "OBERVAVE" else 0    # (OberVave's splash: it plays ~4.3 s after boot in fm1-emu)
+            for mode, n in (("as_is", 0), ("channel", 1), ("mod", 2), ("filter", 3)):
+                for press in (False, True):
+                    keys, t = options([(O_AT, n)])
+                    idx = 1 + [nm for nm, _, _ in slots()].index(syn)
+                    keys += f",{t + 200}:8,{t + 250}:8^,{t + 400}:e6:{idx},{t + 600}:8,{t + 650}:8^,{t + w + 1200}:21@80"
+                    if press:
+                        keys += "".join(f",{t + w + 2000 + 40 * i}:21~{85 + 3 * i}" for i in range(14))
+                    s, log = run(f"atk_{syn}_{mode}{'' if press else '_ref'}", keys, t + w + 3200)
+                    res[syn, mode, press] = s, (t + w) / 1000
+        why, diff = [], {}
+        for syn in ("CS-1", "OBERVAVE"):
+            for mode in ("as_is", "channel", "mod", "filter"):
+                (a, t0), (b, _) = res[syn, mode, False], res[syn, mode, True]
+                d = [x - y for x, y in zip(a, b)]
+                diff[syn, mode] = (rms_left(a, t0 + 1.2, t0 + 1.75), rms_left(d, t0 + 1.2, t0 + 1.75),
+                                   rms_left(d, t0 + 2.0, t0 + 2.8))
+                why.append(f"{syn} {mode}: {diff[syn, mode][1]:.0f} before, {diff[syn, mode][2]:.0f} after")
+        # CS-1 sounds before the pressure and changes in every mode; OberVave (a slow pad: no level check) not as
+        # AS IS (its keys' pressure is not its own) nor CHANNEL (it takes no channel pressure), but as MOD WHL and
+        # FILTER; nothing changes before the first pressure
+        ok = all(pre == 0 for _, pre, _ in diff.values()) and diff["CS-1", "as_is"][0] > 300 and \
+            all(diff["CS-1", m][2] > 100 for m in ("as_is", "channel", "mod", "filter")) and \
+            diff["OBERVAVE", "as_is"][2] == 0 and all(diff["OBERVAVE", m][2] > 100 for m in ("mod", "filter"))
+        check("aftertouch_keys", ok, "AFTERTOUCH from the keys: pressing a held key harder changes CS-1 in every mode, "
+              f"and OberVave only through AFTERTOUCH (MOD WHL, FILTER), from the first pressure on ({'; '.join(why)})")
+
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")
     return 1 if failures else 0
 
