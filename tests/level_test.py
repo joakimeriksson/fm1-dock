@@ -42,6 +42,7 @@ DEPLOY_MS = 0.42                                # fm1-live's deploy (from 1000 m
 STEP = 4000                                     # a patch's turn: the note 300..1300, the chord 1800..3300 ms
 RUN_MIN = 3                                     # samples at one value in a row: a flat top
 NEAR = 0.6                                      # ... at or above this share of the window's peak
+LOUD = 2000                                     # ... and this level: a quiet wave repeats values by itself
 LIMIT = 0.002                                   # the chord's flat share allowed over the note's (0.2 %)
 
 
@@ -61,11 +62,11 @@ def script(progs, t0, panel=None):
 
 
 def flat_share(x):
-    """the share of samples in runs of RUN_MIN or more at one value, at NEAR of the peak or above"""
+    """the share of samples in runs of RUN_MIN or more at one value, at NEAR of the peak and LOUD or above"""
     pk = max((abs(v) for v in x), default=0)
     if pk < 200:
         return 0.0, pk
-    lo, n, i = NEAR * pk, 0, 0
+    lo, n, i = max(NEAR * pk, LOUD), 0, 0
     while i < len(x):
         j = i
         while j + 1 < len(x) and x[j + 1] == x[i]:
