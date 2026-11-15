@@ -338,8 +338,8 @@
  "fmini": {
   "hub": "fmini",
   "file": "fmini.dock",
-  "version": "2.2.0",
-  "source": "modules/fmini: ruppert/fmini-1 7619d90 (FMini-1 2.2.0: its FMINI engine, factory patches and effects) and hugelton/Felucca-Engines c46e008 (dsp.c; modules/fmini/take.py), fm1-dock",
+  "version": "2.5.13",
+  "source": "modules/fmini: ruppert/fmini-1 74375d3 (FMini-1 2.5.13: its FMINI engine, factory patches and effects) and hugelton/Felucca-Engines c46e008 (dsp.c; modules/fmini/take.py), fm1-dock",
   "by": "Ruppert",
   "songs": "",
   "title": "FMINI-1",
@@ -378,7 +378,7 @@
  },
  "keys": {
   "file": "keys.dock",
-  "version": "1",
+  "version": "2",
   "source": "modules/keys, fm1-dock",
   "by": "Joakim Eriksson",
   "songs": "",
