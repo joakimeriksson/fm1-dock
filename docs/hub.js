@@ -280,15 +280,28 @@ function renderMeter() {
   const pct = (n) => `${(100 * n / total).toFixed(2)}%`;
   const bar = (!d && !g ? `<span class="meter-empty">Connect your device to see what is on it</span>` : "") + segs.map((s) => `<div class="seg${s.other ? " other" : ""}" style="width:${pct(s.n)}" title="${esc(s.name)}: ${kib(s.n)}">${esc(s.name)}</div>`).join("")
     + (g ? `<div class="seg ghost${g.fits ? "" : " nofit"}" style="width:${pct(Math.max(g.w, total * 0.02))}" title="${esc(g.m.title)}: ${kib(g.need)}">${esc(g.m.title)}</div>` : "");
-  legend = segs.map((s) => `<li><i class="${s.other ? "other" : ""}"></i>${esc(s.name)} <b>${kib(s.n)}</b></li>`);
+  legend = segs.map((s) => {
+    if (s.other) return `<li><i class="other"></i>${esc(s.name)} <b>${kib(s.n)}</b></li>`;
+    const m = meterMod(s.name), busy = S.busy === m.id;
+    return `<li><i></i>${esc(s.name)} <b>${kib(s.n)}</b> <button type="button" class="btn small danger meter-rm" data-remove="${esc(s.name)}"`
+      + `${S.busy ? " disabled" : ""} aria-label="Remove ${esc(s.name)}">${busy ? "Removing…" : "Remove"}</button></li>`;
+  });
   if (g) legend.push(`<li><i class="ghost"></i>${esc(g.m.title)} would take <b>${kib(g.need)}</b>${g.fits ? "" : ": it does not fit"}</li>`);
   const crowded = noRoom(g, free, largest, total);
   if (crowded) legend.push(`<li class="crowd">${crowded}</li>`);
   if (d) legend.push(`<li><i class="free"></i>free <b>${kib(free)}</b></li>`);
   else if (!g) legend.push(`<li>Point at an add-on's card to see how much room it takes.</li>`);
+  const said = S.meterId && S.msg[S.meterId];
   el.innerHTML = `<div class="meter-h">${head}</div>
     <div class="meter-bar" role="img" aria-label="${d ? `${kib(total - free)} of ${kib(total)} used` : `${kib(total)}, nothing known yet`}">${bar}</div>
-    <ul class="legend">${legend.join("")}</ul>`;
+    <ul class="legend">${legend.join("")}</ul>` + (said ? `<p class="say meter-say ${said.cls || ""}">${esc(said.text)}</p>` : "");
+}
+
+// the catalog's module of a deployed one, by its name on the device; one the catalog does not know gets a stand-in
+function meterMod(name) {
+  const x = dock() && dock().modules.find((y) => y.name === name);
+  return S.mods.find((m) => m.module === name)
+    || { id: `dev:${name}`, module: name, title: name, addon: true, tags: [], size: x ? x.size : 0 };
 }
 
 // the add-ons that would not fit: with a device, those over its largest free piece now, and with an add-on pointed at, those
@@ -554,6 +567,13 @@ addEventListener("message", (e) => {
 // ------------------------------------------------------------------ start ---
 
 $("#dev-connect").addEventListener("click", () => connect());
+$("#meter").addEventListener("click", (e) => {      // Remove beside each add-on in the meter's legend
+  const b = e.target.closest("[data-remove]");
+  if (!b || S.busy) return;
+  const m = meterMod(b.dataset.remove);
+  S.meterId = m.id;
+  remove(m);
+});
 $("#hero-connect").addEventListener("click", () => {
   $("#install").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   connect();
