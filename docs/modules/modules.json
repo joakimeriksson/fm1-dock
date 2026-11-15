@@ -414,5 +414,25 @@
   "screenshot": "media/screen_sine.png",
   "accent": "#9a8cff",
   "alt": "SINE's screen: a sine to build on, the note C4"
+ },
+ "s1vave": {
+  "file": "s1vave.dock",
+  "version": "2.0.1",
+  "source": "modules/s1vave: AndrewGG88/S1Vave e837018 (S1Vave 2.0.1: its engine, effects and sequencer; modules/s1vave/take.py), with fm1-dock's own factory bank, fm1-dock",
+  "by": "Andrew GG",
+  "songs": "",
+  "title": "S1Vave",
+  "module": "S1VAVE",
+  "author_url": "https://github.com/AndrewGG88",
+  "original": "https://github.com/AndrewGG88/S1Vave",
+  "links": [{ "label": "manual", "url": "https://github.com/AndrewGG88/S1Vave#readme" }, { "label": "source", "url": "https://github.com/AndrewGG88/S1Vave" }],
+  "license": "GPL-3.0-only",
+  "voices": "8 (MONO, UNISON, POLY or CHORD)",
+  "description": "An 8-voice synth after the SH-101 and the S-1: saw, pulse with PWM, sub-oscillator and noise, OSC DRAW and OSC CHOP, a 4-pole resonant filter, a riser, chorus, delay, reverb and a step sequencer. S1Vave's engine and pages on fm1-dock, with fm1-dock's own bank of 16 sounds (not Roland's) and room for 83 of yours; unofficial, without its logo.",
+  "tags": ["synth", "poly", "sequencer"],
+  "kind": "analog",
+  "screenshot": "media/screen_s1vave.png",
+  "accent": "#00e5a3",
+  "alt": "S1Vave's PERFORM page: POLY SAW, program 01, with cutoff, resonance, envelope amount and portamento time"
  }
 }
