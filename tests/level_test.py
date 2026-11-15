@@ -32,6 +32,7 @@ PROGRAMS = {
     "FMINI-1": [0, 1, 2, 71, 3],                # ... PIPE ORGAN
     "KEYS": [0, 1, 2],                          # clavinet, electric piano, piano
     "PROPHET": [0, 1, 2, 3, 4],
+    "S1VAVE": [0, 3, 4, 6, 11, 12],              # POLY SAW, PWM PAD, BRASS, CHORD STAB, STRINGS, SYNTH KEYS
 }
 PANEL = {"ARTIHIVE": "8"}                       # played on the FM-1's own keys (its MIDI notes gate fixed voices),
                                                 # after this key (ARTIHIVE: POLY)
