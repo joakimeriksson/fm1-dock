@@ -79,6 +79,9 @@ Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. In
 
 ## New in 0.9 (a test release)
 
+**[The 0.9 video](https://www.youtube.com/watch?v=INpj91BmUJM)**: the new synths and the big chords on an FM-1 and an SMK-37, their own sound
+over USB.
+
 - **The empty dock**: `fm1-dock-0.9.0-empty.fwsc` (and `-empty-smk37`, `-elite`, `-mke`) carries only the sine; you
   add the synths you want from the page. The first step of the open dock ([ROADMAP.md](ROADMAP.md)). Until CS-1,
   Scintilla and OberVave are add-ons too, the empty dock has none of them: install the normal package to get them back.
