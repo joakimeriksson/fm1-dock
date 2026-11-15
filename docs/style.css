@@ -232,6 +232,8 @@ main section { max-width: 1180px; margin: 0 auto; padding: 72px 24px 24px; }
 .legend i.other { background: var(--line-2); }
 .legend i.ghost { background: transparent; border: 1.5px dashed var(--acc); }
 .legend b { color: var(--fg); font-weight: 600; }
+.legend .meter-rm { margin-left: 4px; min-height: 24px; padding: 1px 8px; font-size: 0.76rem; vertical-align: 1px; }
+.meter-say { margin: 8px 0 0; font-size: 0.86rem; }
 
 .mods-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 18px; }
 .mod { --mod: var(--acc); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; display: flex; flex-direction: column;
