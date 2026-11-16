@@ -59,10 +59,9 @@ it wants a little of the lean firmware's flash, and Scintilla's build uses it in
 
 ## Later
 
-- **ORRERY** (orrery-fm1): the synths of a Jarre record in one module, so they play together: the Eminent
-  310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg
-  Mini Pops 7 and a tape echo, on the dock's reverb. Its engines are also modules of their own: ARP 2600,
-  MINIPOPS, EMINENT.
+- **ORRERY** past its preview ([orrery-fm1](https://github.com/joakimeriksson/orrery-fm1) 0.1.0 is in the
+  catalog: the synths of a Jarre record in one module, so they play together): a run on an FM-1 with both cores,
+  then a release. Its engines are also modules of their own: ARP 2600, EMINENT, MINIPOPS, ENSEMBLE.
 - **More synths**: a second look through the Firmware Hub (Elixir, Smileyface, the Dinghy-based ones); the ones too
   big today may fit in 0.9's room. Toward 20.
 - **A CMI-style sampler**: 8 voices of 8-bit samples at each voice's own rate, the Fairlight's harmonic synthesis
