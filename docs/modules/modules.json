@@ -397,6 +397,40 @@
   "accent": "#ffaa28",
   "alt": "KEYS' screen: the preset EP BARK, E.PIANO 2 of 3, the three families, Tone, Decay, Pickup and Volume"
  },
+ "esq1": {
+  "file": "esq1.dock",
+  "version": "0.1.0",
+  "source": "joakimeriksson/fm1-esq, ./build.sh site (the stand-in waves: none of Ensoniq's ROMs in it)",
+  "songs": "The Entertainer (Scott Joplin, 1902), built in; the SQ-80's factory demos from your own disk dumps, on its page",
+  "title": "ESQ-1",
+  "module": "ESQ-1",
+  "by": "Joakim Eriksson",
+  "author_url": "https://github.com/joakimeriksson",
+  "original": "https://github.com/joakimeriksson/fm1-esq",
+  "links": [
+   {
+    "label": "page: real waves and demo songs",
+    "url": "https://joakimeriksson.github.io/fm1-dock/esq1.html"
+   },
+   {
+    "label": "source",
+    "url": "https://github.com/joakimeriksson/fm1-esq"
+   }
+  ],
+  "license": "GPL-3.0-only",
+  "voices": "8, three oscillators each",
+  "description": "Ensoniq's ESQ-1 of 1986: eight voices of three wavetable oscillators into a four-pole filter, its programs (SysEx in), eight tracks over MIDI, and its sequencer. Stand-in waves and one song of its own; its page sends your own wave ROMs and the SQ-80's factory demo songs to it.",
+  "tags": [
+   "poly",
+   "wavetable",
+   "sequencer",
+   "synth"
+  ],
+  "kind": "digital",
+  "screenshot": "media/screen_esq1.png",
+  "accent": "#3cdcbe",
+  "alt": "ESQ-1's screen: fourteen-segment characters, the sequencer playing The Entertainer at 84"
+ },
  "orrery": {
   "file": "orrery.dock",
   "version": "0.1.0",
