@@ -4,6 +4,15 @@
  * bandpass's Q30, levels Q16. */
 #include "mp_engine.h"
 
+/* MP_HOT: the render, the one function that runs every block; it calls nothing. A build that runs it from RAM
+ * (out of the flash cache's way: ORRERY, with three more engines beside it) names its section here.
+ * MP_IN: a helper the render uses, inlined into it whatever the compiler thinks (JieLi's clang 4 keeps a plain
+ * static out of a function in another section, and a call from RAM does not reach the flash). */
+#ifndef MP_HOT
+#define MP_HOT
+#endif
+#define MP_IN static inline __attribute__((always_inline))
+
 const char *const MP_VOICE_NAMES[MP_VOICES] = { "BD", "SD1", "SD2", "HH", "CY1", "CY2", "CB", "CO", "LB", "SB", "CL", "QU", "GU", "TA" };
 
 #define Q20 (1 << 20)
@@ -12,7 +21,7 @@ const char *const MP_VOICE_NAMES[MP_VOICES] = { "BD", "SD1", "SD2", "HH", "CY1",
 #define BLOCK_MUL(a, b, sh) ((int32_t)(((int64_t)(a) * (b)) >> (sh)))
 
 /* dsp-lib's fastTanh: x (27 + x^2) / (27 + 9 x^2), +-1 past +-3. In Q15 inside (one 32-bit division) */
-static int32_t mp_tanh(int32_t x_q20)
+MP_IN int32_t mp_tanh(int32_t x_q20)
 {
     int32_t x = x_q20 >> 5, x2;
     int64_t num;
@@ -25,14 +34,14 @@ static int32_t mp_tanh(int32_t x_q20)
     return (int32_t)((num >> 8) / (den >> 8)) * 32;                     /* (both >> 8: the quotient Q15 fits) */
 }
 
-static inline int32_t res_run(int32_t *y1, int32_t *y2, int32_t x, int32_t a1, int32_t a2, int32_t gain)
+MP_IN int32_t res_run(int32_t *y1, int32_t *y2, int32_t x, int32_t a1, int32_t a2, int32_t gain)
 {
     int32_t y = (int32_t)(((int64_t)x * gain + (int64_t)a1 * *y1 + (int64_t)a2 * *y2) >> 28);
     *y2 = *y1;
     *y1 = y;
     return y;
 }
-static inline int32_t svf_run(mp_voice_t *v, const mp_spec_t *s, int32_t x)
+MP_IN int32_t svf_run(mp_voice_t *v, const mp_spec_t *s, int32_t x)
 {
     int32_t v3 = x - v->ic2;
     int32_t v1 = (int32_t)(((int64_t)s->b_a1 * v->ic1 + (int64_t)s->b_a2 * v3) >> 30);
@@ -41,13 +50,13 @@ static inline int32_t svf_run(mp_voice_t *v, const mp_spec_t *s, int32_t x)
     v->ic2 = 2 * v2 - v->ic2;
     return v1;
 }
-static inline int32_t noise(mp_voice_t *v)      /* -1..1, Q20 (the web engine's LCG) */
+MP_IN int32_t noise(mp_voice_t *v)      /* -1..1, Q20 (the web engine's LCG) */
 {
     v->seed = v->seed * 1664525u + 1013904223u;
     return (int32_t)(v->seed >> 11) - Q20;
 }
 
-static void voice_trigger(mp_voice_t *v, int32_t vel, int32_t gate)
+MP_IN void voice_trigger(mp_voice_t *v, int32_t vel, int32_t gate)
 {
     v->active = 1;
     v->n = 0;
@@ -58,7 +67,7 @@ static void voice_trigger(mp_voice_t *v, int32_t vel, int32_t gate)
     v->lp = 0;                                  /* (the resonators are not reset: a drum struck while ringing adds to it) */
 }
 
-static int32_t voice_run(mp_voice_t *v, const mp_spec_t *s)
+MP_IN int32_t voice_run(mp_voice_t *v, const mp_spec_t *s)
 {
     int32_t imp = v->n == 0 ? Q20 : 0, out = 0, end;
     switch (s->kind) {
@@ -143,7 +152,7 @@ void mp_play(mp_t *m, uint32_t on) { m->req_play = on != 0; m->req_delay = 0; m-
 void mp_play_at(mp_t *m, uint32_t delay) { m->req_play = 1; m->req_delay = (uint16_t)delay; m->req_seq++; }
 uint32_t mp_take_hits(mp_t *m) { uint32_t h = m->hit_mask; m->hit_mask = 0; return h; }
 
-static void add_hit(mp_t *m, uint32_t voice, uint32_t pos100, uint32_t gate100)
+MP_IN void add_hit(mp_t *m, uint32_t voice, uint32_t pos100, uint32_t gate100)
 {
     uint32_t i;
     if (pos100 >= 100u * m->len) return;
@@ -158,7 +167,7 @@ static void add_hit(mp_t *m, uint32_t voice, uint32_t pos100, uint32_t gate100)
 }
 /* the rhythms of the keys down merged into one hit list; a 12-step key puts the counter in 12-step mode
  * for all of them, a triplet key in triplets */
-static void rebuild(mp_t *m)
+MP_IN void rebuild(mp_t *m)
 {
     uint32_t k, i, len = 16, div = 2, grid;
     const mp_extra_t *ex;
@@ -185,7 +194,7 @@ static void rebuild(mp_t *m)
     if (m->step >= len) m->step = 0;
 }
 
-static void take_settings(mp_t *m)
+MP_IN void take_settings(mp_t *m)
 {
     uint32_t seq = m->req_seq, play;
     int32_t bal;
@@ -213,25 +222,26 @@ static void take_settings(mp_t *m)
     m->playing = (uint8_t)play;
 }
 
-static void hit(mp_t *m, uint32_t voice, int32_t gate)
+MP_IN void hit(mp_t *m, uint32_t voice, int32_t gate)
 {
     int32_t vel = Q16;
     if (voice == MP_QU || voice == MP_GU || voice == MP_TA) {   /* the additional rhythms at their slider's level */
         vel = m->extra[voice == MP_QU ? 0 : voice == MP_GU ? 1 : 2];
         if (vel <= 65) return;
     }
-    voice_trigger(&m->v[voice], vel, gate);
+    if (m->req_volume) voice_trigger(&m->v[voice], vel, gate);   /* (at no volume nothing is struck: a rhythm turned all
+                                                          * the way down cost what a loud one does) */
     m->hit_mask |= 1u << voice;
 }
 void mp_trigger(mp_t *m, uint32_t voice, int32_t vel)
 {
     if (voice >= MP_VOICES) return;
-    voice_trigger(&m->v[voice], vel, voice == MP_GU ? MP_SR / 4 : 0);
+    if (m->req_volume) voice_trigger(&m->v[voice], vel, voice == MP_GU ? MP_SR / 4 : 0);
     m->hit_mask |= 1u << voice;
 }
 
 /* this step's hits; hits between steps go into the pending list */
-static void step_hits(mp_t *m)
+MP_IN void step_hits(mp_t *m)
 {
     uint32_t i;
     for (i = 0; i < m->n_hits; i++) {
@@ -250,7 +260,7 @@ static void step_hits(mp_t *m)
     }
 }
 
-void mp_render(mp_t *m, int32_t *out, uint32_t n)
+MP_HOT void mp_render(mp_t *m, int32_t *out, uint32_t n)
 {
     uint32_t i, k, v, any = 0;
     take_settings(m);
@@ -265,6 +275,7 @@ void mp_render(mp_t *m, int32_t *out, uint32_t n)
             if (--m->pend_at[k] <= 0) {
                 uint32_t last;
                 hit(m, m->pend_voice[k], m->pend_gate[k]);
+                any = 1;
                 last = --m->n_pend;
                 m->pend_voice[k] = m->pend_voice[last];
                 m->pend_at[k] = m->pend_at[last];
@@ -274,14 +285,18 @@ void mp_render(mp_t *m, int32_t *out, uint32_t n)
         if (m->playing) {
             if (m->counter_q8 <= 0) {
                 step_hits(m);
+                any = 1;
                 m->counter_q8 += (int32_t)m->sps_q8;
                 m->step = (uint8_t)((m->step + 1u) % m->len);
                 m->steps++;
             }
             m->counter_q8 -= 256;
         }
-        for (v = 0; v < MP_VOICES; v++)
-            if (m->v[v].active) mix += voice_run(&m->v[v], &MP_SPEC[v]);
+        if (any) {                              /* (the fourteen are looked at only while one may sound) */
+            any = 0;
+            for (v = 0; v < MP_VOICES; v++)
+                if (m->v[v].active) { mix += voice_run(&m->v[v], &MP_SPEC[v]); any = 1; }
+        }
         if (!mix && !m->bal_lp) continue;       /* silent: nothing to add (the output stage has a division) */
         /* tone balance: a one-pole split at 800 Hz, lows down and highs up as the slider rises */
         m->bal_lp += BLOCK_MUL(mix - m->bal_lp, MP_KBAL, 30);

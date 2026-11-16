@@ -3,7 +3,8 @@
  *   arp_host note PATCH MIDI OUT.raw      two seconds, the key held for one
  *   arp_host seq PATCH SEQ OUT.raw        eight seconds of a sequence
  *   arp_host sweep OUT.raw                noise through the ladder, the cutoff 10..90 in steps, 0.5 s each
- *   arp_host echo PATCH SEQ OUT.raw       as seq, through the host's echo (hb_echo.c: 1/8. of the tempo, 45 %, tone 50, send 35 %): stereo
+ *   arp_host echo PATCH SEQ OUT.raw       as seq, through the host's echo (hb_echo.c: 1/8. of the tempo, 45 %, tone 50, send 35 %): stereo;
+ *                                         only in a tree that has the echo (the processing section), else as seq
  *   arp_host play PATCH OUT.raw           arp_play: C3 0.5 s, LEGATO to G3 0.5 s, SLIDE to C4 0.5 s, released 0.5 s,
  *                                         C3 again plain 0.5 s, released 0.5 s, C3 ACCENT 0.5 s, released 0.5 s */
 #include <stdio.h>
@@ -11,7 +12,12 @@
 #include <string.h>
 #include "arp_engine.h"
 #include "arp_presets.h"
+#if __has_include("../firmware/src/hb_echo.c")
 #include "../firmware/src/hb_echo.c"
+#define HAS_ECHO 1
+#else
+#define HAS_ECHO 0
+#endif
 
 static arp_t a;
 static int32_t blk[2 * 256];
@@ -24,12 +30,14 @@ static void render(FILE *f, uint32_t frames)
         uint32_t n = frames > 256u ? 256u : frames, i;
         memset(blk, 0, sizeof blk);
         arp_render(&a, blk, n);
+#if HAS_ECHO
         if (echo) {                             /* the host's order: the bass's send into the echo, the repeats beside the dry */
             memset(wet, 0, sizeof wet);
             for (i = 0; i < n; i++) ecin[i] = ((blk[2 * i] + blk[2 * i + 1]) >> 1) * 35 / 100;
             ec_run(ecin, wet, n);
             for (i = 0; i < 2u * n; i++) blk[i] += wet[i];
         }
+#endif
         for (i = 0; i < n; i++) {
             int32_t v = blk[2 * i], w = blk[2 * i + 1];
             int16_t s = (int16_t)(v > 32767 ? 32767 : v < -32767 ? -32767 : v), r = (int16_t)(w > 32767 ? 32767 : w < -32767 ? -32767 : w);
@@ -66,7 +74,9 @@ int main(int argc, char **argv)
     } else if (!strcmp(argv[1], "seq") || !strcmp(argv[1], "echo")) {
         arp_set_patch(&a, &ARP_PATCHES[atoi(argv[2]) % ARP_N_PATCHES]);
         arp_set_seq(&a, &ARP_SEQS[atoi(argv[3]) % ARP_N_SEQS]);
+#if HAS_ECHO
         if ((echo = argv[1][0] == 'e') != 0) { ec_clear(); ec_prep(ec_div_ms(3, a.seq.tempo), 45, 50); }
+#endif
         f = fopen(argv[4], "wb");
         arp_run(&a, 1);
         render(f, 8 * ARP_SR);

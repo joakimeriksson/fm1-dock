@@ -5,6 +5,15 @@
  * decays). Levels Q20, phases 32-bit, pitch Q16 notes. */
 #include "arp_engine.h"
 
+/* ARP_HOT: the render, the one function that runs every block; it calls nothing. A build that runs it from RAM
+ * (out of the flash cache's way: ORRERY, with three more engines beside it) names its section here.
+ * ARP_IN: a helper the render uses, inlined into it whatever the compiler thinks (JieLi's clang 4 keeps a plain
+ * static out of a function in another section, and a call from RAM does not reach the flash). */
+#ifndef ARP_HOT
+#define ARP_HOT
+#endif
+#define ARP_IN static inline __attribute__((always_inline))
+
 #define Q20 (1 << 20)
 #define Q16 65536
 #define Q30 (1 << 30)
@@ -20,7 +29,7 @@ static const uint32_t EXP2_T[65] = {           /* 2^(i / 64), Q16 */
     125515u, 126882u, 128263u, 129660u, 131072u,
 };
 /* 2^(y / 65536) in Q16, for y in -30 .. +14 octaves */
-static int32_t exp2_q16(int32_t y)
+ARP_IN int32_t exp2_q16(int32_t y)
 {
     int32_t ip = y >> 16;
     uint32_t f = (uint32_t)y & 0xFFFFu, i = f >> 10, fr = f & 1023u;
@@ -29,7 +38,7 @@ static int32_t exp2_q16(int32_t y)
     return ip >= 0 ? (int32_t)(v << ip) : ip < -30 ? 0 : (int32_t)(v >> -ip);
 }
 /* dsp-lib's fastTanh on Q20: x (27 + x^2) / (27 + 9 x^2), +-1 past +-3 */
-static int32_t tanh_q20(int32_t x_q20)
+ARP_IN int32_t tanh_q20(int32_t x_q20)
 {
     int32_t x = x_q20 >> 5, x2, den;
     int64_t num;
@@ -53,8 +62,8 @@ static int32_t k_of_ms(int32_t ms_q16)
 /* a time parameter 0..100 to milliseconds Q16: 1 ms .. 10 s, exponential */
 static int32_t ms_of_param(uint32_t p) { return exp2_q16((int32_t)p * 8710) ; }   /* 2^(p * 13.29 / 100) ms */
 /* a frequency in Hz (Q16) from a MIDI note (Q16): 440 2^((n - 69) / 12) */
-static int32_t hz_of_note(int32_t note_q16) { return MUL(exp2_q16((note_q16 - 69 * Q16) / 12), 440 * Q16, 16); }
-static uint32_t inc_of_hz(int32_t hz_q16)     /* a phase increment: hz 2^32 / fs = hz_q16 * (2^32 / fs) / 2^16 */
+ARP_IN int32_t hz_of_note(int32_t note_q16) { return MUL(exp2_q16((note_q16 - 69 * Q16) / 12), 440 * Q16, 16); }
+ARP_IN uint32_t inc_of_hz(int32_t hz_q16)     /* a phase increment: hz 2^32 / fs = hz_q16 * (2^32 / fs) / 2^16 */
 {
     return (uint32_t)(((uint64_t)(uint32_t)hz_q16 * 97391u) >> 16);   /* 2^32 / 44100 = 97391.5 */
 }
@@ -66,7 +75,7 @@ static void env_set(arp_env_t *e, uint32_t a, uint32_t d, uint32_t s, uint32_t r
     e->kr = k_of_ms(ms_of_param(r) / 3);
     e->sus = (int32_t)(s * (Q30 / 100));
 }
-static inline int32_t env_run(arp_env_t *e)
+ARP_IN int32_t env_run(arp_env_t *e)
 {
     switch (e->stage) {
     case 1:
@@ -88,7 +97,7 @@ static inline int32_t env_run(arp_env_t *e)
 }
 
 /* PolyBLEP: the residual at an edge, t the phase in cycles (Q32 as uint32), dt the increment */
-static inline int32_t blep(uint32_t t, uint32_t dt)
+ARP_IN int32_t blep(uint32_t t, uint32_t dt)
 {
     if (t < dt) {                               /* just after the edge: t/dt in Q15 */
         int32_t x = (int32_t)(t / (dt >> 15 ? dt >> 15 : 1u));
@@ -103,7 +112,7 @@ static inline int32_t blep(uint32_t t, uint32_t dt)
     }
     return 0;
 }
-static inline int32_t osc(uint32_t ph, uint32_t inc, uint32_t wave, uint32_t pw_q32)
+ARP_IN int32_t osc(uint32_t ph, uint32_t inc, uint32_t wave, uint32_t pw_q32)
 {
     int32_t saw = (int32_t)(ph >> 11) - Q20;    /* 2 t - 1, Q20 */
     switch (wave) {
@@ -170,7 +179,7 @@ void arp_set_tempo(arp_t *a, uint32_t bpm)
 void arp_run(arp_t *a, uint32_t on) { a->req_running = on != 0; a->req_delay = 0; a->req_seq++; }
 void arp_run_at(arp_t *a, uint32_t delay) { a->req_running = 1; a->req_delay = delay; a->req_seq++; }
 
-static void voice_on(arp_t *a, uint32_t note, uint32_t accent, uint32_t retrig, uint32_t slide)
+ARP_IN void voice_on(arp_t *a, uint32_t note, uint32_t accent, uint32_t retrig, uint32_t slide)
 {
     a->target_q16 = (int32_t)note * Q16;
     a->sliding = (uint8_t)(slide != 0);
@@ -182,7 +191,7 @@ static void voice_on(arp_t *a, uint32_t note, uint32_t accent, uint32_t retrig, 
     a->accent_q16 = accent ? (int32_t)a->patch.accent * 655 : 0;
     a->gate = 1;
 }
-static void voice_off(arp_t *a)
+ARP_IN void voice_off(arp_t *a)
 {
     a->gate = 0;
     if (a->env1.stage && a->env1.stage != 4) a->env1.stage = 4;
@@ -229,7 +238,7 @@ int arp_position(const arp_t *a) { return a->running ? a->pos : -1; }
 int arp_link(const arp_t *a) { return a->running && a->seq.n_chain ? a->link : -1; }
 
 /* the sequencer's step: the gate on or off */
-static void step_start(arp_t *a)
+ARP_IN void step_start(arp_t *a)
 {
     const arp_step_t *s, *nx;
     uint32_t len, tied;
@@ -269,7 +278,7 @@ static void step_start(arp_t *a)
     a->pos++;
 }
 
-void arp_render(arp_t *a, int32_t *out, uint32_t n)
+ARP_HOT void arp_render(arp_t *a, int32_t *out, uint32_t n)
 {
     const arp_patch_t *p = &a->patch;
     uint32_t i, seq;
