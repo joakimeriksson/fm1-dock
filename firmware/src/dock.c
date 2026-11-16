@@ -2706,6 +2706,7 @@ static void app_main(void)
                 sheld &= ~(1u << k);
                 if (kpanel) {
                     m->ui(HB_EV_KEY_UP | k, 0);
+                    at_note_off(m, 0, k);       /* (AFTERTOUCH: its pressure goes with it) */
                 } else {
                     if (local) play_note(0, held[k], 0);
                     midi_send(0x80u | och, held[k], 0);
@@ -2717,6 +2718,7 @@ static void app_main(void)
                 sheld &= ~(1u << k);
                 if (kpanel) {
                     m->ui(HB_EV_KEY_UP | k, 0);
+                    at_note_off(m, 0, k);       /* (AFTERTOUCH: its pressure goes with it) */
                 } else {
                     if (local) play_note(0, held[k], 0);
                     midi_send(0x80u | och, held[k], 0);
@@ -2729,7 +2731,9 @@ static void app_main(void)
                 if (!(sheld >> k & 1u) || (pr = sense_pressure(k)) == press_sent[k])
                     continue;
                 press_sent[k] = (uint8_t)pr;
-                if (kpanel) {
+                if (kpanel && opt_at()) {       /* AFTERTOUCH turns it: by the key's number (a panel module */
+                    at_route(m, 0xA0u, k, pr);  /* picks its note), the hardest-pressed key counts */
+                } else if (kpanel) {
                     m->ui(HB_EV_KEY_PRESSURE | k, (int32_t)pr);
                 } else {
                     if (local && m && opt_at()) at_route(m, 0xA0u, held[k], pr);
