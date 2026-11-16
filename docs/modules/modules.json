@@ -431,25 +431,144 @@
   "accent": "#3cdcbe",
   "alt": "ESQ-1's screen: fourteen-segment characters, the sequencer playing The Entertainer at 84"
  },
+ "arp2600": {
+  "file": "arp2600.dock",
+  "version": "1",
+  "source": "modules/arp2600, fm1-dock",
+  "by": "Joakim Eriksson",
+  "songs": "eight sequences for its 1601, and four of your own",
+  "title": "ARP 2600",
+  "module": "ARP 2600",
+  "author_url": "https://github.com/joakimeriksson",
+  "original": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/arp2600",
+  "links": [
+   {
+    "label": "source",
+    "url": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/arp2600"
+   }
+  ],
+  "license": "GPL-3.0-only",
+  "voices": "1 (mono), with its sequencer",
+  "description": "An ARP 2600 with its 1601 sequencer: two oscillators, noise and the ring modulator into the 24 dB ladder filter, two ADSRs, the LFO and sample-and-hold, portamento; ten patches in the manner of Jarre's records and four of your own, and sixteen-step sequences that the keys transpose.",
+  "tags": [
+   "synth",
+   "mono",
+   "vintage",
+   "sequencer"
+  ],
+  "kind": "analog",
+  "untested": true,
+  "screenshot": "media/screen_arp2600.png",
+  "accent": "#ff8d29",
+  "alt": "ARP 2600's screen: the patch WARM BASS and the 1601 sequencer's sixteen steps"
+ },
+ "eminent": {
+  "file": "eminent.dock",
+  "version": "1",
+  "source": "modules/eminent, fm1-dock",
+  "by": "Joakim Eriksson",
+  "songs": "",
+  "title": "EMINENT",
+  "module": "EMINENT",
+  "author_url": "https://github.com/joakimeriksson",
+  "original": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/eminent",
+  "links": [
+   {
+    "label": "source",
+    "url": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/eminent"
+   }
+  ],
+  "license": "GPL-3.0-only",
+  "voices": "16",
+  "description": "The Eminent 310 string ensemble through a Small Stone phaser, the string bed under Oxygène and Equinoxe: four registrations, every key sounding, with attack, release, the ensemble chorus and the phaser on the knobs.",
+  "tags": [
+   "synth",
+   "poly",
+   "vintage"
+  ],
+  "kind": "analog",
+  "untested": true,
+  "screenshot": "media/screen_eminent.png",
+  "accent": "#eece83",
+  "alt": "EMINENT's screen: STRINGS 8'+4', with attack, release, chorus and phaser"
+ },
+ "minipops": {
+  "file": "minipops.dock",
+  "version": "1",
+  "source": "modules/minipops, fm1-dock (its tables from ai-smarthome's web engine, take.mjs)",
+  "by": "Joakim Eriksson",
+  "songs": "its twenty rhythms, two a key",
+  "title": "MINIPOPS",
+  "module": "MINIPOPS",
+  "author_url": "https://github.com/joakimeriksson",
+  "original": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/minipops",
+  "links": [
+   {
+    "label": "source",
+    "url": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/minipops"
+   }
+  ],
+  "license": "GPL-3.0-only",
+  "voices": "14 drum sounds",
+  "description": "The Korg Mini Pops 7 rhythm box of 1973, worked as the machine is: ten rhythm keys that combine when pressed together, the A / B lever, tambourine, guiro and quijada on top, and its fourteen sounds to strike by hand; built from the service manual and fitted to recordings.",
+  "tags": [
+   "rhythm",
+   "vintage"
+  ],
+  "kind": "analog",
+  "untested": true,
+  "screenshot": "media/screen_minipops.png",
+  "accent": "#b48dff",
+  "alt": "MINIPOPS's screen: the rhythm ROCK 1 at 120 BPM, its ten rhythm keys"
+ },
+ "ensemble": {
+  "file": "ensemble.dock",
+  "version": "1",
+  "source": "modules/ensemble: its engine from orrery-fm1 (modules/ensemble/take.py), after Caravel 0.11.0's ENSEMBLE; fm1-dock",
+  "by": "Joakim Eriksson, after bonszaimusic's Caravel",
+  "songs": "",
+  "title": "ENSEMBLE",
+  "module": "ENSEMBLE",
+  "author_url": "https://github.com/joakimeriksson",
+  "original": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/ensemble",
+  "links": [
+   {
+    "label": "source",
+    "url": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/ensemble"
+   }
+  ],
+  "license": "GPL-3.0-only (its DSP blocks from Felucca-Engines: MIT)",
+  "voices": "6",
+  "description": "Fourteen string, choir and dark pads in a stereo three-tap ensemble: a morph from strings through choir to dark, tone, the ensemble's depth and rate, the envelope and the registers on the knobs. The pads of ORRERY as a synth of their own, after Caravel's ENSEMBLE.",
+  "tags": [
+   "synth",
+   "poly"
+  ],
+  "kind": "analog",
+  "untested": true,
+  "screenshot": "media/screen_ensemble.png",
+  "accent": "#94beff",
+  "alt": "ENSEMBLE's screen: the pad GLASS CHOIR, its attack, release, register and breath"
+ },
  "orrery": {
   "file": "orrery.dock",
   "version": "0.1.0",
-  "source": "modules/orrery: orrery-fm1 as of 2026-11-16 (after 73e8435; modules/orrery/take.py), fm1-dock",
+  "source": "joakimeriksson/orrery-fm1 0.1.0 (f338319), built in fm1-dock",
   "by": "Joakim Eriksson",
   "songs": "seventeen setups, each a band: strings, lead, bass and drums",
   "title": "ORRERY",
   "module": "ORRERY",
   "author_url": "https://github.com/joakimeriksson",
-  "original": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/orrery",
+  "original": "https://github.com/joakimeriksson/orrery-fm1",
   "links": [
    {
     "label": "source",
-    "url": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/orrery"
+    "url": "https://github.com/joakimeriksson/orrery-fm1"
    }
   ],
   "license": "GPL-3.0-only (the ENSEMBLE pads' DSP blocks from Felucca-Engines: MIT)",
   "voices": "a band: strings, a lead on the keys, bass and drums",
-  "description": "The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead on the keys, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview.",
+  "description": "The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead on the keys, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview. Its ARP 2600, EMINENT, MINIPOPS and ENSEMBLE are also synths of their own here.",
   "tags": [
    "synth",
    "sequencer",
