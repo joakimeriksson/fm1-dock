@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESQ-1 and SQ-80 · fm1-dock</title>
+<meta name="description" content="Ensoniq's ESQ-1 and SQ-80 as a synth for fm1-dock on the FM-1: add it, give it the real wave ROMs, and play the SQ-80's factory demo songs from their disks, step by step.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0d0c11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f5fb" media="(prefers-color-scheme: light)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="media/fm1-dock-icon.svg" type="image/svg+xml">
+<style>
+  .esq-drop { border: 2px dashed var(--line); border-radius: 12px; padding: 22px 16px; text-align: center; color: var(--muted); }
+  .esq-drop.over { border-color: var(--acc); color: var(--fg); }
+  .esq-have { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+  .esq-songs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .esq-songs .btn small { color: var(--muted); font-weight: 400; }
+  .esq-status { min-height: 1.4em; margin: 12px 0 0; }
+  .esq-bar { height: 4px; border-radius: 2px; background: var(--surface-2); margin-top: 8px; overflow: hidden; }
+  .esq-bar i { display: block; height: 100%; width: 0; background: var(--acc); }
+  .esq-get li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <a class="brand" href="./" aria-label="fm1-dock, its page"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></a>
+  <nav aria-label="Sections">
+    <a href="./">fm1-dock</a><a href="guide.html">Guide</a><a href="#add">Add</a><a href="#howto">Demo songs, step by step</a><a href="#files">Waves and disks</a>
+    <a href="#songs">Songs</a><a href="#help">Help</a>
+  </nav>
+</header>
+
+<main id="main">
+<section id="add" class="mt-top" aria-labelledby="add-h">
+  <h2 id="add-h">ESQ-1 and SQ-80</h2>
+  <p class="sub">Ensoniq's ESQ-1 of 1986 and its successor, the SQ-80 of 1987, as one synth in fm1-dock: eight voices of
+    three wavetable oscillators into a four-pole filter, their programs and SysEx, eight tracks over MIDI, and their
+    sequencer playing song files. It is called ESQ-1 on the FM-1 and comes with waves computed to stand in for
+    Ensoniq's, and one song of its own. With the real wave ROMs and the SQ-80's factory disks, which you bring
+    yourself, this page gives it the real waves and plays the factory demos on it.</p>
+  <p class="notice" id="esq-nomidi" hidden>This browser has no Web MIDI, so it cannot reach the FM-1: open the page in Chrome or Edge on a computer, or Chrome on Android.</p>
+  <div class="grid">
+    <div class="box">
+      <div class="box-h"><h3>On your FM-1</h3><span class="pill" id="esq-pill">not asked yet</span></div>
+      <p class="dim">Plug the FM-1 in with a USB data cable, with fm1-dock on it (<a href="./#install">install it here</a>).
+        Add puts the synth into fm1-dock's flash, or updates it; the other synths and the settings stay.</p>
+      <div class="row">
+        <button type="button" class="btn primary" id="esq-add">Add ESQ-1</button>
+        <button type="button" class="btn" id="esq-own"><span aria-hidden="true">▶</span> The Entertainer</button>
+        <button type="button" class="btn" id="esq-stop"><span aria-hidden="true">■</span> Stop</button>
+      </div>
+      <p class="dim small">The Entertainer (Scott Joplin, 1902) is the synth's own song: PLAY on the FM-1 starts it too.</p>
+    </div>
+    <div class="box">
+      <div class="box-h"><h3>The real waves</h3><span class="pill" id="esq-waves-pill">stand-in waves</span></div>
+      <p class="dim">With the ESQ-1's wave ROM among your files (below), this sends it to the synth: the keys and every
+        program play Ensoniq's waves until the FM-1 is switched off. A demo song brings the waves it needs by itself.</p>
+      <div class="row"><button type="button" class="btn" id="esq-rom1" disabled>Send the ESQ-1's waves</button></div>
+    </div>
+  </div>
+  <p class="esq-status" id="esq-status" role="status"></p>
+  <div class="esq-bar" aria-hidden="true"><i id="esq-bar"></i></div>
+</section>
+
+<section id="howto" aria-labelledby="howto-h">
+  <div class="sec-h"><h2 id="howto-h">Demo songs, step by step</h2></div>
+  <p class="sub">The SQ-80 came with disks of demo songs. This is how to hear them on your FM-1. It takes Chrome or Edge
+    on a computer, a USB data cable, and about five minutes the first time.</p>
+  <div class="panel">
+    <ol class="g-steps">
+      <li><b>Put the synth on the FM-1.</b> With <a href="./#install">fm1-dock installed</a> and the FM-1 plugged in, press
+        <b>Add ESQ-1</b> above. The browser asks once to allow MIDI. <b>The Entertainer</b> then plays the synth's own
+        song: if you hear it, the connection works.</li>
+      <li><b>Download the four wave ROMs</b> from Rainer Buchty's Ensoniq pages: the four
+        <code>sq80-waverom</code> zips linked <a href="#files">below</a>. Do not unzip them.</li>
+      <li><b>Download a factory disk</b>, also linked below: <code>vsd-2.gz</code> has eleven songs,
+        <code>vsd-3.gz</code> twenty, <code>vsd-99.gz</code> fourteen. Do not unpack it.</li>
+      <li><b>Drop the five files on the box below</b> (or choose them). The page shows the four ROMs as "here" and
+        lists the disk's songs under <a href="#songs">Songs</a>. They stay in this browser for the next visit.</li>
+      <li><b>Press a song.</b> It goes to the FM-1 with its programs and its waves in a few seconds and starts.
+        The FM-1's screen shows the sequencer: the song, the step, the bar, the tempo.</li>
+      <li><b>On the FM-1</b>, PLAY stops and starts the song, and the keys play along. Press another song here
+        whenever you like: one song is in the synth at a time.</li>
+    </ol>
+    <p class="dim small">After the FM-1 has been switched off, the synth is back to its own waves and song: open this
+      page and press a song again. Steps 2 to 4 are done once.</p>
+  </div>
+  <div class="grid">
+    <div class="feat"><h3>ESQ-1</h3><p>One wave ROM (number 1) with 32 waves. With that ROM alone, <b>Send the ESQ-1's
+      waves</b> above gives the keys and every program the real ESQ-1 sound. No ESQ-1 demo sequences are known to be
+      on the net as data, so the demo songs here are the SQ-80's.</p></div>
+    <div class="feat"><h3>SQ-80</h3><p>The same synth with three more ROMs (2, 3 and 4) and 43 more waves: drums,
+      plucked and bowed attacks, voices. Its demo songs use them, so they want all four ROMs; a song brings the
+      tables it plays, and the synth then offers all 75 waves until it is switched off.</p></div>
+  </div>
+</section>
+
+<section id="files" aria-labelledby="files-h">
+  <div class="sec-h"><h2 id="files-h">Waves and disks</h2></div>
+  <p class="sub">The wave ROMs and the demo songs are Ensoniq's, and are not on this site. Rainer Buchty's Ensoniq
+    pages have them. Download the files and drop them here as they are, zipped: the page unpacks them, keeps them in
+    this browser for the next visit, and sends nothing anywhere but to your FM-1.</p>
+  <div class="panel">
+    <ul class="esq-get dim">
+      <li>The four wave ROMs: <a href="http://www.buchty.net/ensoniq/files/sq80-waverom-1.zip">sq80-waverom-1.zip</a> (the ESQ-1's own),
+        <a href="http://www.buchty.net/ensoniq/files/sq80-waverom-2.zip">2</a>,
+        <a href="http://www.buchty.net/ensoniq/files/sq80-waverom-3.zip">3</a>,
+        <a href="http://www.buchty.net/ensoniq/files/sq80-waverom-4.zip">4</a> (the SQ-80's three more)</li>
+      <li>The SQ-80's factory disks, with the demo songs and their programs:
+        <a href="http://www.buchty.net/ensoniq/files/vsd-2.gz">vsd-2.gz</a>,
+        <a href="http://www.buchty.net/ensoniq/files/vsd-3.gz">vsd-3.gz</a>,
+        <a href="http://www.buchty.net/ensoniq/files/vsd-99.gz">vsd-99.gz</a></li>
+      <li>Your own: a ROM dump (<code>2202.bin</code> … <code>2205.bin</code>, <code>esq1wavlo.bin</code> +
+        <code>esq1wavhi.bin</code>), an SQ80 Toolkit disk dump, a <code>.sqpack</code></li>
+    </ul>
+    <div class="esq-drop" id="esq-drop">
+      <p>Drop the files here, or <label class="btn small" for="esq-file">choose them</label></p>
+      <input class="vh" type="file" id="esq-file" multiple>
+    </div>
+    <ul class="esq-have" id="esq-have" aria-label="The wave ROMs this browser has"></ul>
+    <p class="dim small" id="esq-filed" role="status"></p>
+    <div class="row"><button type="button" class="btn small danger" id="esq-forget" hidden>Forget these files</button></div>
+  </div>
+</section>
+
+<section id="songs" aria-labelledby="songs-h">
+  <div class="sec-h"><h2 id="songs-h">Songs</h2></div>
+  <p class="sub">The songs on the disks you dropped. A press sends the song with its programs and exactly the waves it
+    plays (a few seconds over USB) and starts it on the FM-1. The keys play along.</p>
+  <div id="esq-packs"><p class="dim">No disk yet: drop one above.</p></div>
+</section>
+
+<section id="help" aria-labelledby="help-h">
+  <div class="sec-h"><h2 id="help-h">Help</h2></div>
+  <div class="grid">
+    <div class="feat"><h3>After switching off</h3><p>The waves and the song a press sent are in the FM-1's memory, not
+      its flash: after a restart the synth has its stand-in waves and The Entertainer again. Open this page and press
+      once more: the files are still in this browser.</p></div>
+    <div class="feat"><h3>Why one song at a time</h3><p>The SQ-80 has 256 KB of waves and a synth in fm1-dock 272 KB of
+      memory in all. So a song comes with the tables its own programs read, and with the ESQ-1's ROM whole when there
+      is room beside them.</p></div>
+    <div class="feat"><h3>A song sounds wrong</h3><p>Without ROMs 2 to 4 the SQ-80's waves (drums, plucked attacks, voices) are
+      silent, and without any ROM everything plays the stand-in waves. The pills above say which ROMs the page has.</p></div>
+    <div class="feat"><h3>On the FM-1</h3><p>SEQ shows the sequencer: the song, its step, the sequence, the bar and the
+      tempo. PLAY starts and stops; SELECT picks another song or sequence while it is stopped.</p></div>
+  </div>
+</section>
+</main>
+
+<script type="module" src="esq1.js"></script>
+</body>
+</html>
