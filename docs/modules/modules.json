@@ -397,6 +397,36 @@
   "accent": "#ffaa28",
   "alt": "KEYS' screen: the preset EP BARK, E.PIANO 2 of 3, the three families, Tone, Decay, Pickup and Volume"
  },
+ "orrery": {
+  "file": "orrery.dock",
+  "version": "0.1.0",
+  "source": "modules/orrery: orrery-fm1 as of 2026-11-16 (after 73e8435; modules/orrery/take.py), fm1-dock",
+  "by": "Joakim Eriksson",
+  "songs": "seventeen setups, each a band: strings, lead, bass and drums",
+  "title": "ORRERY",
+  "module": "ORRERY",
+  "author_url": "https://github.com/joakimeriksson",
+  "original": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/orrery",
+  "links": [
+   {
+    "label": "source",
+    "url": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/orrery"
+   }
+  ],
+  "license": "GPL-3.0-only (the ENSEMBLE pads' DSP blocks from Felucca-Engines: MIT)",
+  "voices": "a band: strings, a lead on the keys, bass and drums",
+  "description": "The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead on the keys, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview.",
+  "tags": [
+   "synth",
+   "sequencer",
+   "vintage"
+  ],
+  "kind": "analog",
+  "untested": true,
+  "screenshot": "media/screen_orrery.png",
+  "accent": "#ff9539",
+  "alt": "ORRERY's screen: the setup DRIFT running at 75, the LEAD page with cutoff, resonance, glide and level"
+ },
  "sine": {
   "hub": "dinghy",
   "title": "SINE",

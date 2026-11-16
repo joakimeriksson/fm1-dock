@@ -54,7 +54,7 @@ it wants a little of the lean firmware's flash, and Scintilla's build uses it in
 
 ## Later
 
-- **SEVENTIES** (seventies-fm1): the synths of a Jarre record in one module, so they play together: the Eminent
+- **ORRERY** (orrery-fm1): the synths of a Jarre record in one module, so they play together: the Eminent
   310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg
   Mini Pops 7 and a tape echo, on the dock's reverb. Its engines are also modules of their own: ARP 2600,
   MINIPOPS, EMINENT.
