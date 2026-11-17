@@ -232,6 +232,8 @@ main section { max-width: 1180px; margin: 0 auto; padding: 72px 24px 24px; }
 .legend i.other { background: var(--line-2); }
 .legend i.ghost { background: transparent; border: 1.5px dashed var(--acc); }
 .legend b { color: var(--fg); font-weight: 600; }
+.legend .meter-rm { margin-left: 4px; min-height: 24px; padding: 1px 8px; font-size: 0.76rem; vertical-align: 1px; }
+.meter-say { margin: 8px 0 0; font-size: 0.86rem; }
 
 .mods-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 18px; }
 .mod { --mod: var(--acc); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; display: flex; flex-direction: column;
@@ -528,4 +530,132 @@ dialog.ask .row { justify-content: flex-end; }
   .g-card { grid-template-columns: 64px minmax(0, 1fr); }
   .g-card img { width: 64px; height: 64px; }
   main section { padding-left: 16px; padding-right: 16px; }
+}
+
+/* the package picker above the Install button (install/fm1install.js) */
+.fm1-packs { border: 0; padding: 0; margin: 0 0 14px; display: grid; gap: 8px; min-width: 0; }
+.fm1-packs legend { padding: 0; margin-bottom: 6px; font-weight: 600; color: var(--fg); }
+.fm1-pack { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; }
+.fm1-pack:has(input:checked) { border-color: var(--acc-text); background: var(--acc-soft); }
+.fm1-pack input { margin: 4px 0 0; accent-color: var(--acc-text); }
+.fm1-pack > span { display: grid; gap: 2px; min-width: 0; }
+.fm1-pack-has { color: var(--fg-2); font-size: 0.92rem; }
+.fm1-pack-why { color: var(--muted); font-size: 0.86rem; }
+.fm1-pack-more { color: var(--muted); font-size: 0.86rem; margin: 2px 0 0; }
+
+/* the guide: a heading between two grids of boxes */
+.g-h { margin: 32px 0 14px; font-size: 1.15rem; }
+
+/* ---- the developer's guide (develop.html): one path, write -> test -> share, on a rail down the left */
+.dv-n { display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%;
+  background: var(--acc); color: var(--acc-ink); font: 600 0.95rem var(--mono); }
+.dv-flow { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px; counter-reset: none; }
+.dv-flow li { position: relative; min-width: 0; }
+.dv-flow li + li::before { content: ""; position: absolute; left: -14px; top: 35px; width: 14px; height: 2px;
+  background: var(--acc-line); }
+.dv-flow a { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: center; height: 100%;
+  align-content: start; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--fg-2); }
+.dv-flow a:hover { text-decoration: none; border-color: var(--acc-line); }
+.dv-flow b { font-size: 1.1rem; color: var(--fg); }
+.dv-flow a > span:last-child { grid-column: 1 / -1; font-size: 0.88rem; margin-top: 6px; }
+
+.dv-step { --pad: 24px; --rail: 60px; position: relative; padding-left: calc(var(--pad) + var(--rail)); }
+.dv-step > .dv-n { position: absolute; left: var(--pad); top: 72px; z-index: 1; box-shadow: 0 0 0 6px var(--bg); }
+.dv-step::before { content: ""; position: absolute; left: calc(var(--pad) + 17px); top: 108px; bottom: -72px; width: 2px;
+  background: linear-gradient(var(--acc-line), var(--acc-line)); }
+.dv-step.dv-last::before { display: none; }
+.dv-step > .dv-n-sub { width: 36px; height: 36px; background: var(--bg); color: var(--acc-text); border: 2px solid var(--acc-line); }
+.dv-step > h2 { min-height: 36px; display: flex; align-items: center; margin-bottom: 0.6em; }
+.dv-step h3 { font-size: 1rem; margin: 0 0 8px; }
+.dv-step p { font-size: 0.92rem; color: var(--fg-2); max-width: 70ch; }
+.dv-step .mt-list { font-size: 0.9rem; }
+.dv-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 40px; margin-top: 8px; }
+.dv-split > div { min-width: 0; }
+.dv-step .code, .dv-aside .code { margin: 0 0 12px; max-width: 100%; white-space: pre; }
+.dv-note { margin-top: 22px; padding: 14px 18px; border-left: 3px solid var(--acc); background: var(--acc-soft);
+  border-radius: 0 10px 10px 0; }
+.dv-note .mt-list { margin: 0; }
+.dv-note .mt-list li:last-child, .dv-check li:last-child { margin-bottom: 0; }
+.dv-check { border-left-color: var(--ok); background: var(--ok-soft); }
+.dv-check ul { list-style: none; margin: 0; padding: 0; font-size: 0.9rem; color: var(--fg-2);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 32px; }
+.dv-check li { position: relative; padding-left: 26px; }
+.dv-check li::before { content: ""; position: absolute; left: 0; top: 0.3em; width: 14px; height: 14px; border-radius: 4px;
+  border: 1.5px solid var(--ok); background: no-repeat center / 10px
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 5.2 4 7.5 8.5 2.5' fill='none' stroke='%237fb88f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.dv-forks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.dv-forks .box { padding: 18px; background: var(--surface); }
+.dv-forks .box p, .dv-forks .g-steps li { font-size: 0.9rem; }
+.dv-forks h3 { display: flex; align-items: center; gap: 10px; font-size: 1.05rem; margin-bottom: 12px; }
+.dv-l { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; font: 600 0.85rem var(--mono);
+  background: var(--surface-2); color: var(--fg-2); border: 1px solid var(--line-2); }
+.dv-pick { border-color: var(--acc-line); }
+.dv-pick .dv-l { background: var(--acc-soft); color: var(--acc-text); border-color: var(--acc-line); }
+.dv-aside { border: 1px dashed var(--line-2); border-radius: var(--r); padding: 24px; }
+.dv-aside h2 { font-size: 1.5rem; }
+.dv-aside .sub { margin-bottom: 1.2em; }
+.dv-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 32px; }
+.dv-cols > div { min-width: 0; }
+.dv-cols > div + div { border-left: 1px solid var(--line); padding-left: 32px; }
+.dv-cols h3 { font-size: 1rem; margin: 0 0 6px; }
+.dv-cols p { font-size: 0.9rem; color: var(--fg-2); margin: 0; }
+@media (max-width: 900px) {
+  .dv-step { --pad: 16px; --rail: 48px; }
+  .dv-step > .dv-n { top: 52px; }
+  .dv-step::before { top: 88px; bottom: -52px; }
+  .dv-split, .dv-forks, .dv-check ul { grid-template-columns: 1fr; }
+  .dv-cols { grid-template-columns: 1fr; }
+  .dv-cols > div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 14px; }
+}
+@media (max-width: 680px) {
+  .dv-flow { grid-template-columns: 1fr; gap: 10px; }
+  .dv-flow li + li::before { left: 33px; top: -10px; width: 2px; height: 10px; }
+  .dv-flow a { padding: 12px 14px; }
+}
+@media (max-width: 560px) {
+  .dv-step { --rail: 0px; padding-left: var(--pad); }
+  .dv-step::before { display: none; }
+  .dv-step > .dv-n { position: static; float: left; margin: 0 12px 0 0; width: 32px; height: 32px; box-shadow: none; }
+  .dv-step > h2 { min-height: 32px; }
+  .dv-aside { padding: 16px; }
+  .dv-note { padding: 12px 14px; }
+}
+
+/* ---- the player's guide, "Adding synths" (guide.html#add): the four steps as one path, then the fixes */
+.ad-path { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 18px; }
+.ad-path li { position: relative; min-width: 0; padding: 18px 0 0; }
+.ad-path li + li::before { content: ""; position: absolute; top: 35px; left: -18px; width: 18px;
+  height: 2px; background: var(--acc-line); }
+.ad-path li::after { content: ""; position: absolute; top: 35px; left: 46px; right: 0; height: 2px; background: var(--acc-line); }
+.ad-path li:last-child::after { display: none; }
+.ad-path .dv-n { position: relative; z-index: 1; }
+.ad-path li > div { margin-top: 12px; }
+.ad-path li > div > b { display: block; font-size: 1.05rem; color: var(--fg); margin-bottom: 4px; }
+.ad-path p { margin: 0; font-size: 0.9rem; color: var(--fg-2); }
+.ad-stuck { margin: 22px 0 0; font-size: 0.9rem; color: var(--muted); }
+.ad-more { margin-top: 28px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.ad-help { margin-top: 32px; padding: 6px 22px 10px; border: 1px solid var(--line); border-top: 3px solid var(--warn);
+  border-radius: var(--r); background: var(--surface); scroll-margin-top: 72px; }
+.ad-help .g-h { display: flex; align-items: center; gap: 10px; margin: 16px 0 6px; }
+.ad-ico { width: 22px; height: 22px; flex: none; fill: none; stroke: var(--warn); stroke-width: 1.6; stroke-linecap: round; }
+.ad-ico .dot { fill: var(--warn); }
+.ad-fix { margin: 0; }
+.ad-fix > div { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); gap: 6px 28px; padding: 14px 0;
+  border-top: 1px solid var(--line); }
+.ad-fix > div:first-child { border-top: 0; }
+.ad-fix dt { font-weight: 600; color: var(--fg); font-size: 0.95rem; }
+.ad-fix dd { margin: 0; min-width: 0; }
+.ad-fix dd p { margin: 0; font-size: 0.88rem; color: var(--fg-2); max-width: 70ch; }
+.ad-fix .mt-list li:last-child { margin-bottom: 0; }
+@media (max-width: 900px) {
+  .ad-path { grid-template-columns: 1fr; gap: 0; }
+  .ad-path li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 14px; padding: 0 0 20px; }
+  .ad-path li + li::before { display: none; }
+  .ad-path li::after { top: 40px; bottom: 0; left: 17px; right: auto; width: 2px; height: auto; }
+  .ad-path li > div { margin-top: 6px; }
+  .ad-fix > div { grid-template-columns: 1fr; }
+  .ad-help { padding: 4px 16px 8px; }
 }

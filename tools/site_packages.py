@@ -10,6 +10,9 @@ tools/fm1_install.py checks a package before it installs one (identity, update l
 
 A release may carry the SMK-37's packages beside the FM-1's (fm1-dock: NAME-X.Y-smk37.fwsc, -smk37-elite, -smk37-mke):
 those go into the firmware's "variants", by the model their identity names, for the page to pick by the keyboard.
+The empty dock and the synth packs (NAME-X.Y.Z-empty.fwsc, -analog, -digital, and their -smk37...) go into the
+firmware's "packs", by name, each with its own variants (a pack may have no FM-1 package, or no SMK-37 one): the page
+offers them beside the normal package.
 
 The modules the page adds to an fm1-dock (FM-1 SID, AMB-1, ...): a .dock attached to that firmware's latest release when
 there is one, else DIR's copy (DIR/modules.json says what it is; the page's catalog reads the rest of it). Each is checked
@@ -17,11 +20,14 @@ as tools/hbdeploy.py checks one (its header). An entry "packaged" (in fm1-dock's
 .dock is not in DIR yet is left out of index.json, and the page shows it without its button.
 """
 import hashlib
+import re
 import json
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+PACK = re.compile(r"-(empty|analog|digital)(-smk37[-a-z]*)?\.fwsc$")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fm1_install  # noqa: E402
@@ -90,35 +96,47 @@ def main(argv):
         fid, _, repo = arg.partition("=")
         rel = gh_json(f"repos/{repo}/releases/latest")
         releases[fid] = {**rel, "repo": repo}
-        assets = [a for a in rel["assets"] if a["name"].endswith(".fwsc")]
-        fm1 = [a for a in assets if "-smk37" not in a["name"]]
-        if len(fm1) != 1:
-            raise SystemExit(f"{repo} {rel['tag_name']}: {len(fm1)} FM-1 .fwsc assets, expected one")
-        variants = {}
-        for a in fm1 + [a for a in assets if "-smk37" in a["name"]]:
-            subprocess.run(["gh", "release", "download", rel["tag_name"], "-R", repo, "-p", a["name"], "-D", str(out),
-                            "--clobber"], check=True)
-            path = out / a["name"]
-            raw = path.read_bytes()
-            sha = hashlib.sha256(raw).hexdigest()
-            if a.get("digest") and a["digest"] != "sha256:" + sha:
-                raise SystemExit(f"{repo} {a['name']}: SHA-256 {sha}, GitHub says {a['digest']}")
-            try:
-                product, image = fm1_install.load_package(str(path), False)
-            except fm1_install.InstallError as e:
-                raise SystemExit(f"{repo} {a['name']}: {e}")
-            board = fm1_install.package_board(image)
-            if (board == "smk") != ("-smk37" in a["name"]):
-                raise SystemExit(f"{repo} {a['name']}: laid out for {board}, named for the other board")
-            print(f"{fid:10} {a['name']:28} {product:14} {sha[:16]}")
-            if board == "smk":
-                variants[fm1_install.model_of(product)] = {"file": a["name"], "sha256": sha, "size": len(raw), "product": product}
-                continue
-            index["firmwares"][fid] = {"name": rel["name"] or a["name"], "version": rel["tag_name"].removeprefix("v"),
-                                       "tag": rel["tag_name"], "file": a["name"], "sha256": sha, "size": len(raw),
-                                       "product": product, "release": rel["html_url"]}
-        if variants:
-            index["firmwares"][fid]["variants"] = variants
+        # the normal packages, and fm1-dock's empty dock and synth packs (NAME-X.Y.Z-empty.fwsc, -analog, -digital,
+        # each also -smk37...) under the entry's "packs", for the page's package picker
+        fwsc = [a for a in rel["assets"] if a["name"].endswith(".fwsc")]
+        groups = {}
+        for a in fwsc:
+            m = PACK.search(a["name"])
+            groups.setdefault(m.group(1) if m else "", []).append(a)
+        entries = {}
+        for pack, assets in sorted(groups.items()):
+            fm1 = [a for a in assets if "-smk37" not in a["name"]]
+            if len(fm1) > 1 or (pack == "" and not fm1):
+                raise SystemExit(f"{repo} {rel['tag_name']}: {len(fm1)} FM-1 .fwsc assets{' for ' + pack if pack else ''}, expected one")
+            entry, variants = {}, {}
+            for a in fm1 + [a for a in assets if "-smk37" in a["name"]]:
+                subprocess.run(["gh", "release", "download", rel["tag_name"], "-R", repo, "-p", a["name"], "-D", str(out),
+                                "--clobber"], check=True)
+                path = out / a["name"]
+                raw = path.read_bytes()
+                sha = hashlib.sha256(raw).hexdigest()
+                if a.get("digest") and a["digest"] != "sha256:" + sha:
+                    raise SystemExit(f"{repo} {a['name']}: SHA-256 {sha}, GitHub says {a['digest']}")
+                try:
+                    product, image = fm1_install.load_package(str(path), False)
+                except fm1_install.InstallError as e:
+                    raise SystemExit(f"{repo} {a['name']}: {e}")
+                board = fm1_install.package_board(image)
+                if (board == "smk") != ("-smk37" in a["name"]):
+                    raise SystemExit(f"{repo} {a['name']}: laid out for {board}, named for the other board")
+                print(f"{fid:10} {a['name']:36} {product:14} {sha[:16]}")
+                if board == "smk":
+                    variants[fm1_install.model_of(product)] = {"file": a["name"], "sha256": sha, "size": len(raw), "product": product}
+                    continue
+                entry = {"file": a["name"], "sha256": sha, "size": len(raw), "product": product}
+            if variants:
+                entry["variants"] = variants
+            entries[pack] = entry
+        main_entry = entries.pop("")
+        index["firmwares"][fid] = {"name": rel["name"] or main_entry["file"], "version": rel["tag_name"].removeprefix("v"),
+                                   "tag": rel["tag_name"], "release": rel["html_url"], **main_entry}
+        if entries:
+            index["firmwares"][fid]["packs"] = entries
     if mdir:
         modules(out, index, mdir, releases)
     (out / "index.json").write_text(json.dumps(index, indent=1) + "\n")

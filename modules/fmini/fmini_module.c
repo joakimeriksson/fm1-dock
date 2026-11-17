@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* FMINI-1: FMini-1's FMINI engine (Ruppert, github.com/ruppert/fmini-1, 2.2.0) as a fm1-dock module: a monosynth in
+/* FMINI-1: FMini-1's FMINI engine (Ruppert, github.com/ruppert/fmini-1, 2.5.13) as a fm1-dock module: a monosynth in
  * the style of the classic three-oscillator Moogs (three polyBLEP oscillators and noise, the mixer's soft overload, the
  * Minimoog-style 24 dB ladder with its own contour), its 200 factory patches and its effects (FMini-1's own: DRIVE,
  * CHORUS, DELAY, REVERB; fx_taken.c), FMini-1's code (take.py). Under it the slice of FMini-1's host the engine reads
@@ -322,6 +322,41 @@ static void c1_probe(void)
     }
 }
 
+/* FMini-1's master (fx.c master_out, lines 185 .. 285 there, which take.py leaves out: its LOWCUT / BASS+ and the MASTER
+ * knob are the host's), at MASTER's top (fx.c perf_master: ((x >> 2) * 4096) >> 10 is x): the DC blocker, the peak
+ * limiter above LIM_T (an envelope that rises fast and falls in ~150 ms, so a chord turns the whole down instead of its
+ * peaks being cut) and the soft clip (dsp.c softclip, tanh: never full scale). The voices of a chord sum far above Q15
+ * (PIPE ORGAN: a voice near 16000); a knee that cut them at 32767 here was heard as distortion */
+#define LIM_T 18000
+static int32_t lim_env = LIM_T, dc_l, dc_r, dce_l, dce_r;
+static inline int32_t dc_block(int32_t x, int32_t *dc, int32_t *err)
+{
+    int32_t e = (x << 6) - *dc + *err, d = e >> 12;
+    *err = e - (d << 12);
+    *dc += d;
+    return x - ((*dc + 32) >> 6);
+}
+static inline void master_out(int32_t *l, int32_t *r)
+{
+    int32_t al, ar, a;
+    *l = dc_block(*l, &dc_l, &dce_l);
+    *r = dc_block(*r, &dc_r, &dce_r);
+    al = *l < 0 ? -*l : *l;
+    ar = *r < 0 ? -*r : *r;
+    a = al > ar ? al : ar;
+    if (a > lim_env)
+        lim_env += (a - lim_env) >> 2;
+    else if (lim_env > LIM_T)
+        lim_env -= ((lim_env - LIM_T) >> 12) + 1;
+    if (lim_env > LIM_T) {
+        int32_t g = (int32_t)(((uint32_t)LIM_T << 15) / (uint32_t)lim_env);   /* < 32768 */
+        *l = ((*l >> 4) * g) >> 11;                      /* >> 4 first: |l| may be far above Q15 */
+        *r = ((*r >> 4) * g) >> 11;
+    }
+    *l = softclip(*l);
+    *r = softclip(*r);
+}
+
 static void part_block(int32_t *out, uint32_t n)
 {
     track_t *t = &trk[0];
@@ -350,8 +385,7 @@ static void part_block(int32_t *out, uint32_t n)
             buf0[i] += buf1[i];
     }
     /* the part as FMini-1's mix_part mixes it (fx.c): DRIVE, the LEVEL (unity at 112), the three sends; the buses (fx_buses: the
-     * chorus, the delay, the reverb), their stereo (rev_side_mix); then a soft knee above -2.5 dBFS where FMini-1 has its master's
-     * limiter (loud chords) */
+     * chorus, the delay, the reverb), their stereo (rev_side_mix); then FMini-1's master_out (master_out below) */
     track_dist(t, buf0, n);
     {
         int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], c = t->p[P_CHOR] * 258, d = t->p[P_DLY] * 258, r = t->p[P_REV] * 258;
@@ -372,15 +406,9 @@ static void part_block(int32_t *out, uint32_t n)
         int32_t lr[2], k;
         lr[0] = mix_l[i] + wet[i];
         lr[1] = mix_r[i] + wet[i];
-        for (k = 0; k < 2; k++) {
-            int32_t s = lr[k], a = s < 0 ? -s : s;
-            if (a > 24576) {
-                a = 24576 + ((a - 24576) >> 2);
-                if (a > 32767) a = 32767;
-                s = s < 0 ? -a : a;
-            }
-            out[2u * i + (uint32_t)k] += s;
-        }
+        master_out(&lr[0], &lr[1]);
+        for (k = 0; k < 2; k++)
+            out[2u * i + (uint32_t)k] += lr[k];
     }
 }
 
@@ -1059,7 +1087,7 @@ static int init(const hb_host_t *h)
         patch_select(0);
     }
     save_at = 0;
-    H->log_u32("fmini: FMini-1 2.2.0, patches", npatches());
+    H->log_u32("fmini: FMini-1 2.5.13, patches", npatches());
     return 0;
 }
 

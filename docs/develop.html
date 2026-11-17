@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Developer's guide · fm1-dock</title>
+<meta name="description" content="Write a synth for fm1-dock on the M-VAVE FM-1 and the SMK-37, try it in the emulator, and share it: as a .dock file of your own, or in the page's catalog with one-click Add.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0d0c11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f5fb" media="(prefers-color-scheme: light)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="media/fm1-dock-icon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <a class="brand" href="./" aria-label="fm1-dock, its page"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></a>
+  <nav aria-label="Sections">
+    <a href="./">fm1-dock</a><a href="#start">Start</a><a href="#write">Write</a><a href="#test">Test</a>
+    <a href="#share">Share</a><a href="#catalog">Into the catalog</a><a href="#port">Port a firmware</a><a href="guide.html">Player's guide</a>
+  </nav>
+</header>
+
+<main id="main">
+<section id="start" class="mt-top" aria-labelledby="start-h">
+  <h2 id="start-h">Developer's guide</h2>
+  <p class="sub">A synth for fm1-dock is a <b>module</b>: a small C program built into a <code>.dock</code> file. Players
+    add it to their FM-1 or SMK-37 next to the other synths, without replacing any firmware, and switch to it with HOME.
+    This page is the way from an idea to a synth anyone can add with one click.</p>
+  <ol class="dv-flow">
+    <li><a href="#write"><span class="dv-n">1</span><b>Write</b>
+      <span>Copy <code>modules/sine/</code> (150 lines), fill in <code>render()</code> and <code>note()</code>, build it
+        with <code>tools/hbmod.py</code>.</span></a></li>
+    <li><a href="#test"><span class="dv-n">2</span><b>Test</b>
+      <span>In the fm1-emu emulator first, then on your own unit: a deploy is a few seconds and changes nothing
+        else.</span></a></li>
+    <li><a href="#share"><span class="dv-n">3</span><b>Share</b>
+      <span>Put the <code>.dock</code> in a GitHub release for anyone to deploy, or bring it into the page's catalog
+        for one-click Add.</span></a></li>
+  </ol>
+</section>
+
+<section id="write" class="dv-step" aria-labelledby="write-h">
+  <span class="dv-n" aria-hidden="true">1</span>
+  <h2 id="write-h">Write a module</h2>
+  <div class="dv-split">
+    <div>
+      <h3>What a module is</h3>
+      <p>A table of functions at the start of its image, linked against nothing of the host's. fm1-dock checks its
+        header, ABI and CRC before any of it runs.</p>
+      <ul class="mt-list">
+        <li><code>render()</code> adds 256 stereo frames, Q15, in the audio interrupt (5.8 ms).</li>
+        <li><code>note()</code>, <code>cc()</code>, <code>ui()</code> and <code>draw()</code> run in the main loop.</li>
+        <li>The host gives the time, the log, the screen, the LEDs, a 240-byte settings record, flash banks for
+          presets, MIDI out and the keys' pressure: every call is in
+          <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/firmware/dock/hb_module.h">hb_module.h</a>.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Build it</h3>
+      <pre class="code">cp -r modules/sine modules/mysynth
+<span class="c"># module.cfg:
+#   name = MYSYNTH
+#   version = 1</span>
+python3 tools/hbmod.py modules/mysynth
+<span class="c"># -> build/modules/mysynth.dock</span></pre>
+      <p>A module needs only JieLi's toolchain (<code>tools/get_toolchain.sh</code>), not the SDK; the
+        <a href="https://github.com/joakimeriksson/fm1-dock#build-it">README's Build it</a> has the setup. The
+        module's directory can live in your own repository (<code>includes =</code> and <code>sources =</code> point
+        outside fm1-dock's tree).</p>
+    </div>
+  </div>
+  <div class="dv-note">
+    <h3>The chip's rules</h3>
+    <ul class="mt-list">
+      <li>One core at 240 MHz (a second one for voices, optional), <b>integers only</b>, no 64-bit division.</li>
+      <li>272 KiB of RAM, 16 KiB of code in RAM (<code>HB_FAR</code>).</li>
+      <li>Keep it small: the add-ons share 296 KiB of flash on the FM-1, and most synths take 6 to 60 KiB.</li>
+      <li>The build refuses what would crash the chip: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/docs/RULES.md">RULES.md</a>.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="test" class="dv-step" aria-labelledby="test-h">
+  <span class="dv-n" aria-hidden="true">2</span>
+  <h2 id="test-h">Test it</h2>
+  <div class="dv-split">
+    <div>
+      <h3>In the emulator</h3>
+      <p><a href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a> runs fm1-dock and your module as the chip
+        would, with the screen, the sound and the log; no unit needed, nothing to brick.</p>
+      <pre class="code">tools/dock.py emu \
+  --fwsc fm1-dock.fwsc \
+  --deploy mysynth.dock \
+  --ms 6000</pre>
+    </div>
+    <div>
+      <h3>On your FM-1 or SMK-37</h3>
+      <p>With fm1-dock installed: drop the <code>.dock</code> on <a href="./#console">the console</a>'s
+        <b>Deploy a module</b>, or</p>
+      <pre class="code">tools/dock.py deploy \
+  mysynth.dock
+tools/dock.py logs</pre>
+      <p>A module that crashes twice is skipped at boot until it is picked again, and <code>tools/dock.py logs</code>
+        has the address. Hold OCT+ at power-on for the safe start.</p>
+    </div>
+  </div>
+  <div class="dv-note dv-check">
+    <h3>Before you share</h3>
+    <ul>
+      <li>Full chords at full velocity don't clip: <code>tests/level_test.py</code> plays it in fm1-emu and checks.</li>
+      <li>The CPU on the top line stays under about 80 % with all voices playing.</li>
+      <li>HOME, presets and the settings come back after a power-off.</li>
+      <li>On an SMK-37 too if you can; say so if you couldn't.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="share" class="dv-step" aria-labelledby="share-h">
+  <span class="dv-n" aria-hidden="true">3</span>
+  <h2 id="share-h">Share it</h2>
+  <p class="sub">Two ways. You can do the first today on your own; the second puts your synth on the page.</p>
+  <div class="dv-forks">
+    <div class="box">
+      <h3><span class="dv-l">A</span> Your own release</h3>
+      <ol class="g-steps">
+        <li>Put the source on GitHub with a licence (GPL-3.0, MIT or another open one).</li>
+        <li>Attach <code>mysynth.dock</code> to a release.</li>
+        <li>Tell players: install fm1-dock from <a href="./">the page</a>, then drop the <code>.dock</code> on
+          <a href="./#console">the console</a>'s <b>Deploy a module</b>.</li>
+      </ol>
+      <p class="dim">No one has to approve it. It doesn't show in the catalog, and players update it by hand.</p>
+    </div>
+    <div class="box dv-pick">
+      <h3><span class="dv-l">B</span> In the catalog</h3>
+      <p>Your synth gets a card with <b>Add</b>, <b>Try it</b> in the browser emulator, the room it takes, updates
+        with one click, and a place in the README.</p>
+      <p><a href="#catalog">What it takes</a></p>
+    </div>
+  </div>
+</section>
+
+<section id="catalog" class="dv-step dv-last" aria-labelledby="cat-h">
+  <span class="dv-n dv-n-sub" aria-hidden="true">B</span>
+  <h2 id="cat-h">Into the catalog</h2>
+  <div class="dv-split">
+    <div>
+      <h3>The easy way: an issue</h3>
+      <p><a href="https://github.com/joakimeriksson/fm1-dock/issues/new?title=New%20module%3A%20">Open an issue</a>
+        titled <b>New module: NAME</b> with a link to your source, its licence, a few lines on what it is, and what
+        you tested it on. We build it, check it in the emulator and on hardware, and add it; you see the pull request.</p>
+    </div>
+    <div>
+      <h3>Or a pull request</h3>
+      <ul class="mt-list">
+        <li><code>modules/NAME/</code>: the source and its <code>module.cfg</code> (or a wrapper that builds yours
+          from your repository).</li>
+        <li><code>docs/modules/NAME.dock</code>: the built module.</li>
+        <li><code>docs/media/screen_NAME.png</code>: its screen, from the emulator.</li>
+        <li>An entry in <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/docs/modules/modules.json">docs/modules/modules.json</a>
+          (copy ARP 2600's): title, by, licence, voices, a description, tags, kind.</li>
+        <li>A line in LICENSING.md and the README's table.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="dv-note dv-check">
+    <h3>What we check</h3>
+    <ul>
+      <li>An open-source licence, and that you may share everything in it: no manufacturer's ROMs or factory
+        banks.</li>
+      <li>It builds from source, and the <code>.dock</code> matches.</li>
+      <li>It fits next to the others, plays without clipping, and survives HOME and a power-off.</li>
+      <li>Until it has played on a real FM-1, its card says <b>untested</b>.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="port" aria-labelledby="port-h">
+  <div class="dv-aside">
+    <h2 id="port-h">Port a firmware you already have</h2>
+    <p class="sub">Most of the catalog began as its own FM-1 firmware: OberVave, CS-1, AMB-1, FiMba-1, GATOR, PROPHET
+      and others. The synth engine stays as its author wrote it; a small wrapper turns its main loop into
+      <code>render()</code>, <code>note()</code> and <code>ui()</code>, and its screen and buttons into the host's
+      calls.</p>
+    <div class="dv-cols">
+      <div>
+        <h3>Look at one</h3>
+        <p><a href="https://github.com/joakimeriksson/fm1-dock/tree/main/modules/fimba">modules/fimba</a> and
+          <a href="https://github.com/joakimeriksson/fm1-dock/tree/main/modules/obervave">modules/obervave</a> are small
+          wrappers around their authors' code; <a href="https://github.com/joakimeriksson/fm1-dock/tree/main/modules/cs1">modules/cs1</a>
+          plays half its voices on the second core.</p>
+      </div>
+      <div>
+        <h3>Not your code?</h3>
+        <p>Porting someone else's open-source synth is welcome: keep their copyright and licence, credit them on the
+          card, and tell them. Ask before bringing a firmware whose licence doesn't allow it.</p>
+      </div>
+      <div>
+        <h3>Stuck?</h3>
+        <p>Ask in <a href="https://github.com/joakimeriksson/fm1-dock/issues">the issues</a>: a port often needs only a
+          hint about the screen, the banks or the second core.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="g-foot"><p>fm1-dock is free software (GPL-3.0). <a href="./">The page</a> &middot;
+  <a href="guide.html">Player's guide</a> &middot;
+  <a href="https://github.com/joakimeriksson/fm1-dock">Source</a> &middot;
+  <a href="https://github.com/joakimeriksson/fm1-dock/issues">Questions and problems</a></p></footer>
+</main>
+</body>
+</html>

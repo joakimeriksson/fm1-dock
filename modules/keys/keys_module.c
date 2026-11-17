@@ -59,6 +59,8 @@ static kd_par_t play_par;
 static volatile float play_gain = 1.0f;         /* the preset's level */
 static volatile float out_vol = 1.0f;           /* VOLUME, on the part (as Q15 x 12000) */
 static float out_now;                           /* where its ramp is */
+#define LIM_T 26000.0f                          /* the output limiter's threshold (-2 dBFS), Q15 */
+static float lim_env;                           /* its envelope */
 
 /* ---- the voices (the audio interrupt's) */
 typedef struct {
@@ -294,14 +296,25 @@ static void part_block(int32_t *out, uint32_t n)
         }
         out_now = to;
     }
-    for (i = 0; i < n; i++) {                   /* Q15, a soft knee above -2.5 dBFS (chords) */
-        float x = bus0[0][i];
-        int32_t s = (int32_t)x, a = s < 0 ? -s : s;
-        if (a > 24576) {
-            a = 24576 + ((a - 24576) >> 2);
-            if (a > 32767) a = 32767;
-            s = s < 0 ? -a : a;
+    /* Q15: a limiter above LIM_T (an envelope that rises fast and falls in ~0.1 s, so a big chord turns the whole
+     * down instead of its peaks being cut), then a soft knee above -2.5 dBFS that bends toward full scale and never
+     * reaches it. (A knee that stopped at full scale cut a 12..24-note chord flat, hundreds to thousands of samples,
+     * before the host's MASTER.) */
+    for (i = 0; i < n; i++) {
+        float x = bus0[0][i], a = x < 0.0f ? -x : x;
+        int32_t s;
+        if (a > lim_env)
+            lim_env += (a - lim_env) * 0.25f;
+        else if (lim_env > LIM_T)
+            lim_env -= (lim_env - LIM_T) * (1.0f / 4096.0f) + 1.0f;
+        if (lim_env > LIM_T)
+            a *= LIM_T / lim_env;
+        if (a > 24576.0f) {
+            float d = a - 24576.0f;
+            a = 24576.0f + d * 8190.0f / (d + 8190.0f);   /* < 32767 */
         }
+        s = (int32_t)a;
+        s = x < 0.0f ? -s : s;
         out[2u * i] += s;
         out[2u * i + 1u] += s;
     }

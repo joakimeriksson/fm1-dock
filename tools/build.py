@@ -27,6 +27,7 @@ The JieLi toolchain is Linux x86-64 only. JIELI_TOOLCHAIN points at it; on
 macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
 """
 import argparse
+import atexit
 import hashlib
 import os
 import platform
@@ -35,6 +36,8 @@ import shutil
 import struct
 import subprocess
 import sys
+import threading
+import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -94,6 +97,27 @@ def use_docker():
     return os.environ.get("JIELI_DOCKER", "0" if native else "1") == "1"
 
 
+_box = {"id": None, "lock": threading.Lock()}
+
+
+def docker_box():
+    """one container for the whole build, started on the first call and removed at exit: `docker run` costs
+    1.6 s a call on a Mac (the emulation's start), `docker exec` into a running one a tenth of that, and a
+    build makes a few hundred calls"""
+    with _box["lock"]:
+        if _box["id"] is None:
+            extra = [x for d in os.environ.get("HB_MOUNT", "").split(os.pathsep) if d
+                     for x in ("-v", f"{Path(d).resolve()}:{Path(d).resolve()}")]
+            r = subprocess.run(["docker", "run", "-d", "--rm", "--platform", "linux/amd64", "-v", f"{SRC}:/work", *extra,
+                                "-v", f"{toolchain()}:/opt/jieli:ro", "-w", "/work", DOCKER_IMAGE, "sleep", "infinity"],
+                               capture_output=True, text=True)
+            if r.returncode:
+                raise SystemExit(f"build: docker run failed: {r.stderr.strip()}")
+            _box["id"] = r.stdout.strip()
+            atexit.register(lambda: subprocess.run(["docker", "rm", "-f", _box["id"]], capture_output=True))
+        return _box["id"]
+
+
 def tc(tool, *args):
     """run a toolchain binary (pi32v2/bin/..., common/bin/...) with cwd SRC; paths relative to SRC, or
     absolute outside it (a module in another repository: its directories in HB_MOUNT, os.pathsep
@@ -109,16 +133,16 @@ def tc(tool, *args):
     elif tool == "cxx":
         tool, rel = "pi32v2/bin/clang++", ["-target", "pi32v2", *rel]
     if use_docker():
-        extra = [x for d in os.environ.get("HB_MOUNT", "").split(os.pathsep) if d
-                 for x in ("-v", f"{Path(d).resolve()}:{Path(d).resolve()}")]
-        cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "-v", f"{SRC}:/work", *extra,
-               "-v", f"{toolchain()}:/opt/jieli:ro", "-w", "/work", DOCKER_IMAGE, f"/opt/jieli/{tool}", *rel]
+        cmd = ["docker", "exec", "-w", "/work", docker_box(), f"/opt/jieli/{tool}", *rel]
     else:
         cmd = [str(toolchain() / tool), *rel]
     r = subprocess.run(cmd, cwd=SRC, capture_output=True, text=True)
+    if r.returncode and use_docker() and "No such file or directory" in r.stderr:
+        time.sleep(0.5)                 # (Docker's file sharing: a file just written is not always there yet)
+        r = subprocess.run(cmd, cwd=SRC, capture_output=True, text=True)
     if r.returncode:
         sys.stderr.write(r.stdout + r.stderr)
-        raise SystemExit(f"build: {tool} failed")
+        raise SystemExit(f"build: {tool} failed: {' '.join(rel)}")
     if r.stderr.strip():
         sys.stderr.write(r.stderr)
     return r.stdout
@@ -397,8 +421,10 @@ def main():
                     "elite or mke")
     ap.add_argument("--release", metavar="X.Y", help="release build: version string X.Y (the identity stays fm1-dock's)")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
-    ap.add_argument("--modules", help=f"the modules to pack, in slot order (default: {','.join(PACKAGE)}; every "
+    ap.add_argument("--modules", help=f"the modules to pack, in slot order (default: {','.join(PACKAGE)}; none: only the built-in sine; every "
                     "other modules/<dir> is built as a .dock to deploy)")
+    ap.add_argument("--only", action="store_true", help="build only the modules listed (--modules), not every module "
+                    "as a file to deploy: a development build in a fraction of the time")
     ap.add_argument("--no-package", action="store_true", help="no .fwsc (and no SDK needed): the app and its XIP image")
     ap.add_argument("--no-ble", action="store_true", help="no BLE-MIDI (HX) in the image: no BLUETOOTH line, its "
                     "40 KiB free for modules")
@@ -434,7 +460,7 @@ def main():
         PRODUCT = a.identity
     name = f"{APP}.fwsc"
     if a.release:                   # one digit each (X.Y; a .Z only in the text)
-        m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9]+)?", a.release)
+        m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9-]+)?", a.release)
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix, one digit each")
         VERSION = m[1] + "." + m[2] + (m[3] or "")
@@ -447,7 +473,9 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     import hbmod
     every = sorted(d for d in (SRC / "modules").iterdir() if d.is_dir() and d.name != "lib" and any(d.glob("*.c")))
-    dirs = [Path(d).resolve() if "/" in d else SRC / "modules" / d for d in (a.modules or ",".join(PACKAGE)).split(",")]
+    names = ",".join(PACKAGE) if a.modules is None else a.modules
+    dirs = [Path(d).resolve() if "/" in d else SRC / "modules" / d
+            for d in names.split(",") if d and d != "none"]    # --modules none: an empty dock, only the sine
     ota = build_loader()
     host, syms, dis, rt, hx = build_app()
     errors, notes = check(host, syms, dis, rt)
@@ -461,10 +489,10 @@ def main():
         print("  FAIL ", e)
     if errors:
         raise SystemExit("build: checks failed")
-    mods = [hbmod.build_module(d) for d in dirs]
-    for d in every if not a.name else []:       # the others as files to deploy (tools/dock.py deploy, the tests)
-        if d not in dirs:
-            hbmod.build_module(d)
+    with ThreadPoolExecutor(4) as ex:           # four at a time: the toolchain is emulated on a Mac, and a module is seconds
+        mods = list(ex.map(hbmod.build_module, dirs))
+        if not a.name and not a.only:           # the others as files to deploy (tools/dock.py deploy, the tests)
+            list(ex.map(hbmod.build_module, [d for d in every if d not in dirs]))
     if (a.pack or a.name) and hx and not a.no_ble:   # (a solo app: its module and its data take HX's place)
         print("note     a solo app (--name / --pack): no BLE-MIDI in this image")
     if a.no_ble or a.pack or a.name:

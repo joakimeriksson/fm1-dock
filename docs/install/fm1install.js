@@ -31,7 +31,17 @@ const SMK_FAMILY = /^(SMK-37[ +].*|MKE-P37|STARRYKEY-37.*)$/i;   // (the Starryk
 
 // what the pages call them, and what each keeps over an install
 export const FIRMWARES = {
-  "fm1-dock": { name: "fm1-dock", keeps: "Your deployed modules, settings and presets stay." },
+  "fm1-dock": { name: "fm1-dock", keeps: "Your added synths, settings and presets stay.",
+    // the packages to pick from (index.json's entry and its "packs"); smk: what the SMK-37's package has, if not the same
+    packs: [
+      { id: "", label: "Standard", has: "CS-1, Scintilla and OberVave built in", why: "The usual start: three synths ready to play." },
+      { id: "analog", label: "Analog pack", has: "CS-1, Scintilla, OberVave and PROPHET built in",
+        why: "The analog-style polysynths, PROPHET included. FM-1 only." },
+      { id: "digital", label: "Digital pack", has: "FM6, ARTIHIVE and GATOR built in", smk: "FM6, ARTIHIVE and KEYS built in",
+        why: "FM pianos and bells, the hive and the drum machine." },
+      { id: "empty", label: "Empty dock", has: "Only the sine built in",
+        why: "The most room: add just the synths you want from the catalog." },
+    ] },
   "fm1-sid": { name: "FM-1 SID", keeps: "" },
   "scintilla": { name: "Scintilla", keeps: "" },
 };
@@ -373,15 +383,66 @@ export function installButton(el, id, opts = {}) {
   note.className = "fm1-install-note";
   note.textContent = "Over USB, in Chrome or Edge. Do not unplug the device while it writes. " +
     (fw.keeps ? fw.keeps + " " : "") + "Installing firmware is at your own risk; OCT− held at power-on is the USB rescue.";
-  el.append(btn, bar, status, note);
+  const picker = Object.assign(document.createElement("fieldset"), { className: "fm1-packs", hidden: true });
+  el.append(picker, btn, bar, status, note);
   const say = (text) => { status.textContent = text; };
   let entry = null, pkg = null, writing = false;   // (pkg: the last package loaded, by its file)
+  let packId = "";                                 // the package picked ("" the standard one)
+  const KEY = `fm1-pack:${id}`;
+  const packOf = (pid) => (fw.packs || []).find((p) => p.id === pid);
+  const chosen = () => {                           // the catalogue entry of the picked package, with its own variants
+    if (!packId || !entry.packs || !entry.packs[packId]) return entry;
+    const p = entry.packs[packId];
+    return { ...entry, file: p.file, sha256: p.sha256, size: p.size, product: p.product, variants: p.variants || {} };
+  };
+  const label = () => {
+    const p = packOf(packId);
+    return `${fw.name} ${entry.version}` + (packId && p ? ` (${p.label})` : "");
+  };
+  const setBtn = () => {
+    const e = chosen();
+    btn.textContent = `Install ${label()} on my ${e.variants && Object.keys(e.variants).length ? "FM-1 or SMK-37" : "FM-1"}`;
+  };
+  const showPicker = () => {
+    const packs = (fw.packs || []).filter((p) => p.id === "" || (entry.packs && entry.packs[p.id]));
+    if (packs.length < 2) return;
+    try { const v = localStorage.getItem(KEY); if (v !== null && packs.some((p) => p.id === v)) packId = v; } catch (_) { /* none */ }
+    picker.innerHTML = "";
+    picker.append(Object.assign(document.createElement("legend"), { textContent: "Which package?" }));
+    for (const p of packs) {
+      const e = p.id ? entry.packs[p.id] : entry;
+      const fm1Only = !(e.variants && Object.keys(e.variants).length);
+      const row = document.createElement("label");
+      row.className = "fm1-pack";
+      const r = Object.assign(document.createElement("input"), { type: "radio", name: `fm1-pack-${id}`, value: p.id, checked: p.id === packId });
+      r.addEventListener("change", () => {
+        packId = p.id;
+        try { localStorage.setItem(KEY, packId); } catch (_) { /* fine */ }
+        say(""); setBtn();
+      });
+      const txt = document.createElement("span");
+      const h = Object.assign(document.createElement("b"), { textContent: p.label });
+      const has = Object.assign(document.createElement("span"), { className: "fm1-pack-has",
+        textContent: p.has + (p.smk && !fm1Only ? ` (on the SMK-37: ${p.smk})` : "") + "." });
+      const why = Object.assign(document.createElement("span"), { className: "fm1-pack-why", textContent: p.why });
+      txt.append(h, has, why);
+      row.append(r, txt);
+      picker.append(row);
+    }
+    const more = Object.assign(document.createElement("p"), { className: "fm1-pack-more", textContent:
+      "Every package is the same fm1-dock; only the synths built into it differ. Switch any time: the synths you " +
+      "added, your settings and presets stay. A built-in synth takes no room from the add-ons; any synth can still be " +
+      "added from the catalog below." });
+    picker.append(more);
+    picker.hidden = false;
+  };
 
   if (!navigator.requestMIDIAccess) say(SAY.nomidi);
   catalog().then((c) => {
     entry = c.firmwares && c.firmwares[id];
     if (!entry) { say(`No ${fw.name} package on this site yet.`); return; }
-    btn.textContent = `Install ${fw.name} ${entry.version} on my ${entry.variants && Object.keys(entry.variants).length ? "FM-1 or SMK-37" : "FM-1"}`;
+    showPicker();
+    setBtn();
     btn.disabled = !navigator.requestMIDIAccess;
     if (entry.variants && Object.keys(entry.variants).length)
       note.textContent += " An SMK-37 keyboard gets its own package (Pro, Elite, MKE-P37).";
@@ -395,7 +456,13 @@ export function installButton(el, id, opts = {}) {
       let midi;
       try { midi = await navigator.requestMIDIAccess({ sysex: true }); } catch (_) { throw fail("denied", ""); }
       say("Looking for the FM-1 …");
-      const want = await entryFor(midi, entry);      // (the FM-1's package, or the SMK-37 model's)
+      const pick = chosen();
+      let want;
+      try { want = await entryFor(midi, pick); }      // (the FM-1's package, or the SMK-37 model's)
+      catch (e) {
+        if (e.code === "nosmk" && packId) throw new Error(`The ${packOf(packId).label} is for the FM-1 only; pick another package for the SMK-37 (and add its synths from the catalog).`);
+        throw e;
+      }
       if (!pkg || pkg.file !== want.file) pkg = { ...await loadPackage(want), file: want.file };
       const reads = Math.ceil(pkg.image.length / 512);
       const step = (k, n) => {
@@ -404,9 +471,9 @@ export function installButton(el, id, opts = {}) {
         if (k === "done") { bar.value = 100; return; }
         if (SAY[k]) say(SAY[k] + (k === "write" ? ` (${Math.round(bar.value)} %)` : ""));
       };
-      const got = await installOn(midi, pkg, `${fw.name} ${entry.version}`, opts.ask || confirmAsk, step);
+      const got = await installOn(midi, pkg, label(), opts.ask || confirmAsk, step);
       if (got === null) say("Cancelled: nothing was written.");
-      else { say(`Done: the FM-1 runs ${fw.name} ${entry.version} (${got}).`); if (opts.onDone) opts.onDone(got); }
+      else { say(`Done: the FM-1 runs ${label()} (${got}).`); if (opts.onDone) opts.onDone(got); }
     } catch (e) {
       say(SAY[e.code] ? SAY[e.code] + (e.code === "mismatch" || e.code === "inuse" ? e.detail : e.code === "badpkg" || e.code === "badreq" ? e.message : "")
         : `Error: ${e.message}`);

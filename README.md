@@ -77,6 +77,25 @@ its own package; the installers refuse an FM-1 package on an SMK-37, and the oth
 Back to any other firmware, or the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing firmware is at your own risk.
 
+## New in 0.9 (a test release)
+
+**[The 0.9 video](https://www.youtube.com/watch?v=INpj91BmUJM)**: the new synths and the big chords on an FM-1 and an SMK-37, their own sound
+over USB.
+
+- **The empty dock**: `fm1-dock-0.9.0-empty.fwsc` (and `-empty-smk37`, `-elite`, `-mke`) carries only the sine; you
+  add the synths you want from the page, CS-1, Scintilla and OberVave among them (add-ons on the page too). The first
+  step of the open dock ([ROADMAP.md](ROADMAP.md)). Your added synths, settings and presets stay either way.
+- **Synth packs**: the same firmware with other synths built in. `fm1-dock-0.9.0-analog.fwsc` carries CS-1, Scintilla,
+  OberVave and PROPHET; `fm1-dock-0.9.0-digital.fwsc` FM6, ARTIHIVE and GATOR (the SMK-37's `-digital-smk37`: FM6,
+  ARTIHIVE and KEYS). A built-in synth leaves the add-on room free for others. The page's Install step lets you pick
+  any of them (Standard, Analog pack, Digital pack, Empty dock).
+- **Big chords without distortion**: FM6, PROPHET and KEYS (and the FMINI-1 add-on, PIPE ORGAN above all) cut a loud
+  chord flat at full scale before MASTER, so turning the volume down did not help. FM6 and PROPHET now mix as Melodee
+  does (its level, limiter and soft clip), FMINI-1 as FMini-1 does, KEYS with a limiter of its own.
+- **OPTIONS > AFTERTOUCH**: the keys' pressure as it comes (AS IS), or turned into channel pressure, the mod wheel or the
+  filter (CC 74), so that synths which ignore poly aftertouch answer to pressing harder too (OberVave, for one, as MOD
+  WHL or FILTER). On the SMK-37, whose keys sense no pressure, it turns an external keyboard's aftertouch.
+
 ## New add-ons
 
 On the page now, for 0.8.2 and later; an add-on needs no new firmware:
@@ -158,9 +177,15 @@ RAM needs it. The originals are linked; their manuals apply.
 | **FMINI-1** | Ruppert | 1 (MONO, LEGATO) or 12 (POLY, half on the second core) | 61 KiB | FMini-1's monosynth in the style of the classic three-oscillator Moogs: three oscillators and noise into the mixer's soft overload, the 24 dB ladder with its own contour, glide and the mod wheel's vibrato; its 200 factory patches and your own, with FMini-1's own effects (DRIVE, CHORUS, a 1.5 s DELAY of seven kinds, five REVERBs) and an arpeggiator (UP, DOWN, UP-DOWN, RANDOM, AS PLAYED, 1-4 octaves, HOLD, MIDI clock). [The original](https://github.com/ruppert/fmini-1), its engine, patches and effects unchanged; its sequencer is not in the module. |
 | **KEYS** | Joakim Eriksson | 24, half on the second core (16 on one core) | 20 KiB | A clavinet, an electric piano and a piano from physical models: a plucked string after Plaits' (Emilie Gillet) with two pickups, a resonant filter or a wah and the yarn damper; eight modes of a struck tine into a magnetic pickup that barks when hit hard; two stiff strings a voice with a felt hammer, over a soundboard. Ten presets, TONE, DECAY, PICKUP or HARDNESS and VOLUME on the knobs, the keys' velocity in all three. |
 | **ATEK303** | Animatek | 1 (mono), its effects on the second core | 93 KiB | A TB-303 style acid machine: the ATEK303 voice from VCV Rack (Open303 with a diode ladder and a modelled oscillator, 14 oscillators on WAVE) and its own pattern generator, so PLAY plays a line; generate, mutate and edit up to 64 steps in a piano roll, drive, chorus or flanger, a synced ping-pong delay and a plate reverb, 12 factory presets in 32 slots. [The original](https://github.com/animatek/FM1-Animatek/tree/main/atek303), its app and DSP unchanged; here its plate keeps its lines in 16 bits. |
+| **ESQ-1** | Joakim Eriksson | 8, three oscillators each | 120 KiB | Ensoniq's ESQ-1 of 1986 and its successor, the SQ-80: three wavetable oscillators a voice into a four-pole filter, their programs (SysEx in), eight tracks over MIDI and their sequencer, with The Entertainer as its own song. Its waves are computed stand-ins: [its page](https://joakimeriksson.github.io/fm1-dock/esq1.html) sends your own wave ROMs and the SQ-80's factory demo songs to it. [Its source](https://github.com/joakimeriksson/fm1-esq). |
+| **ARP 2600** | Joakim Eriksson | 1 (mono), with its sequencer | 15 KiB | An ARP 2600 with its 1601 sequencer: two oscillators, noise and the ring modulator into the 24 dB ladder filter, two ADSRs, the LFO, portamento; ten patches in the manner of Jarre's records and four of your own, and sixteen-step sequences the keys transpose. |
+| **EMINENT** | Joakim Eriksson | 16 | 6 KiB | The Eminent 310 string ensemble through a Small Stone phaser, the string bed under Oxygène and Equinoxe: four registrations, the ensemble chorus and the phaser. |
+| **MINIPOPS** | Joakim Eriksson | 14 drum sounds | 10 KiB | The Korg Mini Pops 7 rhythm box of 1973, worked as the machine is: ten rhythm keys that combine, the A / B lever, tambourine, guiro and quijada, and its sounds to strike by hand. |
+| **ENSEMBLE** | Joakim Eriksson, after bonszaimusic's Caravel | 6 | 11 KiB | Fourteen string, choir and dark pads in a stereo three-tap ensemble, with a morph from strings through choir to dark: ORRERY's pads as a synth of their own. |
+| **ORRERY** | Joakim Eriksson | a band: strings, a lead on the keys, bass and drums | 176 KiB | The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview, not yet played on an FM-1. [Its source](https://github.com/joakimeriksson/orrery-fm1). |
 
 The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas); the page's meter shows what
-fits before you add one. FM-1 SID, MONK-1, DUB-1, GATOR and Niagara Drift are large: with one of them added, only
+fits before you add one. FM-1 SID, MONK-1, DUB-1, GATOR, ORRERY and Niagara Drift are large: with one of them added, only
 smaller ones fit beside it. The new modules of 0.8 have been played on an FM-1, both cores running: at their worst ARTIHIVE took 64 % of a block, PROPHET 53 %, Niagara Drift 33 %, Scintilla 46 % (its second core 35 %), with no overruns. Niagara Drift (156 KiB) leaves too little room in one piece for B3 ORGAN beside it and PROPHET: the free room can be split, and the page's meter shows the largest piece.
 
 ## Play it
@@ -248,7 +273,8 @@ way and plays it at once. One that sets `HB_F_XBTN` also gets an SMK-37's own bu
 >) as `HB_BTN_KNOB_BANK` .. `HB_BTN_RIGHT` (14..17), and lights them with `HB_LED_XBTN(id)`; an FM-1 never sends
 them ([SMK37.md](SMK37.md)). One that sets `HB_F_MIDI_RT` gets MIDI clock, start, continue and stop in its `midi()`
 just before each `render()`, from the audio interrupt, at most a block late (without it they come in the main loop,
-between screen frames). A module ported to fm1-dock comes to the page's catalog with an entry in
+between screen frames). To share a synth, as a `.dock` of your own or in the page's catalog: [the developer's guide](https://joakimeriksson.github.io/fm1-dock/develop.html).
+A module ported to fm1-dock comes to the page's catalog with an entry in
 [docs/modules/modules.json](docs/modules/modules.json), its `.dock` and a screenshot.
 
 **Probes** measure the real chip: a small C program run once from RAM inside fm1-dock, its result back as JSON, and
