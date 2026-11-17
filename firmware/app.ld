@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Felucca memory map.
  * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120),
- * up to fm1-dock's slot table at 0x02030000 (flash 0x34000).
+ * up to fm1-dock's slot table at 0x02014000 (flash 0x18000); HX right after it (flash 0x19000).
  * 0x01C00000..0x01C04000 holds .ram_text (code that must run while the flash
  * is busy: the flash driver) and .c1_text (the second core's waiting loop,
  * hal/fm1_cpu1.h); 0x01C04000..0x01C08000 is a module's .ram_text.
@@ -13,13 +13,12 @@
  * 0x01C7FD50.. is reserved: boot_info, boot-state mailbox, vector table. */
 MEMORY
 {
-    XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x2FEE0
-    HX     (rx)  : ORIGIN = 0x02084000, LENGTH = 0xA000   /* flash 0x88000: BLE-MIDI (src/ble/hx.h) */
+    XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x13EE0
+    HX     (rx)  : ORIGIN = 0x02015000, LENGTH = 0xA000   /* flash 0x19000: BLE-MIDI (src/ble/hx.h) */
     RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x4000
     RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 96K
     POOL   (rw)  : ORIGIN = 0x01C20000, LENGTH = 0x10000
     NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D40
-    HBGO   (rw)  : ORIGIN = 0x01C7FD40, LENGTH = 0x10    /* fm1-dock's boot slot counter: above a boot firmware's NOINIT */
 }
 SECTIONS
 {
@@ -40,7 +39,6 @@ SECTIONS
     .bss (NOLOAD) : { _bss_start = .; *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); _bss_end = .; } > RAM
     .pool (NOLOAD) : { _pool_start = .; *(.pool*) . = ALIGN(4); _pool_end = .; } > POOL
     .noinit (NOLOAD) : { *(.noinit*) } > NOINIT
-    .hbgo (NOLOAD) : { *(.hbgo*) } > HBGO
     _guard0 = 0x01C74000; _ustack_lo = 0x01C74100; _ustack_top = 0x01C7A000;
     _guard1 = 0x01C7A000; _sstack_lo = 0x01C7A100; _sstack_top = 0x01C7C000;
     /DISCARD/ : { *(.comment) *(.note*) }

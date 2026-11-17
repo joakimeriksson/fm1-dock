@@ -218,16 +218,15 @@ def build_loader():
 APP = "fm1-dock"                    # the outputs' name (--name) (build/fm1-dock.bin, .fwsc, .syms, ...)
 HOST = "dock"
 PACKAGE = ["cs1", "scintilla", "obervave"]   # the modules in the package (all of modules/ no longer fits its app slot)                       # the host's source: firmware/src/dock.c
-SLOT_TABLE = 0x02030000             # firmware/src/dock.c HB_TABLE_AT (flash 0x34000)
-SLOT_FIRST = SLOT_TABLE + 0x1000
-HX_XIP = 0x02084000                 # firmware/src/ble/hx.h HX_AT (flash 0x88000): BLE-MIDI, a unit of its own (SMK-37: main)
+SLOT_TABLE = 0x02014000             # firmware/src/dock.c HB_TABLE_AT (flash 0x18000), both boards
+HX_XIP = 0x02015000                 # firmware/src/ble/hx.h HX_AT (flash 0x19000): BLE-MIDI, a unit of its own, after the table
 HX_SIZE = 0xA000
 
 
 def build_app():
     flags = [*CFLAGS, *BOARD_DEFS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/dock",
              f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or git_build()}"',
-             *([f'-DAPP_BUILD="{git_build()}"'] if VERSION else []), *(["-DHB_BOOT_SLOT=1"] if BOOT_SLOT else []),
+             *([f'-DAPP_BUILD="{git_build()}"'] if VERSION else []),
              *([f'-DAPP_NAME="{APP_NAME}"'] if APP_NAME else []), *(["-DHB_SOLO=1"] if SOLO else [])]
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
@@ -241,10 +240,6 @@ def build_app():
     tc_all(*cmds)
     elf = OUT / f"{APP}.elf"
     ld = FW / "app.ld"
-    if HX_XIP != 0x02084000:                    # (the SMK-37: app.ld with HX at its place there)
-        ld = OUT / f"app-{BOARD}.ld"
-        t = (FW / "app.ld").read_text()
-        ld.write_text(t.replace("ORIGIN = 0x02084000", f"ORIGIN = {HX_XIP:#010x}"))
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", ld, OUT / "crt0.o", OUT / "fm1_vec.o",
        OUT / "fm1_isr.o", OUT / "fm1_cpu1.o", OUT / f"{HOST}.o", OUT / "hx.o", OUT / "sine_builtin.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin", "c1text.bin", "hx_text.bin", "hx_data.bin"):
@@ -291,29 +286,29 @@ def build_app():
 
 def pack_slots(host, modules, hx):
     # (hx empty: tools/build.py --no-ble, HX's flash left erased: the host finds no BLE)
-    """the app image: the host, 0xFF up to the slot table, the table, each module in its own 4 KiB
-    aligned slot, relocated to run there (hbmod.move); HX (BLE-MIDI) at its place at the top"""
+    """the app image: the host, 0xFF up to the slot table, the table, HX (BLE-MIDI) right after it, then each module in
+    its own 4 KiB aligned slot, relocated to run there (hbmod.move). It ends with the last one: the flash after it is
+    add-on room (dock.c, room), which the update leaves alone"""
     import hbmod
-    boot_lo = 0x02000000 + 0x14000 - 0x4000      # hb_module.h HB_BOOT_LO: a boot firmware's first sector
-    if BOARD == "fm1" and APP_XIP + len(host) > boot_lo:
-        raise SystemExit(f"the host ({len(host)} B) runs into the boot slot at flash 0x14000")
     if APP_XIP + len(host) > SLOT_TABLE:
         raise SystemExit(f"the host ({len(host)} B) runs into the slot table at {SLOT_TABLE:#x}")
     img = bytearray(host + b"\xff" * (SLOT_TABLE - APP_XIP - len(host)))
     table = bytearray(b"\xff" * 0x1000)
+    if len(hx) > HX_SIZE:
+        raise SystemExit(f"HX {len(hx)} B > {HX_SIZE}")
+    first = HX_XIP + ((len(hx) + 0xFFF) & ~0xFFF)   # (no HX: the built-ins from HX's place)
     slots = bytearray()
     for i, path in enumerate(modules):
-        at = SLOT_FIRST + len(slots)
+        at = first + len(slots)
         blob = hbmod.move(Path(path).read_bytes(), at)
         h, _, _ = hbmod.parse(blob)
         struct.pack_into("<IIII", table, 16 * i, 0x544F4C53, at, len(blob), h["crc"])   # "SLOT"
         slots += blob + b"\xff" * (-len(blob) % 0x1000)
         print(f"  slot {i}  {at:#010x}  {h['name']:<10} {len(blob):7} B, runs at {h['base']:#010x}")
-    img += table + slots
-    if hx and APP_XIP + len(img) > HX_XIP:
-        raise SystemExit(f"the modules end at {APP_XIP + len(img):#x}, in HX at {HX_XIP:#x}")
-    if hx:
-        img += b"\xff" * (HX_XIP - APP_XIP - len(img)) + hx
+    if modules:                                 # (the last one's padding is room, not image)
+        slots = slots[:len(slots) - (-len(blob) % 0x1000)]
+    img += table + (hx + b"\xff" * (first - HX_XIP - len(hx)) + slots if modules else hx)
+    img += b"\xff" * (-len(img) % 16)
     if len(img) > APP_SLOT:
         raise SystemExit(f"host + modules: {len(img)} B > the app slot ({APP_SLOT} B)")
     return bytes(img)
@@ -407,14 +402,13 @@ def mmio_check():
     return errors
 
 
-BOOT_SLOT = False                   # --boot-slot: the boot slot is in (a developer's build)
 APP_NAME = None                     # --app-name: the crash and rescue screens' name (dock.c's own: FM1-DOCK)
 SOLO = False                        # --name: a solo app (a new install starts its module, not the sine; no BLE-MIDI:
                                     # its module and its data take HX's place)
 
 
 def main():
-    global PRODUCT, VERSION, BOOT_SLOT, APP, APP_NAME, SOLO, BOARD, BOARD_DEFS, SLOT_TABLE, SLOT_FIRST, APP_SLOT, HX_XIP
+    global PRODUCT, VERSION, APP, APP_NAME, SOLO, BOARD, BOARD_DEFS, APP_SLOT
     ap = argparse.ArgumentParser()
     ap.add_argument("--board", choices=("fm1", "smk37"), help="the board: fm1 (default: $BOARD, else fm1) or smk37")
     ap.add_argument("--model", choices=sorted(MODELS), help="smk37: the model's name, pro (default: $MODEL, else pro), "
@@ -428,8 +422,6 @@ def main():
     ap.add_argument("--no-package", action="store_true", help="no .fwsc (and no SDK needed): the app and its XIP image")
     ap.add_argument("--no-ble", action="store_true", help="no BLE-MIDI (HX) in the image: no BLUETOOTH line, its "
                     "40 KiB free for modules")
-    ap.add_argument("--boot-slot", action="store_true", help="a developer's build: it takes a whole firmware into its boot "
-                    "slot (tools/hbboot.py), which takes over at power-on; a release has none")
     ap.add_argument("--name", help="the outputs' name (build/NAME.bin, .fwsc, .syms): a solo app's")
     ap.add_argument("--app-name", help="the name on the crash and USB rescue screens")
     ap.add_argument("--identity", help="the package identity (FM-1_9NN) in place of fm1-dock's")
@@ -442,15 +434,11 @@ def main():
     fm1pkg_make.set_board(BOARD)
     APP_SLOT = fm1pkg_make.APP_SLOT
     if BOARD == "smk37":            # (hal/fm1_flash_map.h, src/dock.c HB_TABLE_AT: the slot table at flash 0x18000)
-        if a.boot_slot or a.name or a.pack or a.identity:
-            raise SystemExit("--board smk37: no boot slot, no solo app (--name, --pack, --identity) yet")
+        if a.name or a.pack or a.identity:
+            raise SystemExit("--board smk37: no solo app (--name, --pack, --identity) yet")
         BOARD_DEFS = ["-DBOARD_SMK37=1", *([f'-DSMK_MODEL="{MODELS[model]}"'] if model != "pro" else [])]
-        SLOT_TABLE = 0x02014000
-        SLOT_FIRST = SLOT_TABLE + 0x1000
         PRODUCT = MODELS[model] + PRODUCT[PRODUCT.index("_"):]
         APP = APP + "-smk37" + ("" if model == "pro" else "-" + model)
-        HX_XIP = 0x02061000         # (src/ble/hx.h HX_AT on the SMK-37: flash 0x65000, the top of its app slot)
-    BOOT_SLOT = a.boot_slot
     APP = a.name or APP
     APP_NAME = a.app_name
     SOLO = bool(a.name)
@@ -499,7 +487,7 @@ def main():
         hx = b""
     img = pack_slots(host, mods, hx)
     if a.pack:                                  # the module's data after the last module (its own end + a scan)
-        img += b"\xff" * (-len(img) % 4) + a.pack.read_bytes()
+        img += b"\xff" * (-(APP_XIP + len(img)) % 0x1000) + a.pack.read_bytes()
         img += b"\xff" * (-len(img) % 4)
         if len(img) > APP_SLOT:
             raise SystemExit(f"app {len(img)} B with {a.pack}: more than the app slot ({APP_SLOT})")
@@ -512,7 +500,7 @@ def main():
     print(f"fm1-emu  {OUT / (APP + '_xip.bin')}  (fm1-live --bin)")
     if a.no_package:
         return 0
-    pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT)
+    pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY, pad=False), ota, PRODUCT)
     (OUT / name).write_bytes(pkg)
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
     print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}, board {BOARD}")

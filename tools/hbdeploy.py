@@ -97,13 +97,6 @@ def deploy_frames(blob, last=None):
     return out
 
 
-SECTOR_MS = 150                                 # a 4 KiB erase + program, with room (a boot firmware's)
-
-
-def is_boot(blob):
-    return len(blob) >= 12 and struct.unpack_from("<I", blob, 8)[0] & 0x200 != 0   # HB_F_BOOT
-
-
 def run_payload(run_id, arg=b""):
     return struct.pack("<I", run_id) + arg
 
@@ -113,7 +106,6 @@ def din_script(blob, t0, settle=400, write_ms=None, last=None):
     answer: BEGIN at t0, the data `settle` ms later (back to back: the jack's byte time paces them),
     COMMIT after. Returns (entries, ms the COMMIT has arrived by)."""
     out, t = [], t0
-    boot = is_boot(blob)
     for i, (cmd, payload) in enumerate(deploy_frames(blob, last)):
         f = frame(cmd, i, payload)
         if cmd != DATA:
@@ -122,8 +114,6 @@ def din_script(blob, t0, settle=400, write_ms=None, last=None):
         t += len(f) * BYTE_MS
         if cmd == BEGIN:
             t += settle
-        if boot and cmd == DATA and i % 16 == 0:   # a boot firmware: its sector is written now
-            t += SECTOR_MS
     return out, t
 
 
@@ -219,6 +209,8 @@ def hello(p):
         h.update(cpu1=CPU1[d[44]] if d[44] < len(CPU1) else d[44], cpu1_timeouts=d[45],
                  cpu1_job=struct.unpack_from("<I", d, 48)[0], cpu1_worst=struct.unpack_from("<I", d, 52)[0],
                  cpu1_stack_free=struct.unpack_from("<I", d, 56)[0])
+    if len(d) >= 68:                            # every add-on area's bytes, the image's end (its room from there)
+        h.update(room=struct.unpack_from("<I", d, 60)[0], image_end=struct.unpack_from("<I", d, 64)[0])
     return h
 
 
@@ -234,7 +226,8 @@ def info(p):
                 ble_addr=":".join(f"{x:02X}" for x in reversed(d[6:12])) if d[5] else None, flash_id=flash,
                 flash_size=1 << (flash & 0xFF) if 16 <= flash & 0xFF <= 26 else None, free=free, largest=big,
                 mod_ram=ram, mod_ram_used=used, mhz=mhz, soc=s(36, 8), version=s(44, 16), build=s(60, 12),
-                model=s(72, 16))
+                model=s(72, 16), **(dict(room=struct.unpack_from("<I", d, 88)[0],
+                                          image_end=struct.unpack_from("<I", d, 92)[0]) if len(d) >= 96 else {}))
 
 
 def modules(p):
@@ -258,7 +251,7 @@ def deploy(p, blob, say=print):
         if h["abi"] != struct.unpack_from("<I", blob, 4)[0]:
             raise SystemExit(f"the FM-1's fm1-dock speaks ABI {h['abi']}, {name} was built for "
                              f"{struct.unpack_from('<I', blob, 4)[0]}: update one of them")
-        if len(blob) > h["max_file"] and not is_boot(blob):
+        if len(blob) > h["max_file"]:
             raise SystemExit(f"{name}: {len(blob)} B, fm1-dock takes up to {h['max_file']} B")
         say(f"{name} v{version}, {len(blob)} B; the FM-1 has {h['free'] // 1024} KiB free "
             f"(largest gap {h['largest'] // 1024} KiB)")
@@ -269,8 +262,6 @@ def deploy(p, blob, say=print):
             p.send(cmd, payload)
             if cmd == BEGIN:
                 time.sleep(0.4)
-            if cmd == DATA and is_boot(blob) and i % 16 == 0:
-                time.sleep(SECTOR_MS / 1000)
             if cmd == DATA and i % 32 == 0:
                 say(f"  {min(len(blob), (i - 1) * CHUNK + CHUNK) * 100 // len(blob):3d} %")
             continue

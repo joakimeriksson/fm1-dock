@@ -9,7 +9,12 @@ the Nth erase / program).
   - a power cut at every erase / program of a first deploy and of a replacing one: the host always
     boots and plays, the table lists only modules that check out, and the module is the old or the new;
   - a module that renders slower than real time is stopped, and the sine plays;
-  - a module's bank (CS-1's user presets) is there after a reboot.
+  - a module's bank (CS-1's user presets) is there after a reboot;
+  - the image's room (a package that leaves room below 0x93000; --fwsc build/... of the Empty dock has the most): with
+    the plain area full, a module goes into the room, from its top, encrypted; it runs and is there after a reboot,
+    and a power cut at every erase / program of a first deploy and of a replacing one there leaves a host that boots
+    and plays, with the old module or the new.
+  tests/deploy_test.py [--fwsc PACKAGE] [--cuts all|N]
 The test module (tests/modules/slow) is built here with tools/hbmod.py (JIELI_TOOLCHAIN)."""
 import argparse
 import os
@@ -27,6 +32,8 @@ sys.path.insert(0, str(SRC / "tools"))
 import dock  # noqa: E402
 import hbdeploy  # noqa: E402
 import hbmod  # noqa: E402
+sys.path.insert(0, str(SRC / "tests"))
+import flashlib  # noqa: E402
 
 FWSC = SRC / "build" / "fm1-dock.fwsc"
 SINE = SRC / "build" / "modules" / "sine.dock"
@@ -79,27 +86,9 @@ def peak(out):
 
 
 def table(flash):
-    """the deployed modules as the flash holds them: [(name, version, flash offset)] of the table in
-    force (the valid copy with the higher sequence number), each checked against its CRC"""
-    best = None
-    for at in DT:
-        magic, seq, n, crc = struct.unpack_from("<4I", flash, at)
-        if magic != 0x54444248 or n > 32:
-            continue
-        ent = flash[at + 16:at + 16 + 16 * n]
-        if zlib.crc32(struct.pack("<II", seq, n) + ent) != crc:
-            continue
-        if best is None or (seq - best[0]) & 0xFFFFFFFF < 0x80000000:
-            best = (seq, ent)
-    out = []
-    for i in range(len(best[1]) // 16 if best else 0):
-        magic, xip, size, crc = struct.unpack_from("<4I", best[1], 16 * i)
-        off = xip - 0x02000000 + 0x4000
-        h, relocs, image = hbmod.parse(flash[off:off + size])
-        head = flash[off:off + 76]
-        ok = hbmod.crc_of(head, relocs, image) == h["crc"] == crc
-        out.append((h["name"], h["version"], off, ok))
-    return out
+    """the deployed modules as the flash holds them: [(name, version, flash offset, checks out)] (flashlib.table: the
+    room's decrypted, as fm1-dock reads it)"""
+    return flashlib.table(flash)
 
 
 def boots_and_plays(flash):
@@ -114,9 +103,12 @@ def deploy_keys(blob, at=600):
 
 
 def main():
+    global FWSC
     ap = argparse.ArgumentParser()
     ap.add_argument("--cuts", default="all", help="all, or every Nth power-cut point")
+    ap.add_argument("--fwsc", type=Path, default=FWSC, help="the package (default build/fm1-dock.fwsc)")
     a = ap.parse_args()
+    FWSC = a.fwsc.resolve()
     step = 1 if a.cuts == "all" else int(a.cuts)
     wd = Path(tempfile.mkdtemp(prefix="hb-deploy-"))
     try:
@@ -185,6 +177,33 @@ def main():
 
         cuts("cut_first", None, v1, ([], [("TESTSINE", 1)]))
         cuts("cut_replace", f1, v2, ([("TESTSINE", 1)], [("TESTSINE", 2)]))
+
+        # the image's room: the plain area taken (one entry as large as it), a module goes into the room
+        fr = wd / "room0.bin"
+        out, log = live("shot", 1200, [], fr)
+        end = [int(ln.split()[-1], 16) for ln in log.splitlines() if "room: the image ends at" in ln]
+        if not end:
+            check("room", False, "no room in this package's image (the log has no 'room: the image ends at')")
+        else:
+            flash = bytearray(fr.read_bytes())
+            flashlib.write_table(flash, [flashlib.put(flash, variant("AREA1", 1), 0x96000, 0xE0000 - 0x96000)])
+            fr.write_bytes(flash)
+            f6 = wd / "room1.bin"
+            shutil.copy(fr, f6)
+            keys, done = deploy_keys(v1)
+            out, log = live("shot", int(done) + 900, keys + [f"{int(done) + 300}:{NOTE}"], f6)
+            t = table(f6.read_bytes())
+            at = [o for n, _, o, ok in t if n == "TESTSINE" and ok]
+            check("room_deploy", "deploy: done" in log and peak(out) > 1000 and at == [0x92000] and
+                  [(n, ok) for n, _, _, ok in t] == [("AREA1", True), ("TESTSINE", True)] and
+                  bytes(f6.read_bytes()[0x92000:0x92004]) != bytes(flashlib.read(f6.read_bytes(), 0x92000, 4)),
+                  f"the image ends at {end[0]:#x}; with the plain area full, a module goes into the room at "
+                  f"{at[0] if at else 0:#x} (its top), stored encrypted, then playing")
+            ok, log = boots_and_plays(f6)
+            check("room_reboot", ok and "TESTSINE" in log and "slot ok 0002" in log, "after a reboot it is in the list, "
+                  "read through the SFC")
+            cuts("room_cut_first", fr, v1, ([("AREA1", 1)], [("AREA1", 1), ("TESTSINE", 1)]))
+            cuts("room_cut_replace", f6, v2, ([("AREA1", 1), ("TESTSINE", 1)], [("AREA1", 1), ("TESTSINE", 2)]))
 
         # too slow: stopped, the sine plays
         r = subprocess.run([sys.executable, str(SRC / "tools" / "hbmod.py"), str(SRC / "tests" / "modules" / "slow")],
