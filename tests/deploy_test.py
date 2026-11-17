@@ -227,7 +227,7 @@ def main():
             if magic != 0x544F4C53:
                 break
             names.append(hbmod.parse(img[at - 0x02000120:at - 0x02000120 + size])[0]["name"])
-        if "CS-1" in names:
+        if "CS-1" in names and FWSC == (SRC / "build" / "fm1-dock.fwsc").resolve():   # (the build's own package)
             idx = 1 + names.index("CS-1")
             pick = f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
             f4 = wd / "f4.bin"
