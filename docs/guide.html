@@ -19,7 +19,7 @@
 <header class="top">
   <a class="brand" href="./" aria-label="fm1-dock, its page"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></a>
   <nav aria-label="Sections">
-    <a href="./">fm1-dock</a><a href="#start">Start</a><a href="#fm1">FM-1</a><a href="#smk37">SMK-37</a>
+    <a href="./">fm1-dock</a><a href="#start">Start</a><a href="#add">Add synths</a><a href="#fm1">FM-1</a><a href="#smk37">SMK-37</a>
     <a href="#options">OPTIONS</a><a href="#synths">Synths</a><a href="#help">Help</a><a href="midi.html">Test MIDI</a>
   </nav>
 </header>
@@ -47,6 +47,7 @@
         <li>In the catalog, press <b>Add</b> on a synth. The meter shows what still fits.</li>
         <li><b>Remove</b> takes one out again. Your settings and presets of the others stay.</li>
       </ol>
+      <p><a href="#add">More: adding synths, and what to do if it doesn't work</a></p>
     </div>
     <div class="box">
       <h3>The top line</h3>
@@ -54,6 +55,78 @@
         took. <code>1CPU</code>: one core (after a crash, until power-off). <code>OCT +0</code>: the octave.
         <b>BT</b>: a Bluetooth device is connected.</p>
     </div>
+  </div>
+</section>
+
+<section id="add" aria-labelledby="add-h">
+  <div class="sec-h"><h2 id="add-h">Adding synths</h2></div>
+  <p class="sub">fm1-dock is the firmware; the synths are modules inside it. You install fm1-dock once, then add and
+    remove synths from <a href="./#modules">the page</a> without installing anything again.</p>
+  <h3 class="vh">Step by step</h3>
+  <ol class="ad-path">
+    <li><span class="dv-n" aria-hidden="true">1</span><div><b>Open the page</b>
+      <p>Open <a href="./">the page</a> in <b>Chrome or Edge</b> on a computer or an Android phone.</p></div></li>
+    <li><span class="dv-n" aria-hidden="true">2</span><div><b>Connect</b>
+      <p>Plug in the FM-1 or SMK-37 with a USB <b>data</b> cable and press <b>Connect over USB</b>. The panel at the
+        top shows what it runs. If it doesn't say fm1-dock, press <b>Install</b> there first.</p></div></li>
+    <li><span class="dv-n" aria-hidden="true">3</span><div><b>Add</b>
+      <p>Scroll down to <b>Modules</b>. Find the synth (search, or the <b>Add-ons</b> filter) and press
+        <b>Add to my FM-1</b>. Say yes to the question; a bar shows the sending (a few seconds to a minute).</p></div></li>
+    <li><span class="dv-n" aria-hidden="true">4</span><div><b>Pick it on the unit</b>
+      <p>When the card says <b>✓ Installed</b>, go to the unit: <b>hold HOME</b> (1.5 s in most synths), turn SELECT
+        to the new synth, press SEL.</p></div></li>
+  </ol>
+  <p class="ad-stuck">Add is grey, or the synth doesn't show up? <a href="#add-help">If it doesn't work</a></p>
+  <div class="grid g-tasks ad-more">
+    <div class="box">
+      <h3>What the cards mean</h3>
+      <ul class="mt-list">
+        <li><b>Comes with fm1-dock</b>: part of the firmware, nothing to add.</li>
+        <li><b>On your FM-1 (in its package)</b>: your package has it built in.</li>
+        <li><b>✓ Installed</b>: you added it; <b>Remove</b> takes it out.</li>
+        <li><b>Add to my FM-1</b>: not on it yet. The line under it says how much room it takes.</li>
+        <li><b>Try it</b>: plays it in the emulator on the page, no device needed.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Room</h3>
+      <p>The add-ons share 296 KiB on the FM-1 and 416 KiB on the SMK-37. The <b>meter</b> above the catalog shows
+        what is in it; each added synth has a <b>Remove</b> button there. Most synths take 6 to 60 KiB; ESQ-1 and
+        ORRERY take over 100. For the most room, install the <b>Empty dock</b> package.</p>
+    </div>
+  </div>
+  <div class="ad-help" id="add-help">
+    <h3 class="g-h"><svg class="ad-ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5"/><path d="M7.6 7.6a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.4"/><circle class="dot" cx="10" cy="14.6" r=".6"/></svg>If it doesn't work</h3>
+    <dl class="ad-fix">
+      <div>
+        <dt>The Add button is grey</dt>
+        <dd><ul class="mt-list">
+          <li>The note under it says why: <b>Install fm1-dock first</b>, or <b>not enough room</b> (remove another
+            add-on in the meter).</li>
+          <li>Another add or remove is still running: wait for it.</li>
+          <li>Safari, Firefox, iPhone and iPad have no Web MIDI: use Chrome or Edge.</li>
+        </ul></dd>
+      </div>
+      <div>
+        <dt>Added, but not on the unit</dt>
+        <dd><ul class="mt-list">
+          <li>A short press of HOME is the synth's own button: <b>hold</b> it 1.5 s for the list.</li>
+          <li>The list goes past the last synth to OPTIONS: turn SELECT both ways.</li>
+          <li>Still missing: press Connect again; the meter lists what the unit really has.</li>
+        </ul></dd>
+      </div>
+      <div>
+        <dt>"no space" though the meter shows room</dt>
+        <dd><p>The free room can be in pieces: the total is enough, but no single piece is. Remove an add-on next to a
+          gap and add the new one first; then add the removed one again.</p></dd>
+      </div>
+      <div>
+        <dt>A firmware from the Firmware Hub or GitHub</dt>
+        <dd><p>A synth's own firmware (a <code>.fwsc</code>) replaces fm1-dock; it doesn't go in as a module. Only synths
+          ported to fm1-dock can be added: the ones in the catalog. Got a <code>.dock</code> file from a developer?
+          Drop it on <a href="./#console">the console</a>'s Deploy.</p></dd>
+      </div>
+    </dl>
   </div>
 </section>
 
@@ -285,9 +358,8 @@
         times every note through the jack and tells you if it works.</p>
     </div>
     <div class="box">
-      <h3>"no space" though the meter shows room</h3>
-      <p>The free room can be in pieces: the total is enough, but no single piece is. Remove an add-on next to a gap
-        and add the new one first; then add the removed one again. (0.9 will pack them together for you.)</p>
+      <h3>Adding a synth doesn't work</h3>
+      <p>The Add button grey, the synth not in the list, "no space": <a href="#add">Adding synths</a>.</p>
     </div>
     <div class="box">
       <h3>The page doesn't find the FM-1</h3>
@@ -301,6 +373,7 @@
 </section>
 
 <footer class="g-foot"><p>fm1-dock is free software (GPL-3.0). <a href="./">The page</a> &middot;
+  <a href="develop.html">Developer's guide</a> &middot;
   <a href="https://github.com/joakimeriksson/fm1-dock">Source</a> &middot;
   <a href="https://github.com/joakimeriksson/fm1-dock/issues">Questions and problems</a></p></footer>
 </main>

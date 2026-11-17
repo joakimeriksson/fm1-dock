@@ -29,7 +29,7 @@
   <a class="brand" href="#top" aria-label="fm1-dock, to the top"><img class="logo-light" src="media/fm1-dock-light.svg" alt="fm1-dock"><img class="logo-dark" src="media/fm1-dock.svg" alt="fm1-dock"></a>
   <nav aria-label="Sections">
     <a href="#install">Install</a><a href="#new">New</a><a href="#modules">Modules</a><a href="#dock">In the dock</a><a href="#play">Play</a>
-    <a href="guide.html">Guide</a><a href="midi.html">Test MIDI</a><a href="#console">Console</a><a href="#emulator">Emulator</a><a href="#debug">Debug</a><a href="#build">Build a module</a><a href="#protocol">Protocol</a>
+    <a href="guide.html">Guide</a><a href="midi.html">Test MIDI</a><a href="#console">Console</a><a href="#emulator">Emulator</a><a href="#debug">Debug</a><a href="develop.html">Build a module</a><a href="#protocol">Protocol</a>
   </nav>
 </header>
 
@@ -58,7 +58,7 @@
     </ul>
     <p class="screens-cap">CS-1, Scintilla, OberVave and a sine come with it. Prophet, B3 ORGAN, Niagara Drift, ARTIHIVE, FM-106,
       MONK-1, FiMba-1, GATOR, DUB-1, FM-1 SID, AMB-1 and FoMni go into its flash with one click, and your own module the same way.</p>
-    <p class="hero-links"><a href="#play">See it play</a><a href="#console">Open the console</a><a href="#build">Write a module</a>
+    <p class="hero-links"><a href="#play">See it play</a><a href="#console">Open the console</a><a href="develop.html">Write a module</a>
       <a href="https://github.com/joakimeriksson/fm1-dock">Source on GitHub</a><a href="https://thefirmwarehub.com/#fw-fm1dock">On the Firmware Hub</a></p>
   </div>
 
@@ -84,7 +84,9 @@
       <li class="step">
         <h3><span class="n">3</span> Add synths</h3>
         <p class="dim">Pick them in the catalog below: <b>Add</b> puts a module into fm1-dock's flash next to the
-          others, <b>Remove</b> takes it out. The meter there shows how much room is left.</p>
+          others, <b>Remove</b> takes it out. The meter there shows how much room is left. Then hold HOME on the
+          device and pick the new synth.</p>
+        <p class="hint">Add is grey, or the synth doesn't show up? <a href="guide.html#add">Adding synths, step by step</a>.</p>
         <div class="dev-row"><a class="btn small" href="#modules">Open the catalog ↓</a></div>
       </li>
     </ol>
@@ -167,7 +169,8 @@
     <noscript><p class="empty">The catalog needs JavaScript; the modules are listed in the
       <a href="https://github.com/joakimeriksson/fm1-dock#whats-in-the-dock">README</a>.</p></noscript>
   </div>
-  <p class="cat-foot">Your own module goes in the same way: drop its <code>.dock</code> on <a href="#console">the console</a>'s
+  <p class="cat-foot">New here? <a href="guide.html#add">How adding synths works</a>. A synth's own firmware from the
+    Firmware Hub can't be added as a module; only the ports in this catalog can. Wrote a synth? <a href="develop.html#share">How to share it</a>. Your own module goes in the same way: drop its <code>.dock</code> on <a href="#console">the console</a>'s
     Deploy, or <code>tools/dock.py deploy</code>. A module ported to fm1-dock comes to this catalog with an entry in
     <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/docs/modules/modules.json">docs/modules/modules.json</a>, its
     <code>.dock</code> and a screenshot.</p>
@@ -390,6 +393,8 @@ HB_DESC = { HB_ABI, <span class="s">"MYSYNTH"</span>, init, release, note, cc,
 python3 tools/hbmod.py modules/mysynth      <span class="c"># -> build/modules/mysynth.dock</span>
 uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock
 <span class="c"># or drop the .dock on "Deploy a module" above</span></pre>
+      <p><b>New to this?</b> <a href="develop.html">The developer's guide</a>: write, test, and share your synth, as a
+        <code>.dock</code> of your own or in this catalog.</p>
       <p>Start from <code>modules/sine/sine.c</code> (about 150 lines). The host gives a module the time, the log, the screen
         (text, a canvas, blits), the LEDs (lit or a dim glow), its own settings record and flash banks, MIDI out, the MASTER gain and
         the keys' force: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/firmware/dock/hb_module.h">hb_module.h</a> has every call.</p>
