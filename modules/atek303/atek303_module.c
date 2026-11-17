@@ -107,4 +107,4 @@ static int atm_init(const hb_host_t *h)
 static void atm_release(void) { app_panic(); }
 
 HB_DESC = {HB_ABI, "ATEK303", atm_init, atm_release, atm_note, atm_cc, atm_render, atm_ui, atm_draw, 0, 0,
-           HB_F_SCREEN | HB_F_PANEL, atm_midi};
+           HB_F_SCREEN | HB_F_PANEL | HB_F_MIDI_RT, atm_midi};

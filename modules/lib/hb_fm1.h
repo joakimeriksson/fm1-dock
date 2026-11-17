@@ -61,14 +61,28 @@ static void fm1_led_key(uint32_t id, int on) { H->led(id, (uint32_t)on); }
 /* MIDI in (the module's midi() puts it here) and out */
 #define HBF_MQ 64u
 static uint32_t hbf_mq[HBF_MQ], hbf_mq_r, hbf_mq_w;
+/* clock and transport on their own queue: with HB_F_MIDI_RT they come from the audio interrupt while the main loop
+ * may be in the middle of putting a note on hbf_mq (one writer each) */
+static volatile uint8_t hbf_rq[HBF_MQ];
+static volatile uint32_t hbf_rq_r, hbf_rq_w;
 static void hbf_midi(uint32_t st, uint32_t d1, uint32_t d2)
 {
+    if (st >= 0xF8u) {
+        if (hbf_rq_w - hbf_rq_r < HBF_MQ)
+            hbf_rq[hbf_rq_w++ % HBF_MQ] = (uint8_t)st;
+        return;
+    }
     if (hbf_mq_w - hbf_mq_r < HBF_MQ)
         hbf_mq[hbf_mq_w++ % HBF_MQ] = st | d1 << 8 | d2 << 16;
 }
 static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)
 {
     uint32_t m;
+    if (hbf_rq_r != hbf_rq_w) {                 /* clock and transport first */
+        *st = hbf_rq[hbf_rq_r++ % HBF_MQ];
+        *d1 = *d2 = 0;
+        return 1;
+    }
     if (hbf_mq_r == hbf_mq_w) return 0;
     m = hbf_mq[hbf_mq_r++ % HBF_MQ];
     *st = (uint8_t)m;
