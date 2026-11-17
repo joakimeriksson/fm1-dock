@@ -186,8 +186,10 @@ export class Dock {
   async hello() {
     const d = await this.ask(CMD.HELLO);
     const w = (i) => rd32(d, 8 + 4 * i);
+    // room: every add-on area's bytes, imageEnd: where the image's room starts (dock.c room); null from an fm1-dock before it
     return { proto: d[1], abi: d[2], n: d[3], cur: d[4], receiving: d[5], largest: w(0), free: w(1),
-      maxFile: w(2), crashPc: w(3), crashModule: w(4), worst: w(5), overruns: w(6), logW: w(7), block: w(8) };
+      maxFile: w(2), crashPc: w(3), crashModule: w(4), worst: w(5), overruns: w(6), logW: w(7), block: w(8),
+      room: d.length >= 68 ? rd32(d, 60) : null, imageEnd: d.length >= 68 ? rd32(d, 64) : null };
   }
 
   // INFO (fm1-dock after 0.8; dock.c info_fill): the build, the board, the chips, the room. null from an older one:
@@ -201,7 +203,8 @@ export class Dock {
       bleAddr: d[5] ? [...d.slice(6, 12)].reverse().map((x) => hex(x, 2)).join(":") : null,
       flashId: hex(fl, 6), flashSize: log2 >= 16 && log2 <= 26 ? 2 ** log2 : null, free: rd32(d, 16), largest: rd32(d, 20),
       modRam: rd32(d, 24), modRamUsed: rd32(d, 28), mhz: rd32(d, 32), soc: cstr(d, 36, 44), version: cstr(d, 44, 60),
-      build: cstr(d, 60, 72), model: cstr(d, 72, 88) };
+      build: cstr(d, 60, 72), model: cstr(d, 72, 88), room: d.length >= 96 ? rd32(d, 88) : null,
+      imageEnd: d.length >= 96 ? rd32(d, 92) : null };
   }
 
   async modules() {

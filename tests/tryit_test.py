@@ -33,9 +33,9 @@ def check(cond, what):
 
 
 def fm1_layout():
-    """the FM-1's constants from dock.c (the #else of #if BOARD_SMK37 with HB_TABLE_AT 0x34000)"""
+    """the FM-1's constants from dock.c (the #else of #if BOARD_SMK37 with HB_AREA_HI 0x93000)"""
     c = (SRC / "firmware" / "src" / "dock.c").read_text()
-    block = c[c.index("#define HB_TABLE_AT 0x34000u"):]
+    block = c[c.index("#define HB_AREA_HI  0x93000u"):]
     val = lambda n, t=block: int(re.search(rf"#define {n}\s+(0x[0-9A-Fa-f]+)u", t).group(1), 16)
     return {k: val(k) for k in ("DT_A", "DT_B", "DP_LO", "DP_HI")} | {
         "DT_MAGIC": val("DT_MAGIC", c), "HB_SLOT_MAGIC": val("HB_SLOT_MAGIC", (SRC / "firmware/dock/hb_module.h").read_text())}

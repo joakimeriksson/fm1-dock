@@ -312,6 +312,10 @@ class Updater:
             last = time.monotonic()
             if addr == REFUSED_AT:              # (ota.c ota_keep_check: add-ons where the package goes)
                 link.send(response(addr, bytes(n), fl))
+                if finish == FINISH_WRITE:          # (the loader: in update mode, a resume with another package)
+                    raise InstallError("addons", "the update loader refused the package: fm1-dock has add-ons where it "
+                                                 "goes. Nothing was written. Finish the install with the package you "
+                                                 "started it with (it keeps them), then remove them first.")
                 raise InstallError("addons", "the FM-1 refused the package: fm1-dock has add-ons where it goes. "
                                              "Nothing was written. " + REMOVE_FIRST)
             if addr in (FINISH_CHECK, FINISH_WRITE):

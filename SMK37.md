@@ -126,7 +126,7 @@ What is known, and how (fm1-emu runs the stock firmwares of both on the same chi
 ## Not yet on the SMK-37
 
 - **MIDI in from a jack**: the SMK-37 has none (the FM-1's MIDI in pin is a key matrix row there). USB-MIDI works.
-- **The boot slot** (a developer's tool) and **solo apps** (FM-1 SID as its own firmware).
+- **Solo apps** (FM-1 SID as its own firmware).
 - The first click of a knob after power-on may not count (the encoder decoder settles on it).
 
 ## Build

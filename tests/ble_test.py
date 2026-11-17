@@ -23,7 +23,7 @@ import emu_test as et  # noqa: E402
 
 SRC = et.SRC
 OUT = SRC / "build" / "emu" / "ble"
-HX_FILE = 0x84000                               # HX in fm1-dock_xip.bin (XIP 0x02084000, flash 0x88000)
+HX_FILE = 0x15000                               # HX in fm1-dock_xip.bin (XIP 0x02015000, flash 0x19000)
 VM_AT = 0xE8000
 NOTE = "1600:34,2200:34^"                       # a top-row key: the sine at 1.6 .. 2.2 s
 ST = {0: "OFF", 1: "NO CAL", 2: "HELD", 3: "ON", 4: "LINKED", 5: "READY"}
@@ -112,7 +112,8 @@ def main():
     et.check("missing", "BLE: HX damaged" in log and not states(log, "BLE") and et.peak(s, 1.5, 2.0) > 1000,
              f"HX damaged: {'refused' if 'BLE: HX damaged' in log else 'not noticed'}, "
              f"the sine's peak {et.peak(s, 1.5, 2.0)}")
-    b[HX_FILE:HX_FILE + 0xA000] = b"\xff" * 0xA000   # as --no-ble leaves it
+    hx_end = HX_FILE + ((struct.unpack_from("<I", b, HX_FILE + 4)[0] + 0xFFF) & ~0xFFF)   # (its size, to the next slot)
+    b[HX_FILE:hx_end] = b"\xff" * (hx_end - HX_FILE)  # HX's place erased: no HX
     bad.write_bytes(b)
     s, log = run("none", "700:8,750:8^,900:e6:40", 1300, binp=bad)
     et.check("none", "BLE: not in this build" in log and not states(log, "BLE"),

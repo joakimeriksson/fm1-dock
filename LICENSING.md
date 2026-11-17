@@ -9,7 +9,7 @@ complete source under the same licence too.
 | | |
 | --- | --- |
 | The platform: `firmware/hal/`, `firmware/loader/`, `crt0.S`, `app.ld`, `firmware/src/` (`usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c`, `libc.c`, `bootguard.h`, `uac_fir.h`), `tools/` | Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments ([Felucca](https://github.com/hugelton/Felucca)), with the changes of [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) |
-| The host `firmware/src/dock.c`, the module interface `firmware/dock/`, the tools for modules, deploys and probes (`tools/dock.py`, `hbmod.py`, `hbdeploy.py`, `hbboot.py`, `probe.py`), `probes/`, the page `docs/` | Joakim Eriksson |
+| The host `firmware/src/dock.c`, the module interface `firmware/dock/`, the tools for modules, deploys and probes (`tools/dock.py`, `hbmod.py`, `hbdeploy.py`, `probe.py`), `probes/`, the page `docs/` | Joakim Eriksson |
 | The keys' force sensing `firmware/src/sense.c` | Velo's, by way of CS-1 (twochannels) |
 | The modules: CS-1 `modules/cs1/` | twochannels ([CS-1](https://github.com/twochannels/CS-1)), wrapped by Joakim Eriksson |
 | Scintilla `modules/scintilla/` | Joakim Eriksson ([Scintilla](https://github.com/joakimeriksson/scintilla-fm1)) |

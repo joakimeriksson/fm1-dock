@@ -5,7 +5,7 @@
 //   node tests/install_test.mjs [DIR [TRYIT_DIR]]      (TRYIT_DIR: tools/tryit.py's OUT)
 import { readFileSync, existsSync } from "node:fs";
 import { checkPackage, packageDamage, logicalImage, productOf, installOn, entryFor, addModule, playTune, tuneSteps,
-  inspectDevice, removeModule } from "../docs/install/fm1install.js";
+  inspectDevice, removeModule, packageEnd } from "../docs/install/fm1install.js";
 import { pack7, unpack7, Updater, sameKeyboard } from "../docs/install/fm1ota.js";
 import { frame, parse, moduleInfo, crc32, CMD } from "../docs/dock.js";
 
@@ -72,6 +72,7 @@ class FakeFM1 {
       this.upgrades++;
       this.queue = this.identity.startsWith("ota-")
         ? [...Array.from({ length: Math.ceil(this.image.length / 512) }, (_, k) => [k * 512, Math.min(512, this.image.length - k * 512)]), [0xF0000000, 8]]
+        : this.refuseAt ? [[0, 64], [0xF2000000, 8]]  // (fm1-dock's ota_keep_check: add-ons where the package goes)
         : [[0, 64], [0x40, 160], [0x1000, 512], [0xE0000000, 8]];
       this.next();
     } else if (this.waiting) {
@@ -141,6 +142,12 @@ const yes = async () => true, no = async () => false;
   ok(e && e.code === "model", "another device than an FM-1: refused (model)");
 }
 ok(productOf(new Uint8Array(0x400).fill(0x7D)) === "", "productOf: no marker bytes, no identity");
+{
+  const dev = new FakeFM1(image, "FM-1_921", "FM-1_922");
+  dev.refuseAt = true;
+  const e = await reject(installOn(dev.access, pkg, "fm1-dock", yes, () => {}));
+  ok(e && e.code === "addons" && dev.served === 1, "the FM-1 refuses the package (add-ons where it goes, its read of 0xF2000000): addons");
+}
 
 // ------------------------------------------------------------------ the SMK-37 ---
 const smkPkg = { product: "SMK-37 Pro_921", image };
@@ -196,8 +203,8 @@ ok(sameKeyboard("ota-SMK-37 Elite", "SMK-37 Pro") && !sameKeyboard("FM-1", "SMK-
 class FakeDock {
   // info: INFO's answer: null none (fm1-dock 0.8 and before: silent here), "bad" a bad-message reply (as dock.c's
   // default), else the record (dock.c info_fill)
-  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0, largest = 400000, info = null } = {}) {
-    this.largest = largest; this.info = info;
+  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0, largest = 400000, info = null, at = {} } = {}) {
+    this.largest = largest; this.info = info; this.at = at;   // at: a module's XIP address in LIST (0: none)
     this.abi = abi; this.mods = modules; this.got = null; this.committed = null; this.frames = 0;
     this.cur = cur; this.refuse = refuse; this.tune = null; this.played = null;
     const listeners = new Set();
@@ -222,7 +229,7 @@ class FakeDock {
       str(36, "AC791N"); str(44, this.info.version); str(60, this.info.build); str(72, "SMK-37 Pro");
       this.reply(r.cmd, r.seq, b);
     } else if (r.cmd === CMD.LIST) {
-      this.mods.forEach((n, i) => this.reply(r.cmd, r.seq, [0, i, 0, 2, ...u32(1), ...u32(1000), ...u32(0), ...new TextEncoder().encode(n.padEnd(24, "\0"))]));
+      this.mods.forEach((n, i) => this.reply(r.cmd, r.seq, [0, i, 0, 2, ...u32(1), ...u32(1000), ...u32(this.at[n] || 0), ...new TextEncoder().encode(n.padEnd(24, "\0"))]));
       this.reply(r.cmd, r.seq, [0, 0xff]);
     } else if (r.cmd === CMD.BEGIN) {
       const len = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24);
@@ -285,6 +292,33 @@ if (dir && existsSync(`${dir}/index.json`)) {
     ok(e4 && e4.code === "space" && !asked4.length && !dev4.got, `${id}: no room in fm1-dock: said so, nothing sent ("${e4 && e4.message}")`);
   }
 }
+// ------------------------------------------------------------------ fm1-dock's add-ons in the image's room ---
+// an FM-1 running fm1-dock, both its updater (FakeFM1) and its deploys (FakeDock) on one port pair
+function withDock(fm1, dock) {
+  const send = fm1.output.send, ls = new Set();
+  fm1.output.send = (d) => { if (d[1] === 0x7D) dock.rx(Uint8Array.from(d)); else send(d); };
+  fm1.input.addEventListener = (_, f) => ls.add(f);
+  fm1.input.removeEventListener = (_, f) => ls.delete(f);
+  dock.reply = (cmd, seq, d) => { const m = frame(cmd | 0x40, seq, Uint8Array.from(d)); setTimeout(() => ls.forEach((f) => f({ data: m })), 0); };
+  return fm1.access;
+}
+{
+  const XIP = (off) => 0x02000000 + off - 0x4000;
+  const dev = new FakeFM1(image, "FM-1_921", "FM-1_922");
+  const access = withDock(dev, new FakeDock({ modules: ["SINE", "B3 ORGAN", "PROPHET"], at: { "B3 ORGAN": XIP(0x96000), PROPHET: XIP(0x40000) } }));
+  const e = await reject(installOn(access, pkg, "fm1-dock", yes, () => {}));
+  ok(e && e.code === "addons" && e.message === "PROPHET." && dev.upgrades === 0,
+    `an add-on in the image's room where the package goes: refused before anything is sent (${e && e.message})`);
+  const dev2 = new FakeFM1(image, "FM-1_921", "FM-1_922");
+  const access2 = withDock(dev2, new FakeDock({ modules: ["SINE", "B3 ORGAN"], at: { "B3 ORGAN": XIP(0x96000) } }));
+  const got = await installOn(access2, pkg, "fm1-dock", yes, () => {});
+  ok(got === "FM-1_922" && dev2.bad === 0, "add-ons in the plain area only (0.9 and before): installed as before");
+}
+for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Boolean).map((x) => x.split("="))) {
+  const end = packageEnd(logicalImage(new Uint8Array(readFileSync(f))));
+  ok(end === Number(want), `${f}: its end ${end.toString(16)} (the loader's: ${Number(want).toString(16)})`);
+}
+
 // ------------------------------------------------------------------ a tune to FM-1 SID ---
 {
   const tune = Uint8Array.from({ length: 4700 }, (_, i) => (i * 13) & 0xFF);

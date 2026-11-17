@@ -223,7 +223,7 @@ def main():
         img = (SRC / "build" / "fm1-dock.bin").read_bytes()
         names = []
         for i in range(32):
-            magic, at, size, crc = struct.unpack_from("<IIII", img, 0x30000 - 0x120 + 16 * i)
+            magic, at, size, crc = struct.unpack_from("<IIII", img, 0x14000 - 0x120 + 16 * i)
             if magic != 0x544F4C53:
                 break
             names.append(hbmod.parse(img[at - 0x02000120:at - 0x02000120 + size])[0]["name"])

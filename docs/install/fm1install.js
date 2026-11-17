@@ -40,7 +40,7 @@ export const FIRMWARES = {
       { id: "digital", label: "Digital pack", has: "FM6, ARTIHIVE and GATOR built in", smk: "FM6, ARTIHIVE and KEYS built in",
         why: "FM pianos and bells, the hive and the drum machine." },
       { id: "empty", label: "Empty dock", has: "Only the sine built in",
-        why: "The most room: add just the synths you want from the catalog." },
+        why: "The most room (744 KiB for add-ons on the FM-1): add just the synths you want from the catalog." },
     ] },
   "fm1-sid": { name: "FM-1 SID", keeps: "" },
   "scintilla": { name: "Scintilla", keeps: "" },
@@ -181,6 +181,52 @@ export async function loadModule(entry) {
 
 // ------------------------------------------------------------------ the install ---
 
+// fm1-dock keeps add-ons in the room its image leaves (dock.c room): an update writes up to the package's end, as its
+// JLFS says (app_area_head's block, then the cfg dir), 4 KiB up (ota.c ota_area_end; tools/fm1_install.py package_end)
+function sfc(b, base, key = 0x980F) {             // the app area's SFC cipher (its own inverse), base: b's offset in it
+  const out = Uint8Array.from(b);
+  for (let i = 0; i < out.length; i += 32) {
+    let k = (key ^ ((base + i) >>> 2)) & 0xFFFF;
+    for (let j = i; j < Math.min(i + 32, out.length); j++) {
+      out[j] ^= k & 0xFF;
+      k = ((k << 1) ^ (k & 0x8000 ? 0x1021 : 0)) & 0xFFFF;
+    }
+  }
+  return out;
+}
+const same = (b, s) => [...s].every((c, i) => b[i] === c.charCodeAt(0));
+export function packageEnd(image) {
+  const hdr = dec(image.subarray(0, 0x40));
+  let fl = null;
+  for (let i = 0; i < u16(hdr, 8) && 0x90 + i * 0x50 <= image.length; i++) {
+    const e = dec(image.subarray(0x40 + i * 0x50, 0x90 + i * 0x50));
+    if (u16(e, 0) === 0) fl = image.subarray(u32(e, 8), u32(e, 8) + u32(e, 12));
+  }
+  if (!fl || fl.length < 0x4100) return 0x93000;
+  const top = u32(sfc(fl.subarray(0x4060, 0x4120), 0x60), 4) === 0x9D000 ? 0x70000 : 0x93000;   // (the SMK-37's VM region)
+  const h = sfc(fl.subarray(0x4000, 0x4020), 0);
+  if (crc16(h.subarray(2, 32)) !== u16(h, 0) || !same(h.subarray(16), "app_area_head\0")) return top;
+  const blk = u32(h, 8), c0 = blk & ~31;
+  if (0x4000 + c0 + 64 > fl.length) return top;
+  const c = sfc(fl.subarray(0x4000 + c0, 0x4000 + c0 + 64), c0).subarray(blk & 31);
+  if (crc16(c.subarray(2, 32)) !== u16(c, 0) || !same(c.subarray(16), "cfg\0")) return top;
+  return Math.min(top, ((0x4000 + blk + u32(c, 8) + 0xFFF) & ~0xFFF) >>> 0);
+}
+
+// the add-ons of the fm1-dock on midi that pkg's image would reach (their names); [] for none, or no fm1-dock answering,
+// or one with none in an image's room (0.9 and before). (A port that will not open: none; the FM-1 refuses such a
+// package itself too, ota.c ota_keep_check)
+export async function addonsInTheWay(midi, pkg) {
+  let found = null;
+  try { found = await findDock(midi); } catch (_) { return []; }
+  if (!found) return [];
+  const end = packageEnd(pkg.image);
+  try {
+    return (await found.dock.modules()).filter((m) => m.kind === "deployed" && m.at)
+      .filter((m) => { const off = m.at - 0x02000000 + 0x4000; return off >= 0x4000 && off < end; }).map((m) => m.name);
+  } finally { found.dock.close(); }
+}
+
 // the whole update on the FM-1 found on midi: a running firmware is updated (ask(text) confirms it first), an
 // FM-1 left in update mode by an install that was cut off is finished. step(kind, value) as fm1ota.js's.
 export async function installOn(midi, pkg, name, ask, step) {
@@ -188,6 +234,8 @@ export async function installOn(midi, pkg, name, ask, step) {
   const dev = await up.find((id) => !IS_OTA(id));
   if (dev) {
     dev.link.close();
+    const inWay = await addonsInTheWay(midi, pkg);
+    if (inWay.length) throw fail("addons", `${inWay.join(", ")}.`);
     if (!await ask(`Install ${name} on the FM-1? It runs ${dev.id.text} now.`)) return null;
     return up.install(pkg.image, pkg.product, step);
   }
@@ -345,6 +393,8 @@ const SAY = {
   mismatch: "Written, but the FM-1 reports another firmware: ",
   badpkg: "The package on this page failed its check, nothing was written. Reload the page. ",
   badreq: "The FM-1 asked for something outside the package; nothing more was sent. ",
+  addonsota: "The FM-1 is in update mode, and synths you added sit where this package goes: nothing was written. Finish the install with the package you started it with (it keeps them), then remove those synths before you install this one.",
+  addons: "This package's synths need the room where some of your added synths are: nothing was written. Remove them first (Remove in the meter below; add them again afterwards if they fit), or pick a package with fewer built-in synths. ",
   nodock: "No FM-1 running fm1-dock found. Install fm1-dock first (above), plug the FM-1 in with a USB data cable, close other apps that use MIDI, and press again.",
   notadded: "fm1-dock has no added module of that name: ",
   abi: "This fm1-dock is too old or too new for the module: install the latest fm1-dock first. ",
@@ -357,7 +407,7 @@ const SAY = {
   write: "Writing: do not unplug the FM-1", reboot: "Restarting",
 };
 
-const DETAIL = ["badpkg", "badreq", "abi", "space", "select", "refused", "hvsc", "notadded"];
+const DETAIL = ["badpkg", "badreq", "abi", "space", "select", "refused", "hvsc", "notadded", "addons"];
 // an error of the functions above in words for the page
 export function explain(e) {
   if (!SAY[e.code]) return `Error: ${e.message}`;
@@ -430,9 +480,9 @@ export function installButton(el, id, opts = {}) {
       picker.append(row);
     }
     const more = Object.assign(document.createElement("p"), { className: "fm1-pack-more", textContent:
-      "Every package is the same fm1-dock; only the synths built into it differ. Switch any time: the synths you " +
-      "added, your settings and presets stay. A built-in synth takes no room from the add-ons; any synth can still be " +
-      "added from the catalog below." });
+      "Every package is the same fm1-dock; only the synths built into it differ, and the fewer it has, the more room " +
+      "for added ones. Switch any time: the synths you added, your settings and presets stay. A package with more " +
+      "built-in synths may need the room of some you added: the install then names them to remove first." });
     picker.append(more);
     picker.hidden = false;
   };
@@ -475,7 +525,7 @@ export function installButton(el, id, opts = {}) {
       if (got === null) say("Cancelled: nothing was written.");
       else { say(`Done: the FM-1 runs ${label()} (${got}).`); if (opts.onDone) opts.onDone(got); }
     } catch (e) {
-      say(SAY[e.code] ? SAY[e.code] + (e.code === "mismatch" || e.code === "inuse" ? e.detail : e.code === "badpkg" || e.code === "badreq" ? e.message : "")
+      say(SAY[e.code] ? SAY[e.code] + (e.code === "mismatch" || e.code === "inuse" ? e.detail : e.code === "badpkg" || e.code === "badreq" || e.code === "addons" ? e.message : "")
         : `Error: ${e.message}`);
       console.error(e);
     }

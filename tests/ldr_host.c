@@ -20,6 +20,13 @@
 #endif
 #define OTA_KEEP_ADDONS 1
 #define FELUCCA_ID "ota-FM-1_900"
+#include "fm1_cc.h"
+#if BOARD_SMK37
+#include "fm1_flash_map.h"                      /* (ldr_core.c: FL_APP_HI, the record window) */
+#define OTA_AREA_HOST 0xBB000u
+#else
+#define OTA_AREA_HOST 0xE0000u
+#endif
 
 static uint8_t flash[0x100000];
 static uint8_t *image;
@@ -107,7 +114,6 @@ static int rd(uint32_t off, void *p, uint32_t n)
     return 0;
 }
 static int ota_fread(uint32_t off, void *p, uint32_t n) { return rd(off, p, n); }
-#define OTA_AREA_HOST 0xE0000u
 static int ota_erase(uint32_t off) { if (off < OTA_AREA_HOST || off >= OTA_AREA_HOST + 0x5000u) return -1; op(off, 0x1000u, 0); return 0; }
 static int ota_prog(uint32_t off, const void *p, uint32_t n) { if (off < OTA_AREA_HOST || off + n > OTA_AREA_HOST + 0x5000u) return -1; op(off, n, p); return 0; }
 static int last_step, last_code;

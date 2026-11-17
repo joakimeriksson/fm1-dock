@@ -32,6 +32,10 @@ import fm1_install  # noqa: E402
 import flashlib as F  # noqa: E402
 
 LDR = SRC / "build" / "ldr_host"
+# the board's: the end of what an update writes (the plain window), the deployed table, the plain area's start
+B = {"fm1": dict(top=0x93000, dt=(0x93000, 0x94000), plain1=0x96000, ldr=[]),
+     "smk37": dict(top=0x70000, dt=(0xB8000, 0xB9000), plain1=0x70000, ldr=["-DBOARD_SMK37=1"])}
+K = B["fm1"]
 SINE = SRC / "build" / "modules" / "sine.dock"
 NOTE = 21
 failures = []
@@ -78,7 +82,7 @@ def end_of(img_path):
     """a package's end as the loader reads it (its JLFS, 4 KiB up)"""
     img = Path(img_path).read_bytes()
     fl = next(off for typ, off, *_ in fm1_install.package_files(img) if typ == 0)
-    return fm1_install.package_end(img[fl:fl + 0x93000])
+    return fm1_install.package_end(img[fl:fl + K["top"]])
 
 
 def main():
@@ -87,11 +91,14 @@ def main():
     ap.add_argument("--standard", type=Path, required=True)
     ap.add_argument("--old", type=Path, help="0.9.0's package (any fm1-dock before the room)")
     ap.add_argument("--cuts", type=int, default=25, help="a power cut at every Nth erase / program (default 25)")
+    ap.add_argument("--board", choices=sorted(B), default="fm1", help="the packages' board (smk37: its own layout)")
     a = ap.parse_args()
+    K.update(B[a.board])
+    F.DT, F.PLAIN = K["dt"], K["top"]
     for k in ("empty", "standard", "old"):
         if getattr(a, k):
             setattr(a, k, getattr(a, k).resolve())
-    subprocess.run(["cc", "-O2", "-Wall", "-Wno-unused-function", "-Ifirmware/hal", "-Ifirmware/src", "-o", str(LDR),
+    subprocess.run(["cc", "-O2", "-Wall", "-Wno-unused-function", *K["ldr"], "-Ifirmware/hal", "-Ifirmware/src", "-o", str(LDR),
                     "tests/ldr_host.c"], cwd=SRC, check=True)
     wd = Path(tempfile.mkdtemp(prefix="hb-room-"))
     try:
@@ -105,16 +112,45 @@ def main():
         e_end, s_end = end_of(imgs["empty"]), end_of(imgs["standard"])
         print(f"ends: Empty {e_end:#x}, Standard {s_end:#x}")
 
+        # tools/fm1_install.py: LIST first, the add-ons the package would reach named, nothing sent to the updater
+        class Link:
+            def __init__(self, mods):
+                self.mods, self.q, self.sent = mods, [], []
+
+            def send(self, pkt):
+                import hbdeploy
+                self.sent.append(pkt)
+                r = hbdeploy.parse(pkt[:4] + bytes([pkt[4] | 0x40]) + pkt[5:]) if pkt[1:4] == fm1_install.DOCK_MAN else None
+                if r and r[0] == 0x02:
+                    for i, (n, at) in enumerate(self.mods):
+                        d = bytes([0, i, 0, 2]) + struct.pack("<III", 1, 1000, F.xip(at) if at else 0) + n.encode().ljust(24, b"\0")
+                        self.q.append(hbdeploy.frame(0x42, r[1], d))
+                    self.q.append(hbdeploy.frame(0x42, r[1], bytes([0, 0xFF])))
+                return True
+
+            def read(self, timeout):
+                return self.q.pop(0) if self.q else None
+
+            def drain(self):
+                pass
+        std = imgs["standard"].read_bytes()
+        way = fm1_install.addons_in_the_way(Link([("SINE", 0), ("B3 ORGAN", K["plain1"]), ("PROPHET", 0x40000), ("KEYS", K["top"] - 0x3000)]), std)
+        none = fm1_install.addons_in_the_way(Link([("SINE", 0), ("B3 ORGAN", K["plain1"])]), std)
+        old = fm1_install.addons_in_the_way(Link([]), std)
+        check("cli_check", way == ["PROPHET"] and none == [] and old == [],
+              f"fm1_install.py: Standard (end {s_end:#x}) would reach {way}; KEYS at the room's top and B3 ORGAN in the plain area stay; "
+              "a dock without add-ons there, or none answering: installed as before")
+
         # the Empty dock with an add-on at the room's top (and one in the plain area)
         base = wd / "empty.bin"
         live(a.empty, base, 1000)
         fl = bytearray(base.read_bytes())
-        top = 0x92000
-        F.write_table(fl, [F.put(fl, F.variant(sine, "PLAIN1", 1), 0x96000), F.put(fl, add, top)])
+        top = K["top"] - 0x1000
+        F.write_table(fl, [F.put(fl, F.variant(sine, "PLAIN1", 1), K["plain1"]), F.put(fl, add, top)])
         base.write_bytes(fl)
         out, log = live(a.empty, base, 1500, [f"700:m{select('ROOMSINE')}", f"1000:{NOTE}"])
         check("setup", plays(out) and "started" in log and [(n, ok) for n, _, _, ok in F.table(base.read_bytes())] ==
-              [("PLAIN1", True), ("ROOMSINE", True)], f"Empty dock, PLAIN1 at 0x96000, ROOMSINE in the room at {top:#x}: picked, it plays")
+              [("PLAIN1", True), ("ROOMSINE", True)], f"Empty dock, PLAIN1 in the plain area, ROOMSINE in the room at {top:#x}: picked, it plays")
 
         # the same package again
         f = wd / "same.bin"
@@ -123,7 +159,7 @@ def main():
         rc, ops, ref = ldr("install", f, imgs["empty"])
         after = f.read_bytes()
         out, log = live(a.empty, f, 1500, [f"700:m{select('ROOMSINE')}", f"1000:{NOTE}"])
-        check("same_package", rc == 0 and not ref and after[e_end:0x93000] == before[e_end:0x93000] and plays(out) and
+        check("same_package", rc == 0 and not ref and after[e_end:K["top"]] == before[e_end:K["top"]] and plays(out) and
               ("ROOMSINE", True) in [(n, ok) for n, _, _, ok in F.table(after)],
               f"rc {rc}, {ops} erases / programs, nothing from {e_end:#x} up changed; ROOMSINE plays after it")
 
@@ -134,7 +170,7 @@ def main():
         after = f.read_bytes()
         out, log = live(a.standard, f, 1500, [f"700:m{select('ROOMSINE')}", f"1000:{NOTE}"])
         names = [(n, ok) for n, _, _, ok in F.table(after)]
-        check("empty_to_standard", rc == 0 and not ref and after[s_end:0x93000] == before[s_end:0x93000] and plays(out)
+        check("empty_to_standard", rc == 0 and not ref and after[s_end:K["top"]] == before[s_end:K["top"]] and plays(out)
               and names == [("PLAIN1", True), ("ROOMSINE", True)] and "slot ok 00010" in log and "room: the image ends at" in log,
               f"rc {rc}, {ops} erases / programs below {s_end:#x}; the built-ins and both add-ons check out, ROOMSINE plays")
         total = ops
@@ -157,7 +193,7 @@ def main():
         f = wd / "covered.bin"
         fl = bytearray(base.read_bytes())
         low = (e_end + 0x3000) & ~0xFFF
-        F.write_table(fl, [F.put(fl, F.variant(sine, "PLAIN1", 1), 0x96000), F.put(fl, add, low)])
+        F.write_table(fl, [F.put(fl, F.variant(sine, "PLAIN1", 1), K["plain1"]), F.put(fl, add, low)])
         f.write_bytes(fl)
         before = f.read_bytes()
         out, log = live(a.empty, f, 1500, [f"700:m{select('ROOMSINE')}", f"1000:{NOTE}"])
@@ -181,7 +217,7 @@ def main():
         fl = bytearray(f.read_bytes())
         img = imgs["standard"].read_bytes()
         flo = next(off for typ, off, *_ in fm1_install.package_files(img) if typ == 0)
-        fl[0x4000:0x93000] = img[flo + 0x4000:flo + 0x93000]
+        fl[0x4000:K["top"]] = img[flo + 0x4000:flo + K["top"]]
         g.write_bytes(fl)
         out, log = live(a.standard, g, 1500)
         check("overwritten_forgotten", plays(out) and "entries forgotten" in log and
@@ -193,7 +229,7 @@ def main():
             o = wd / "old.bin"
             live(a.old, o, 1000)
             fl = bytearray(o.read_bytes())
-            slots = [F.put(fl, F.variant(sine, "PLAIN1", 1), 0x96000), (F.BOOT, F.xip(0x14F00), 0x40000, 0x12345678)]
+            slots = [F.put(fl, F.variant(sine, "PLAIN1", 1), K["plain1"]), (F.BOOT, F.xip(0x14F00), 0x40000, 0x12345678)]
             F.write_table(fl, slots)
             o.write_bytes(fl)
             full = wd / "old_full.bin"

@@ -27,18 +27,18 @@ def sfc(buf, off):
     fm1pkg_make.sfc(buf, 0, len(buf), 0x4000 - off, KEY)
 
 
-def read(flash, off, n):
-    """flash [off, off + n) as XIP reads it: decrypted below the plain window"""
+def read(flash, off, n, plain=None):
+    """flash [off, off + n) as XIP reads it: decrypted below the plain window (the SMK-37's: 0x70000)"""
     b = bytearray(flash[off:off + n])
-    if off < PLAIN:
+    if off < (plain or PLAIN):
         sfc(b, off)
     return bytes(b)
 
 
-def entries(flash):
+def entries(flash, dt=None):
     """the table in force (the valid copy with the higher sequence number): [(magic, flash offset, size, crc)]"""
     best = None
-    for at in DT:
+    for at in dt or DT:
         magic, seq, n, crc = struct.unpack_from("<4I", flash, at)
         if magic != DT_MAGIC or n > 32:
             continue
@@ -52,14 +52,14 @@ def entries(flash):
     return [(m, x - 0x02000000 + 0x4000, s, c) for m, x, s, c in struct.iter_unpack("<4I", best[1])]
 
 
-def table(flash):
+def table(flash, dt=None, plain=None):
     """the deployed modules: [(name, version, flash offset, checks out)], each read as fm1-dock reads it"""
     out = []
-    for magic, off, size, crc in entries(flash):
+    for magic, off, size, crc in entries(flash, dt):
         if magic != SLOT:
             out.append(("BOOT?", 0, off, False))
             continue
-        blob = read(flash, off, size)
+        blob = read(flash, off, size, plain)
         try:
             h, relocs, image = hbmod.parse(blob)
         except Exception:
@@ -70,25 +70,26 @@ def table(flash):
     return out
 
 
-def put(flash, blob, off, size=None):
+def put(flash, blob, off, size=None, plain=None):
     """blob (a .dock) relocated to run at flash off and written there (encrypted below the plain window), as
     d_commit leaves it; -> its table entry (size: the entry's, to make it take more room than it is)"""
     moved = bytearray(hbmod.move(blob, xip(off)))
     crc = hbmod.parse(bytes(moved))[0]["crc"]
     n = len(moved)
     flash[off:off + ((n + 0xFFF) & ~0xFFF)] = b"\xff" * ((n + 0xFFF) & ~0xFFF)
-    if off < PLAIN:
+    if off < (plain or PLAIN):
         sfc(moved, off)
     flash[off:off + n] = moved
     return (SLOT, xip(off), size or n, crc)
 
 
-def write_table(flash, slots, seq=1):
+def write_table(flash, slots, seq=1, dt=None):
     """slots into DT_A as the table in force (seq), DT_B erased"""
     body = b"".join(struct.pack("<4I", *s) for s in slots)
     head = struct.pack("<4I", DT_MAGIC, seq, len(slots), zlib.crc32(struct.pack("<2I", seq, len(slots)) + body))
-    flash[DT[0]:DT[0] + 0x1000] = (head + body).ljust(0x1000, b"\xff")
-    flash[DT[1]:DT[1] + 0x1000] = b"\xff" * 0x1000
+    dt = dt or DT
+    flash[dt[0]:dt[0] + 0x1000] = (head + body).ljust(0x1000, b"\xff")
+    flash[dt[1]:dt[1] + 0x1000] = b"\xff" * 0x1000
 
 
 def variant(sine, name, version):

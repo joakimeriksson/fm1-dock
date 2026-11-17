@@ -2,7 +2,7 @@
 /* fm1-dock: one firmware for the FM-1, installed once; the synths are modules in flash slots
  * (firmware/dock/hb_module.h). This file is the host, on Dinghy's platform (platform.c):
  *
- *   slots      the slot table (flash 0x34000) lists the modules; each is checked (header, ABI,
+ *   slots      the slot table (flash 0x18000) lists the modules; each is checked (header, ABI,
  *              CRC, sizes) before anything of it runs. The built-in sine is always there.
  *   switching  HOME opens the picker: SELECT / PRESETS move, HOME / SEL / PLAY load. A module is
  *              muted at a block boundary, released, its .data copied, .bss cleared, init(). Under the
@@ -44,19 +44,25 @@
 #define APP_FAULT_HOOK hb_fault
 #define APP_EARLY_INIT hb_early_init
 #include "fm1_cc.h"                             /* BOARD_SMK37 */
+#include <stdint.h>
+/* what the host may erase / program besides its settings starts at the image's end (ir_init: its room) or, until that
+ * is known, at the plain window; never the image (the host, HX, the built-ins: only an update writes them) */
+#if BOARD_SMK37
+static volatile uint32_t hb_fl_lo = 0x70000u;   /* (HB_AREA_HI, below) */
+#else
+static volatile uint32_t hb_fl_lo = 0x93000u;
+#endif
+#define APP_FL_LO hb_fl_lo
 #if BOARD_SMK37
 /* the SMK-37 (hal/fm1_flash_map.h): the deployed modules, their table and the banks from the app's end up, around
- * the protected calibration (0xC0000..0xC1FFF) and below the stock resources (0xF4000); no boot slot */
-#define APP_FL_LO 0x70000u
+ * the protected calibration (0xC0000..0xC1FFF) and below the stock resources (0xF4000) */
 #define APP_FL_HI 0xF4000u
 #define SETTINGS_AT 0xBA000u
 #define APP_FL_KEEP_LO 0xC0000u                 /* BTIF and the factory calibration: never written (FL_PROTECTED too) */
 #define APP_FL_KEEP_HI 0xC2000u
 #else
-#define APP_FL_LO 0x14000u                      /* what the host may erase / program besides its settings: the boot */
-#define APP_FL_HI 0xFC000u                      /* slot, the deployed modules, their table, the banks; never the host
-                                                 * (below; tools/build.py checks that it ends there) */
-#define SETTINGS_AT 0x95000u                    /* the host's own sector (0xFC000 is a boot firmware's: Felucca's) */
+#define APP_FL_HI 0xFC000u                      /* the image's room, the deployed modules, their table, the banks */
+#define SETTINGS_AT 0x95000u                    /* the host's own sector (0xFC000 is Felucca's) */
 #define APP_FL_KEEP_LO 0xE7000u                 /* stock's VM with the radio's factory trims (0xE8000) and BTIF: */
 #define APP_FL_KEEP_HI 0xEA000u                 /* never written, whatever else the area may take */
 #endif
@@ -115,8 +121,8 @@ static int rt_late_get(uint8_t *st_, uint8_t *d1, uint8_t *d2)   /* main loop */
 #define KEY0 53u                                /* key 0 = F3 */
 
 /* the image (tools/build.py pack_slots), the same on both boards: the host from flash 0x4120, the slot table of the
- * built-ins at 0x18000, HX (BLE-MIDI, src/ble/hx.h) at 0x19000, the built-ins from 0x23000; app.bin ends with the last
- * of them and the update writes no further (ir_init) */
+ * built-ins at 0x18000, HX (BLE-MIDI, src/ble/hx.h) at 0x19000, the built-ins from the next 4 KiB after it; app.bin ends
+ * with the last of them and the update writes no further (ir_init) */
 #define HB_TABLE_AT 0x18000u                    /* flash offset of the image's slot table (XIP 0x02014000) */
 #define HB_AREA_LO  0x19000u                    /* the image's modules (tools/build.py: after HX, from 0x19000 up) */
 #if BOARD_SMK37
@@ -1471,11 +1477,12 @@ static uint32_t find_key(uint32_t k)
 }
 
 /* ---- deploys: a module file (tools/hbmod.py's .dock) sent over SysEx, USB-MIDI or the DIN jack, into
- * flash of its own. What it may write is APP_FL_LO.. (0x93000 up), never the host or the image's
- * modules below it, which only an update writes:
+ * flash of its own. What it may write starts at the image's end (APP_FL_LO), never the host or the image's
+ * modules below it, which only an update writes (the FM-1's; the SMK-37's are above):
+ *   END-0x93000        the image's room: deployed modules, encrypted with the chip key (room, ir_init)
  *   0x93000, 0x94000   the deployed table, two copies: the valid copy with the higher sequence number
  *                      counts. A new table goes into the other copy, its header last.
- *   0x95000-0xE0000    the deployed modules, each 4 KiB aligned (Dinghy's plain XIP window)
+ *   0x96000-0xE0000    the deployed modules, each 4 KiB aligned (Dinghy's plain XIP window)
  * The module is received whole into the module RAM (the module that ran is stopped) and checked
  * there (the file's CRC, its header, its relocations); only then is flash touched: free space
  * erased, the module relocated to run there and written, read back through XIP and checked as at
@@ -1878,6 +1885,7 @@ static void ir_init(void)
     const hb_slot_t *t = (const hb_slot_t *)FM1_XIP(HB_TABLE_AT);
     uint32_t end, i;
     ir_end = 0;
+    hb_fl_lo = HB_AREA_HI;
     DP_AREA[IR][0] = DP_AREA[IR][1] = 0;
     if (!flash_ok || ota_chip_key(&ir_key) || ota_area_end(ir_rd, ir_key, &end)) {
         hb_log("room: the image's end not known: no room in it this boot");
@@ -1891,6 +1899,7 @@ static void ir_init(void)
         return;
     }
     ir_end = end;
+    hb_fl_lo = end;                             /* (the flash driver's net: nothing below the room) */
     DP_AREA[IR][0] = end;
     DP_AREA[IR][1] = HB_AREA_HI;
     hb_log_u32("room: the image ends at", end);
