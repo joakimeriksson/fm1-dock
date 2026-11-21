@@ -238,6 +238,11 @@ main section { max-width: 1180px; margin: 0 auto; padding: 72px 24px 24px; }
 .presets-act .dim { font-size: 0.8rem; color: var(--muted); flex: 1 1 260px; }
 .presets-act label.btn { cursor: pointer; }
 .presets-act label.btn.disabled { opacity: 0.5; pointer-events: none; }
+.presets-how { margin-top: 10px; font-size: 0.84rem; color: var(--fg-2); }
+.presets-how summary { cursor: pointer; font-weight: 600; color: var(--fg); }
+.presets-how ul { margin: 6px 0 0; padding-left: 18px; }
+.presets-how li { margin: 3px 0; }
+.presets-how b { color: var(--fg); }
 
 .mods-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 18px; }
 .mod { --mod: var(--acc); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; display: flex; flex-direction: column;

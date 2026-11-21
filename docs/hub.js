@@ -13,6 +13,8 @@
 //   over 150 KiB: about half of an FM-1's 296 KiB on its own), kind (analog, digital, ambient, keys or utility: the
 //   catalog's second row of filters), untested: true until the module has been played on a real FM-1 (a label on its
 //   card), screenshot (media/...png), alt, accent (a colour from its screen, for the card's frame);
+//   save: how a player saves a sound in it, in the FM-1's button names (or that it cannot, and what it keeps): the
+//   Presets box lists it for the synths on the device, the guide for all (read from the synth's source);
 //   packaged: true for one in fm1-dock's package (no file, no button; size_kib for the card);
 //   else file (the .dock next to modules.json), version, source, songs; pending: why the file is not here yet.
 import { catalog, installButton, tuneButtons, inspectDevice, addModule, removeModule, loadModule, explain,
@@ -332,8 +334,14 @@ function renderPresets() {
     <button type="button" class="btn small danger meter-rm" data-wipe="${esc(name)}"${off} aria-label="Delete ${esc(name)}'s presets">Delete</button></li>`);
   if (orphans) rows.push(`<li><i class="other"></i>${orphans} bank${orphans > 1 ? "s" : ""} of synths no longer on the device
     <button type="button" class="btn small danger meter-rm" data-wipe=""${off}>Delete</button></li>`);
-  if (!rows.length) rows.push(`<li>Nothing saved yet: a synth's own SAVE puts its presets here.</li>`);
+  if (!rows.length) rows.push(`<li>Nothing saved yet. A synth's presets show up here once you save in it on the device.</li>`);
   const used = d.banks.banks.length;
+  // how each synth on the device saves (the catalog's "save": the steps on the device, or what it keeps instead)
+  const how = d.modules.map((x) => [x.name, (S.mods.find((m) => m.module === x.name) || {}).save]).filter(([, t]) => t)
+    .map(([name, t]) => `<li><b>${esc(name)}</b>: ${esc(t)}</li>`);
+  const howto = how.length ? `<details class="presets-how"${by.size ? "" : " open"}><summary>How to save in each synth on this ${esc(devName())}</summary>
+      <ul>${how.join("")}</ul>${S.dev && S.dev.board === "smk37" ? `<p class="dim">The names are the FM-1's. On the SMK-37: SAVE is BT, PRESETS is K4,
+      SELECT is K2, ALGORITHM is K3, GLO is GLOBE, HOME is PATCH.</p>` : ""}</details>` : "";
   el.innerHTML = `<div class="meter-h"><h3>Presets on your ${esc(devName())}</h3><span class="figs"><b>${used}</b> of ${d.banks.slots}
       banks used</span></div>
     <div class="presets-act">
@@ -341,7 +349,7 @@ function renderPresets() {
       <label class="btn small${S.busy ? " disabled" : ""}">Restore from a file…<input type="file" id="pr-file" accept=".hbk" hidden${off}></label>
       <span class="dim">A <code>.hbk</code> file holds the presets of one synth or of all. Restoring replaces those synths' presets on the device.</span>
     </div>
-    <ul class="legend">${rows.join("")}</ul>` + said;
+    <ul class="legend">${rows.join("")}</ul>${howto}` + said;
 }
 
 function saveFile(bytes, name) {

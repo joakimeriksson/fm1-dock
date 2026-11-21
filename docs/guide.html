@@ -112,6 +112,25 @@
       <p>Removing a synth keeps its presets; they are listed as "of synths no longer on the device" and come back when
         you add the synth again, unless another synth's save needed the bank.</p>
     </div>
+    <div class="box" id="saving">
+      <h3>How to save in each synth</h3>
+      <p>Every synth saves in its own way, and some cannot save a sound at all. The names are the FM-1's; on the SMK-37
+        SAVE is BT, PRESETS is K4, SELECT is K2, ALGORITHM is K3, GLO is GLOBE and HOME is PATCH.</p>
+      <ul id="g-save"><li>The list needs JavaScript; the <b>Presets</b> box on <a href="./#modules">the page</a> shows the
+        steps for the synths on your device.</li></ul>
+      <script type="module">
+        const r = await fetch("modules/modules.json", { cache: "no-cache" });
+        if (r.ok) {
+          const li = Object.values(await r.json()).filter((m) => m.save).map((m) => {
+            const el = document.createElement("li"), b = document.createElement("b");
+            b.textContent = m.title;
+            el.append(b, `: ${m.save}`);
+            return el;
+          });
+          if (li.length) document.getElementById("g-save").replaceChildren(...li);
+        }
+      </script>
+    </div>
   </div>
   <div class="ad-help" id="add-help">
     <h3 class="g-h"><svg class="ad-ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5"/><path d="M7.6 7.6a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.4"/><circle class="dot" cx="10" cy="14.6" r=".6"/></svg>If it doesn't work</h3>
