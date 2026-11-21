@@ -844,20 +844,29 @@ static void draw(uint32_t full)
 static uint8_t fbuf[4u * 4104u + 4u * 163u];
 static uint32_t fsize;
 static uint32_t rd32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
-static int imp_save(void)
+#define IMP_BANKS ((uint32_t)((sizeof imp + HB_BANK_MAX - 1u) / HB_BANK_MAX))   /* the banks a full import takes */
+static int imp_save(void)                       /* 0: kept. The banks past its end (a longer import before) are given
+                                                 * back, and all of them when a part did not save: a part loads as nothing */
 {
     const uint8_t *b = (const uint8_t *)&imp;
     uint32_t n = 8u + imp.count * FM6_PACKED, idx = 1;
+    int bad = 0;
     if (!HB_HOST_HAS(H, bank_free))
         return -1;
-    while (n) {
+    while (n && !bad) {
         uint32_t k = n < HB_BANK_MAX ? n : HB_BANK_MAX;
-        if (H->bank_save_n(idx++, b, k))
-            return -1;
-        b += k;
-        n -= k;
+        bad = H->bank_save_n(idx, b, k) != 0;
+        if (!bad) {
+            idx++;
+            b += k;
+            n -= k;
+        }
     }
-    return 0;
+    if (bad)
+        idx = 1;
+    for (; idx <= IMP_BANKS; idx++)
+        H->bank_save_n(idx, 0, 0);
+    return bad ? -1 : 0;
 }
 static void imp_load(void)
 {
@@ -887,6 +896,7 @@ static uint8_t sx_ok(const uint8_t *p, uint32_t n)      /* the DX7 checksum: dat
 static int data(const uint8_t *p, uint32_t n)
 {
     uint32_t i, j, k, first = imp.count, bank = 0, add = 0;
+    int kept;
     if (!n)
         return 1;
     if (p[0] == HB_FILE_BEGIN) {
@@ -938,10 +948,11 @@ static int data(const uint8_t *p, uint32_t n)
         return 2;                               /* no DX7 voice in it */
     imp.magic = IMP_MAGIC;
     H->log_u32("fm6: voices in", add);
-    if (imp_save())
-        H->log("fm6: the voices are not kept (no flash bank free)");
+    kept = !imp_save();
+    if (!kept)
+        H->log("fm6: the voices are not kept (the flash banks)");
     patch_select(NOWN + first);
-    return 0;
+    return kept ? 0 : 6;                        /* 6: it plays, but is gone at power-off (the host says so on the screen) */
 }
 
 static int init(const hb_host_t *h)

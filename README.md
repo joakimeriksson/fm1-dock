@@ -84,7 +84,9 @@ over USB.
 
 - **The empty dock**: `fm1-dock-0.9.0-empty.fwsc` (and `-empty-smk37`, `-elite`, `-mke`) carries only the sine; you
   add the synths you want from the page, CS-1, Scintilla and OberVave among them (add-ons on the page too). The first
-  step of the open dock ([ROADMAP.md](ROADMAP.md)). Your added synths, settings and presets stay either way.
+  step of the open dock ([ROADMAP.md](ROADMAP.md)). Your added synths, settings and presets stay either way. It does
+  not yet give the add-ons more room: the flash the built-ins leave stays the firmware's until the next version
+  ([#107](https://github.com/joakimeriksson/fm1-dock/issues/107)).
 - **Synth packs**: the same firmware with other synths built in. `fm1-dock-0.9.0-analog.fwsc` carries CS-1, Scintilla,
   OberVave and PROPHET; `fm1-dock-0.9.0-digital.fwsc` FM6, ARTIHIVE and GATOR (the SMK-37's `-digital-smk37`: FM6,
   ARTIHIVE and KEYS). A built-in synth leaves the add-on room free for others. The page's Install step lets you pick
@@ -184,7 +186,7 @@ RAM needs it. The originals are linked; their manuals apply.
 | **ENSEMBLE** | Joakim Eriksson, after bonszaimusic's Caravel | 6 | 11 KiB | Fourteen string, choir and dark pads in a stereo three-tap ensemble, with a morph from strings through choir to dark: ORRERY's pads as a synth of their own. |
 | **ORRERY** | Joakim Eriksson | a band: strings, a lead on the keys, bass and drums | 176 KiB | The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview, not yet played on an FM-1. [Its source](https://github.com/joakimeriksson/orrery-fm1). |
 
-The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas), plus the room the package's
+The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas), plus, from 0.10, the room the package's
 built-in synths leave below it: with the Empty dock 744 KiB in all on an FM-1, with Standard 472. The page's meter shows
 what fits before you add one. An update keeps that room: a package whose built-ins would need the room of an added
 synth is refused (the page and the FM-1 name the ones to remove first). FM-1 SID, MONK-1, DUB-1, GATOR, ORRERY and Niagara Drift are large: with one of them added, only

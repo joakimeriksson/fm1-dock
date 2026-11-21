@@ -40,7 +40,7 @@ export const FIRMWARES = {
       { id: "digital", label: "Digital pack", has: "FM6, ARTIHIVE and GATOR built in", smk: "FM6, ARTIHIVE and KEYS built in",
         why: "FM pianos and bells, the hive and the drum machine." },
       { id: "empty", label: "Empty dock", has: "Only the sine built in",
-        why: "The most room (744 KiB for add-ons on the FM-1): add just the synths you want from the catalog." },
+        why: "Only the synths you pick, from the catalog. From 0.10 the most room for add-ons (744 KiB on the FM-1); in 0.9 the same room as Standard (#107)." },
     ] },
   "fm1-sid": { name: "FM-1 SID", keeps: "" },
   "scintilla": { name: "Scintilla", keeps: "" },
@@ -480,9 +480,9 @@ export function installButton(el, id, opts = {}) {
       picker.append(row);
     }
     const more = Object.assign(document.createElement("p"), { className: "fm1-pack-more", textContent:
-      "Every package is the same fm1-dock; only the synths built into it differ, and the fewer it has, the more room " +
-      "for added ones. Switch any time: the synths you added, your settings and presets stay. A package with more " +
-      "built-in synths may need the room of some you added: the install then names them to remove first." });
+      "Every package is the same fm1-dock; only the synths built into it differ; from 0.10 the fewer it has, the more room " +
+      "for added ones. Switch any time: the synths you added, your settings and presets stay. From 0.10 a package with " +
+      "more built-in synths may need the room of some you added: the install then names them to remove first." });
     picker.append(more);
     picker.hidden = false;
   };

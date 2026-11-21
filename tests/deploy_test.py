@@ -9,7 +9,7 @@ the Nth erase / program).
   - a power cut at every erase / program of a first deploy and of a replacing one: the host always
     boots and plays, the table lists only modules that check out, and the module is the old or the new;
   - a module that renders slower than real time is stopped, and the sine plays;
-  - a module's bank (CS-1's user presets) is there after a reboot;
+  - a module's bank (CS-1's user presets) is there after a reboot; with no bank free its save is refused and logged.
   - the image's room (a package that leaves room below 0x93000; --fwsc build/... of the Empty dock has the most): with
     the plain area full, a module goes into the room, from its top, encrypted; it runs and is there after a reboot,
     and a power cut at every erase / program of a first deploy and of a replacing one there leaves a host that boots
@@ -235,6 +235,21 @@ def main():
             saved = "bank saved" in log
             out, log = live("shot", 1800, [pick], f4)
             check("bank", saved and "bank loaded" in log, "CS-1 saves a user preset (SAVE, SAVE); after a reboot its bank loads")
+
+            # every bank another module's here (CS-1's own further ones): the save is refused, the host says so
+            f6 = wd / "f6.bin"
+            live("shot", 600, [], f6)
+            fl = bytearray(f6.read_bytes())
+            key = zlib.crc32(b"CS-1")
+            for i in range(9):
+                at = 0xEA000 + 0x2000 * i
+                fl[at:at + 0x2000] = b"\xff" * 0x2000
+                fl[at:at + 48] = struct.pack("<4I", 0x324B4248, key ^ (0x5B000000 | (i + 1)), 32, zlib.crc32(bytes(32))) + bytes(32)
+            f6.write_bytes(fl)
+            out, log = live("shot", 2600, [pick, "1800:9", "1850:9^", "2100:9", "2150:9^"], f6)
+            kept = bytes(f6.read_bytes()[0xEA000:0xFC000]) == bytes(fl[0xEA000:0xFC000])
+            check("bank_full", "bank not saved: no bank free" in log and "bank saved" not in log and kept,
+                  "with no bank free CS-1's save is refused and logged (the screen: NOT SAVED), the banks as they were")
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")
