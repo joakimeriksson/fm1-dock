@@ -18,6 +18,11 @@ On an FM-1 (USB-MIDI; python-rtmidi: uv run --with python-rtmidi tools/dock.py .
   tools/dock.py deploy MOD.dock --syx OUT.syx            the same as a SysEx file (send it slowly)
   tools/dock.py modules | info | delete NAME | select NAME | safe | logs   [--port NAME]
       (info: the build, the board, the chips, the free flash and RAM, as OPTIONS > ABOUT shows them)
+  tools/dock.py banks                                    the synths' preset banks on the unit
+  tools/dock.py bank-get [NAME] [-o FILE.hbk]            presets into a file: every synth's (a backup), or NAME's
+  tools/dock.py bank-put FILE.hbk [NAME]                 a file's presets onto the unit (all, or NAME's): in place
+                                                         of those synths' own; the synth must be on the unit
+  tools/dock.py bank-erase NAME | --orphans              NAME's presets deleted; the banks of synths not on the unit
   tools/dock.py send FILE [--arg N] [--port NAME]        a file into the RAM of the module playing (FM-1 SID:
                                        a .sid tune, played at once; --arg the subtune); never into flash
   --blind: no answers (an interface into the DIN jack); the FM-1's screen shows how it went
@@ -242,6 +247,54 @@ def device(a):
             why = f"the module's error {d[1]}" if d and d[0] == 11 else hd.status(d)
             raise SystemExit(f"{a.file}: {why} (at {step})")
         print(f"{a.file}: sent, {len(blob)} bytes (nothing written to flash)")
+    elif a.cmd == "banks":
+        got, end = hd.banks(p)
+        for b in got:
+            who = f"{b['name']}{' #' + str(b['idx']) if b['idx'] else ''}" if b["name"] else "(of no synth on this unit)"
+            print(f"  {b['slot']}  {who:<28} {b['size']:5d} B")
+        print(f"{len(got)} of {end['slots']} banks in use, {end['free']} free")
+    elif a.cmd == "bank-get":
+        got, _ = hd.banks(p)
+        ver = {m["name"]: m["version"] for m in hd.modules(p)}
+        mine = [b for b in got if b["name"] and (not a.name or b["name"].lower() == a.name.lower())]
+        if not mine:
+            raise SystemExit(f"no presets of {a.name} on this unit" if a.name else "no presets on this unit")
+        out = Path(a.o or f"{(a.name or 'fm1-dock-presets').replace(' ', '_')}.hbk")
+        out.write_bytes(hd.hbk_pack([dict(name=b["name"], idx=b["idx"], version=ver.get(b["name"], 0),
+                                          data=hd.bank_read(p, b)) for b in mine]))
+        names = sorted({b["name"] for b in mine})
+        print(f"{out}: {len(mine)} banks of {', '.join(names)}")
+        if not a.name and len(mine) < len(got):
+            print(f"not in it: {len(got) - len(mine)} banks of synths that are not on this unit")
+    elif a.cmd == "bank-put":
+        want = [e for e in hd.hbk_unpack(Path(a.file).read_bytes()) if not a.name or e["name"].lower() == a.name.lower()]
+        here = {m["name"]: m["version"] for m in hd.modules(p)}
+        if not want:
+            raise SystemExit(f"{a.file}: no presets of {a.name} in it")
+        gone = sorted({e["name"] for e in want if e["name"] not in here})
+        if gone:
+            print(f"not on this unit, their presets left out (add the synth first): {', '.join(gone)}")
+        n = 0
+        for e in want:
+            if e["name"] not in here:
+                continue
+            if e["version"] and here[e["name"]] != e["version"]:
+                print(f"{e['name']}: the file is of version {e['version']}, the unit has {here[e['name']]}")
+            bad = hd.bank_write(p, e["name"], e["idx"], e["data"])
+            if bad:
+                raise SystemExit(f"{e['name']} #{e['idx']}: {hd.status(bad[1])} (at {bad[0]}); {n} banks written before it")
+            n += 1
+        print(f"{a.file}: {n} banks written")
+    elif a.cmd == "bank-erase":
+        got, _ = hd.banks(p)
+        mine = [b for b in got if (b["name"] is None if a.orphans else b["name"] and b["name"].lower() == (a.name or "").lower())]
+        if not a.orphans and not a.name:
+            raise SystemExit("bank-erase NAME, or --orphans (the banks of synths that are not on this unit)")
+        for b in mine:
+            d = hd.bank_erase(p, b)
+            if d is not None:
+                raise SystemExit(f"bank {b['slot']}: {hd.status(d)}")
+        print(f"{len(mine)} banks given back")
     else:
         cmd = {"delete": hd.DELETE, "select": hd.SELECT, "safe": hd.SAFE}[a.cmd]
         d = p.ask(cmd, hd.name24(a.name) if a.cmd != "safe" else b"", timeout=10.0)
@@ -273,6 +326,16 @@ def main():
     sd = sub.add_parser("send", help="a file to the module playing, into its RAM (FM-1 SID: a .sid tune, played at once)")
     sd.add_argument("file")
     sd.add_argument("--arg", type=int, default=0, help="for the module (FM-1 SID: the subtune, 0: the tune's own)")
+    sub.add_parser("banks", help="the synths' preset banks on the unit")
+    bg = sub.add_parser("bank-get", help="presets into a .hbk file: every synth's (a backup), or one synth's")
+    bg.add_argument("name", nargs="?")
+    bg.add_argument("-o", help="the file (default: NAME.hbk, or fm1-dock-presets.hbk)")
+    bp = sub.add_parser("bank-put", help="a .hbk file's presets onto the unit, in place of those synths' own")
+    bp.add_argument("file")
+    bp.add_argument("name", nargs="?", help="only this synth's")
+    be = sub.add_parser("bank-erase", help="a synth's presets deleted from the unit")
+    be.add_argument("name", nargs="?")
+    be.add_argument("--orphans", action="store_true", help="the banks of synths that are not on the unit")
     for name in ("modules", "info", "delete", "select", "safe", "logs"):
         c = sub.add_parser(name)
         if name in ("delete", "select"):

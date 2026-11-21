@@ -119,7 +119,9 @@ typedef struct hb_host {
      * record (user presets): up to HB_BANK_MAX bytes with a CRC, p in the module's RAM; a save
      * erases the bank (the sound stalls ~100 ms) and is read back. A save that fails (not 0: no bank
      * free, or the flash) is also said by the host, NOT SAVED over the screen for 2.5 s, once until the
-     * next button: a module need not say it, and should not say SAVED before it has the answer */
+     * next button: a module need not say it, and should not say SAVED before it has the answer. A computer can read, write and
+     * erase a bank too (the page's Presets, tools/dock.py bank-get / bank-put): a module that plays when its bank is
+     * written or erased is stopped before (release()) and started after (init()), so it loads what is there */
     int (*bank_load)(void *p, uint32_t n);      /* 0: loaded (n as saved) */
     int (*bank_save)(const void *p, uint32_t n);
     /* the keys' force (Velo's sensing, by way of CS-1, in the host's key scan; a module checks size first): the

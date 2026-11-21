@@ -5,9 +5,9 @@
 //   node tests/install_test.mjs [DIR [TRYIT_DIR]]      (TRYIT_DIR: tools/tryit.py's OUT)
 import { readFileSync, existsSync } from "node:fs";
 import { checkPackage, packageDamage, logicalImage, productOf, installOn, entryFor, addModule, playTune, tuneSteps,
-  inspectDevice, removeModule, packageEnd } from "../docs/install/fm1install.js";
+  inspectDevice, removeModule, packageEnd, backupPresets, restorePresets, deletePresets } from "../docs/install/fm1install.js";
 import { pack7, unpack7, Updater, sameKeyboard } from "../docs/install/fm1ota.js";
-import { frame, parse, moduleInfo, crc32, CMD } from "../docs/dock.js";
+import { frame, parse, moduleInfo, crc32, CMD, hbkPack, hbkUnpack } from "../docs/dock.js";
 
 let failed = 0;
 const ok = (c, what) => { console.log(`${c ? "ok  " : "FAIL"} ${what}`); if (!c) failed++; };
@@ -203,7 +203,9 @@ ok(sameKeyboard("ota-SMK-37 Elite", "SMK-37 Pro") && !sameKeyboard("FM-1", "SMK-
 class FakeDock {
   // info: INFO's answer: null none (fm1-dock 0.8 and before: silent here), "bad" a bad-message reply (as dock.c's
   // default), else the record (dock.c info_fill)
-  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0, largest = 400000, info = null, at = {} } = {}) {
+  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0, largest = 400000, info = null, at = {}, banks = null } = {}) {
+    // banks: null an fm1-dock before the bank commands (bad message), else its 9 slots: { name, idx, data } or null
+    this.banks = banks && Array.from({ length: 9 }, (_, i) => banks[i] || null);
     this.largest = largest; this.info = info; this.at = at;   // at: a module's XIP address in LIST (0: none)
     this.abi = abi; this.mods = modules; this.got = null; this.committed = null; this.frames = 0;
     this.cur = cur; this.refuse = refuse; this.tune = null; this.played = null;
@@ -252,6 +254,38 @@ class FakeDock {
       else if (d[0] === 0x44) this.tune.bytes.set(d.subarray(5), rd(1));
       else if (d[0] === 0x45) this.played = this.tune;
       this.reply(r.cmd, r.seq, [0]);
+    } else if (r.cmd >= CMD.BANKS && r.cmd <= CMD.BANK_ERASE) {
+      const rd = (o) => (d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | (d[o + 3] << 24)) >>> 0;
+      const key = (b) => (crc32(new TextEncoder().encode(b.name)) ^ (b.idx ? 0x5B000000 | b.idx : 0)) >>> 0;
+      const str = (o) => new TextDecoder().decode(d.subarray(o, o + 24)).split("\0")[0];
+      if (!this.banks) this.reply(r.cmd, r.seq, [10]);
+      else if (r.cmd === CMD.BANKS) {
+        this.banks.forEach((b, i) => b && this.reply(r.cmd, r.seq, [0, i, this.mods.includes(b.name) ? this.mods.indexOf(b.name) : 0xff, 0,
+          ...u32(key(b)), ...u32(b.data.length), ...u32(crc32(b.data)), ...u32(b.idx), ...new TextEncoder().encode(b.name.padEnd(24, "\0"))]));
+        this.reply(r.cmd, r.seq, [0, 0xff, 9, this.banks.filter((b) => !b || !this.mods.includes(b.name)).length]);
+      } else if (r.cmd === CMD.BANK_READ) {
+        const b = this.banks[d[0]], from = rd(4);
+        this.reply(r.cmd, r.seq, b && from < b.data.length ? [0, d[0], 0, 0, ...u32(from), ...b.data.subarray(from, from + 240)] : [9]);
+      } else if (r.cmd === CMD.BANK_WRITE) {
+        if (d[0] === 0x42) {
+          this.bw = this.mods.includes(str(12)) ? { name: str(12), idx: d[2] | d[3] << 8, data: new Uint8Array(rd(4)), crc: rd(8) } : null;
+          this.reply(r.cmd, r.seq, [this.bw ? 0 : 9, 0x42]);
+        } else if (d[0] === 0x44) {
+          this.bw.data.set(d.subarray(8), rd(4));
+          this.reply(r.cmd, r.seq, [0, 0x44, 0, 0, ...u32(rd(4))]);
+        } else {
+          const b = this.bw;
+          let i = this.banks.findIndex((x) => x && x.name === b.name && x.idx === b.idx);
+          if (i < 0) i = this.banks.findIndex((x) => !x);
+          if (crc32(b.data) !== b.crc) this.reply(r.cmd, r.seq, [1, 0x45]);
+          else if (i < 0) this.reply(r.cmd, r.seq, [4, 0x45]);
+          else { this.banks[i] = { name: b.name, idx: b.idx, data: b.data }; this.reply(r.cmd, r.seq, [0, 0x45]); }
+        }
+      } else {
+        const b = this.banks[d[0]];
+        if (b && key(b) === rd(4)) this.banks[d[0]] = null;
+        this.reply(r.cmd, r.seq, [b && key(b) === rd(4) ? 0 : 9]);
+      }
     } else if (r.cmd === CMD.LOG) {
       const from = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24), w = this.logText.length;
       const chunk = [...new TextEncoder().encode(this.logText.slice(from, from + 180))];
@@ -344,6 +378,47 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
   const blob = new Uint8Array(100);
   const e = await reject(addModule({ inputs: { forEach() {} }, outputs: { forEach() {} } }, { blob, info: { abi: 2, name: "X" } }, yes, () => {}));
   ok(e && e.code === "nodock", "no FM-1 running fm1-dock: nodock");
+}
+
+// ------------------------------------------------------------------ the presets (the banks) ---
+{
+  const bytes = (n, k) => Uint8Array.from({ length: n }, (_, i) => (i * 7 + k) & 255);
+  const a = new FakeDock({ modules: ["SINE", "CS-1", "FM-106"], banks: [{ name: "CS-1", idx: 0, data: bytes(4096, 1) },
+    { name: "FM-106", idx: 1, data: bytes(8176, 2) }, { name: "FM-106", idx: 2, data: bytes(300, 3) }, { name: "GONE", idx: 0, data: bytes(64, 4) }] });
+  const seen = await inspectDevice(a.access);
+  ok(seen.dock.banks && seen.dock.banks.banks.length === 4 && seen.dock.banks.slots === 9 && seen.dock.banks.banks[3].name === null
+    && seen.dock.banks.banks[1].name === "FM-106" && seen.dock.banks.banks[1].idx === 1,
+    "inspectDevice: the banks in use, each its synth's (one of a synth that is not on the device)");
+  const all = await backupPresets(a.access);
+  const ent = hbkUnpack(all.bytes);
+  ok(all.banks === 3 && all.left === 1 && eq(all.names, ["CS-1", "FM-106"]) && ent.length === 3 && ent[1].name === "FM-106" && ent[1].idx === 1
+    && eq(Array.from(ent[1].data), Array.from(bytes(8176, 2))) && ent[0].version === 1,
+    "backupPresets: every synth's banks in a .hbk, their bytes as the device has them; the orphan left out and counted");
+  const one = await backupPresets(a.access, "CS-1");
+  ok(one.banks === 1 && hbkUnpack(one.bytes)[0].name === "CS-1", "backupPresets of one synth: only its banks");
+
+  // onto another unit: FM-106 there has other banks (idx 1 and 3), CS-1 is not there
+  const b = new FakeDock({ modules: ["SINE", "FM-106"], banks: [{ name: "FM-106", idx: 1, data: bytes(100, 9) }, { name: "FM-106", idx: 3, data: bytes(100, 8) }] });
+  ok(await restorePresets(b.access, all.bytes, no) === null && b.banks[0].data.length === 100, "restorePresets: Cancel at the question: nothing written");
+  const r = await restorePresets(b.access, all.bytes, yes);
+  const got = b.banks.filter(Boolean).map((x) => `${x.name}/${x.idx}/${x.data.length}`).sort();
+  ok(r && r.banks === 2 && eq(r.names, ["FM-106"]) && eq(r.missing, ["CS-1"]) && eq(got, ["FM-106/1/8176", "FM-106/2/300"])
+    && eq(Array.from(b.banks.find((x) => x && x.idx === 1).data), Array.from(bytes(8176, 2))),
+    "restorePresets: the file's banks in place of the synth's own (a bank the file has not is gone); the synth that is not there named");
+  const e1 = await reject(restorePresets(new FakeDock({ modules: ["SINE"], banks: [] }).access, one.bytes, yes));
+  ok(e1 && e1.code === "nosynth", "restorePresets with none of the file's synths on the device: nosynth");
+  const e2 = await reject(restorePresets(b.access, all.bytes.subarray(0, 500), yes));
+  ok(e2 && e2.code === "badhbk", "restorePresets of a file cut short: badhbk, before the device is asked");
+  const full = new FakeDock({ modules: ["SINE", "CS-1", "FM-106"], banks: Array.from({ length: 9 }, (_, i) => ({ name: "FM-106", idx: i + 1, data: bytes(10, i) })) });
+  const e3 = await reject(restorePresets(full.access, one.bytes, yes));
+  ok(e3 && e3.code === "bank" && /no bank free/.test(e3.message), "restorePresets with no bank free: said so");
+
+  ok(await deletePresets(a.access, "FM-106", no) === null && a.banks.filter(Boolean).length === 4, "deletePresets: Cancel: nothing deleted");
+  ok(await deletePresets(a.access, "FM-106", yes) === 2 && a.banks.filter(Boolean).map((x) => x.name).join() === "CS-1,GONE", "deletePresets: the synth's banks given back");
+  ok(await deletePresets(a.access, null, yes) === 1 && a.banks.filter(Boolean).map((x) => x.name).join() === "CS-1", "deletePresets of the orphans: only those");
+  const old = new FakeDock({ modules: ["SINE", "CS-1"] });
+  const e4 = await reject(backupPresets(old.access));
+  ok(e4 && e4.code === "nobanks" && (await inspectDevice(old.access)).dock.banks === null, "an fm1-dock before the bank commands: nobanks, and inspectDevice's banks null");
 }
 
 // ------------------------------------------------------------------ the catalog on fm1-dock's page ---

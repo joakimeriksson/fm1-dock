@@ -13,14 +13,14 @@
 //   <div data-fm1-tunes></div>                         C64 tunes to FM-1 SID on the FM-1 (tuneButtons)
 // installButton and addButton take opts.ask (text -> Promise<bool>; confirm() when not given) and opts.onDone; while an
 // install runs, its element has data-busy="1". The catalog on fm1-dock's page uses inspectDevice, addModule and
-// removeModule with its own buttons.
+// removeModule with its own buttons, and backupPresets, restorePresets and deletePresets for its Presets.
 //   <script type="module">
 //     import { installButton } from "/fm1-dock/install/fm1install.js";
 //     for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install);
 //   </script>
 import { Updater, sameKeyboard } from "./fm1ota.js";
 import { pairPorts, looksOurs } from "./ports.js";
-import { Dock, CMD, moduleInfo } from "../dock.js";
+import { Dock, CMD, moduleInfo, hbkPack, hbkUnpack } from "../dock.js";
 
 const SITE = new URL("../", import.meta.url);           // fm1-dock's site: fw/ is there
 const BLOCKS = 20, BLK = 0x30, KEEP = 0x2F;
@@ -290,13 +290,85 @@ export async function removeModule(midi, name, ask) {
   } finally { dock.close(); }
 }
 
+// ---- presets: the synths' banks on the fm1-dock (dock.js banks), into a .hbk file and back
+
+// the presets of the fm1-dock on midi as a .hbk's bytes: every synth's (a backup), or the synth `name`'s.
+// -> { bytes, banks, names, left: banks of synths that are not on the unit (not in the file) }
+export async function backupPresets(midi, name = null) {
+  const found = await findDock(midi);
+  if (!found) throw fail("nodock", "");
+  const { dock } = found;
+  try {
+    const got = await dock.banks();
+    if (!got) throw fail("nobanks", "");
+    const ver = new Map((await dock.modules()).map((m) => [m.name, m.version]));
+    const mine = got.banks.filter((b) => b.name && (!name || b.name === name));
+    if (!mine.length) throw fail("nopresets", "");
+    const entries = [];
+    for (const b of mine) entries.push({ name: b.name, idx: b.idx, version: ver.get(b.name) || 0, data: await dock.bankRead(b) });
+    return { bytes: hbkPack(entries), banks: mine.length, names: [...new Set(mine.map((b) => b.name))],
+      left: name ? 0 : got.banks.length - mine.length };
+  } finally { dock.close(); }
+}
+
+// a .hbk's presets onto the fm1-dock on midi (ask(text) confirms it first): each synth in the file gets the file's
+// banks in place of all of its own; a synth that plays is started again by fm1-dock and loads them. Synths of the
+// file that are not on the unit are left out. -> { banks, names, missing }, or null when cancelled
+export async function restorePresets(midi, bytes, ask) {
+  let entries;
+  try { entries = hbkUnpack(bytes); } catch (e) { throw fail("badhbk", `${e.message}.`); }
+  const found = await findDock(midi);
+  if (!found) throw fail("nodock", "");
+  const { dock } = found;
+  try {
+    const got = await dock.banks();
+    if (!got) throw fail("nobanks", "");
+    const here = new Set((await dock.modules()).map((m) => m.name));
+    const todo = entries.filter((e) => here.has(e.name));
+    const names = [...new Set(todo.map((e) => e.name))];
+    const missing = [...new Set(entries.filter((e) => !here.has(e.name)).map((e) => e.name))];
+    if (!todo.length) throw fail("nosynth", `${missing.join(", ")}.`);
+    if (!await ask(`Replace the presets of ${names.join(", ")} on the device with the file's? The ones on the device now are overwritten.`))
+      return null;
+    for (const e of todo) {
+      const st = await dock.bankWrite(e.name, e.idx, e.data);
+      if (st !== "done") throw fail("bank", `${e.name}: ${st === "no space" ? "no bank free (delete another synth's presets first)" : st}.`);
+    }
+    const kept = new Set(todo.map((e) => `${e.name}/${e.idx}`));    // (a bank of theirs the file does not have: gone too)
+    for (const b of (await dock.banks()).banks)
+      if (b.name && names.includes(b.name) && !kept.has(`${b.name}/${b.idx}`)) await dock.bankErase(b);
+    return { banks: todo.length, names, missing };
+  } finally { dock.close(); }
+}
+
+// the synth `name`'s presets off the fm1-dock on midi (name null: the banks of synths that are not on the unit),
+// ask(text) confirming first. -> the banks given back, or null when cancelled
+export async function deletePresets(midi, name, ask) {
+  const found = await findDock(midi);
+  if (!found) throw fail("nodock", "");
+  const { dock } = found;
+  try {
+    const got = await dock.banks();
+    if (!got) throw fail("nobanks", "");
+    const mine = got.banks.filter((b) => (name ? b.name === name : !b.name));
+    if (!mine.length) throw fail("nopresets", "");
+    if (!await ask(name ? `Delete ${name}'s presets from the device? This cannot be undone: export them first if you want them.`
+      : "Delete the presets of synths that are no longer on the device? This cannot be undone.")) return null;
+    for (const b of mine) {
+      const st = await dock.bankErase(b);
+      if (st !== "done") throw fail("bank", `${st}.`);
+    }
+    return mine.length;
+  } finally { dock.close(); }
+}
+
 const BOOT_LINE = /fm1-dock (\S+) boot/g;     // dock.c's first log line at every start: "<ms> fm1-dock 0.6 boot, reset ..."
 
 // what is on the device on midi, without changing anything: its identity (the updater's handshake: "FM-1_921", an
 // SMK-37's, "ota-..." in update mode), and when it runs fm1-dock its HELLO, its modules and its version (from the
 // INFO, else the log's last boot line, while the 2 KiB log still has it; opts.log false: not read), and INFO's record
 // (null from an fm1-dock before it). -> { identity, model, board: "fm1" | "smk37" | null, ota, dock: { hello, modules,
-// version, info } | null }; identity null: no FM-1 answered. Throws inuse when
+// version, info, banks (dock.js banks(); null from an fm1-dock before the bank commands) } | null }; identity null: no FM-1 answered. Throws inuse when
 // none answered and a port would not open (another program or tab has it)
 export async function inspectDevice(midi, opts = {}) {
   const up = new Updater(midi);
@@ -318,7 +390,7 @@ export async function inspectDevice(midi, opts = {}) {
       const boots = [...(await dock.log()).text.matchAll(BOOT_LINE)];
       if (boots.length) version = boots.at(-1)[1];
     } catch (_) { /* an older fm1-dock, or the log is busy: no version */ }
-    out.dock = { hello, modules, version, info };
+    out.dock = { hello, modules, version, info, banks: await dock.banks() };
   } finally { dock.close(); }
   return out;
 }
@@ -395,6 +467,11 @@ const SAY = {
   badreq: "The FM-1 asked for something outside the package; nothing more was sent. ",
   addonsota: "The FM-1 is in update mode, and synths you added sit where this package goes: nothing was written. Finish the install with the package you started it with (it keeps them), then remove those synths before you install this one.",
   addons: "This package's synths need the room where some of your added synths are: nothing was written. Remove them first (Remove in the meter below; add them again afterwards if they fit), or pick a package with fewer built-in synths. ",
+  nobanks: "This fm1-dock cannot back up presets yet: that comes with fm1-dock 0.10. Install the latest fm1-dock first.",
+  nopresets: "No saved presets found on the device.",
+  badhbk: "That file could not be used: ",
+  nosynth: "None of the file's synths are on the device. Add the synth first, then restore: ",
+  bank: "The presets could not be written: ",
   nodock: "No FM-1 running fm1-dock found. Install fm1-dock first (above), plug the FM-1 in with a USB data cable, close other apps that use MIDI, and press again.",
   notadded: "fm1-dock has no added module of that name: ",
   abi: "This fm1-dock is too old or too new for the module: install the latest fm1-dock first. ",
@@ -407,7 +484,7 @@ const SAY = {
   write: "Writing: do not unplug the FM-1", reboot: "Restarting",
 };
 
-const DETAIL = ["badpkg", "badreq", "abi", "space", "select", "refused", "hvsc", "notadded", "addons"];
+const DETAIL = ["badpkg", "badreq", "abi", "space", "select", "refused", "hvsc", "notadded", "addons", "badhbk", "nosynth", "bank"];
 // an error of the functions above in words for the page
 export function explain(e) {
   if (!SAY[e.code]) return `Error: ${e.message}`;

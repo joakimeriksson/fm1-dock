@@ -21,6 +21,7 @@ HELLO, LIST, BEGIN, DATA, COMMIT, ABORT, DELETE, LOG, SAFE, SELECT = 0x01, 0x02,
 RUN, RESULT = 0x30, 0x31                       # probes (tools/probe.py): RUN in place of COMMIT, from RAM
 INFO = 0x03                                    # the unit and the build (dock.c info_fill; fm1-dock after 0.8)
 MODULE = 0x23                                  # a payload for the module playing (its data(): FM-1 SID takes a tune)
+BANKS, BANK_READ, BANK_WRITE, BANK_ERASE = 0x24, 0x25, 0x26, 0x27   # the modules' banks (their presets), below
 STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed", "data missing",
           "not started", "not found", "bad message", "refused"]
 STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"]
@@ -292,3 +293,98 @@ def log_text(p):
         out += chunk
         frm = at + len(chunk)
     return out.decode("latin-1"), h
+
+
+# ---- the modules' banks (their user presets): listed, read, written and given back over USB, and kept in a .hbk
+# file: a backup of a unit, or one synth's presets for another unit. The host carries the bytes as they are (every
+# module's bank is its own format); a bank is the module's whose name it carries, so a file lands on the same synth
+# on any unit. dock.c, "the banks from the computer".
+BANK_MAX = 8176
+HBK_MAGIC = b"HBKF"
+
+
+def banks(p):
+    """the banks in use: ([dict(slot, name: None for a bank of no module on the unit, idx, key, size, crc)],
+    dict(slots, free)); stops at an fm1-dock without the commands"""
+    seq = p.send(BANKS)
+    out, end = [], None
+    for c, d in p.replies(seq, 1.0):
+        if c != BANKS:
+            if c == 0x3F:
+                break
+            continue
+        if d[0] != 0 or len(d) < 4:
+            break
+        if d[1] == 0xFF:
+            end = dict(slots=d[2], free=d[3])
+            break
+        key, size, crc, idx = struct.unpack_from("<4I", d, 4)
+        out.append(dict(slot=d[1], name=d[20:44].split(b"\0")[0].decode("latin-1") if d[2] != 0xFF else None,
+                        idx=idx, key=key, size=size, crc=crc))
+    if end is None:
+        raise SystemExit("this fm1-dock has no bank commands (0.9 and before): update it first")
+    return out, end
+
+
+def bank_read(p, b):
+    """bank b's bytes (a banks() entry), checked against its CRC"""
+    out = bytearray()
+    while len(out) < b["size"]:
+        d = p.ask(BANK_READ, struct.pack("<B3xI", b["slot"], len(out)))
+        if d[0] != 0 or len(d) <= 8 or struct.unpack_from("<I", d, 4)[0] != len(out):
+            raise SystemExit(f"bank {b['slot']}: {status(d)}")
+        out += d[8:]
+    if len(out) != b["size"] or zlib.crc32(out) != b["crc"]:
+        raise SystemExit(f"bank {b['slot']}: it changed while it was read (the synth saved?): try again")
+    return bytes(out)
+
+
+def bank_write_frames(name, idx, data):
+    """BANK_WRITE's payloads for one bank: B, every D, E"""
+    out = [b"B\0" + struct.pack("<HII", idx, len(data), zlib.crc32(data)) + name24(name)]
+    out += [b"D\0\0\0" + struct.pack("<I", at) + data[at:at + CHUNK] for at in range(0, len(data), CHUNK)]
+    return out + [b"E"]
+
+
+def bank_write(p, name, idx, data):
+    """one bank onto the unit; None when it is in flash, else (the step, the reply)"""
+    for st in bank_write_frames(name, idx, data):
+        d = p.ask(BANK_WRITE, st, timeout=5.0 if st[:1] == b"E" else 1.0, tries=1 if st[:1] == b"E" else 3)
+        if not d or d[0] != 0:
+            return chr(st[0]), d
+    return None
+
+
+def bank_erase(p, b):
+    d = p.ask(BANK_ERASE, struct.pack("<B3xI", b["slot"], b["key"]), timeout=3.0, tries=1)
+    return None if d and d[0] == 0 else d
+
+
+def hbk_pack(entries):
+    """a .hbk: "HBKF", u16 format 1, u16 count, 8 bytes 0; then per bank the module's name[24], u16 idx, u16 0,
+    u32 the module's version (0: not known), u32 length, u32 CRC-32, the bytes. entries: dict(name, idx, version, data)"""
+    out = bytearray(HBK_MAGIC + struct.pack("<HH8x", 1, len(entries)))
+    for e in entries:
+        out += name24(e["name"]) + struct.pack("<HHIII", e["idx"], 0, e.get("version", 0), len(e["data"]),
+                                               zlib.crc32(e["data"])) + e["data"]
+    return bytes(out)
+
+
+def hbk_unpack(blob):
+    """a .hbk's banks, each checked: [dict(name, idx, version, data)]"""
+    if len(blob) < 16 or blob[:4] != HBK_MAGIC:
+        raise SystemExit("not a preset file of fm1-dock (.hbk)")
+    fmt, n = struct.unpack_from("<HH", blob, 4)
+    if fmt != 1:
+        raise SystemExit(f"a .hbk of format {fmt}: this tool reads format 1")
+    out, at = [], 16
+    for _ in range(n):
+        if at + 40 > len(blob):
+            raise SystemExit("the .hbk is cut short")
+        idx, _, version, size, crc = struct.unpack_from("<HHIII", blob, at + 24)
+        data = blob[at + 40:at + 40 + size]
+        if not 0 < size <= BANK_MAX or len(data) != size or zlib.crc32(data) != crc:
+            raise SystemExit("the .hbk is damaged (a bank's length or CRC)")
+        out.append(dict(name=blob[at:at + 24].split(b"\0")[0].decode("latin-1"), idx=idx, version=version, data=data))
+        at += 40 + size
+    return out

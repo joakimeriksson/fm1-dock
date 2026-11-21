@@ -165,6 +165,7 @@
     <div class="chips" id="chips" role="group" aria-label="Filter by kind of sound"></div>
   </div>
   <div class="meter" id="meter" aria-live="polite"></div>
+  <div class="meter presets" id="presets" aria-live="polite"></div>
   <div class="mods-grid" id="catalog">
     <noscript><p class="empty">The catalog needs JavaScript; the modules are listed in the
       <a href="https://github.com/joakimeriksson/fm1-dock#whats-in-the-dock">README</a>.</p></noscript>
@@ -443,6 +444,11 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
         <tr><td>20</td><td>LOG</td><td>from → status, log length, at, up to 180 bytes</td></tr>
         <tr><td>21</td><td>SAFE</td><td>— → status (the sine plays)</td></tr>
         <tr><td>22</td><td>SELECT</td><td>name[24] → status</td></tr>
+        <tr><td>23</td><td>MODULE</td><td>a payload for the module playing (its <code>data()</code>) → status, the module's answer</td></tr>
+        <tr><td>24</td><td>BANKS</td><td>— → per bank in use: slot, owner, key, length, CRC, idx, name[24]; then the end: slots, free</td></tr>
+        <tr><td>25</td><td>BANK_READ</td><td>slot, from → status, slot, from, up to 240 bytes</td></tr>
+        <tr><td>26</td><td>BANK_WRITE</td><td><code>B</code> idx, length, CRC, name[24]; <code>D</code> at, 256 bytes; <code>E</code> → status (written whole at <code>E</code>; the module is started again if it plays)</td></tr>
+        <tr><td>27</td><td>BANK_ERASE</td><td>slot, key → status</td></tr>
         <tr><td>30</td><td>RUN</td><td>run id, argument (after BEGIN / DATA) → status, then the result</td></tr>
         <tr><td>31</td><td>RESULT</td><td>from → state, id, rc, ticks, length, PC, at, output</td></tr>
       </table></div>
