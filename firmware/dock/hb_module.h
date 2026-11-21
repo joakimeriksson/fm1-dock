@@ -255,17 +255,9 @@ typedef struct hb_probe {
 } hb_probe_t;
 #define HB_PROBE const hb_probe_t hb_module __attribute__((section(".hb_desc"), used))
 
-/* The boot slot (tools/hbboot.py): a whole firmware, built from its source to run at flash
- * HB_BOOT_IMG, that fm1-dock starts at power-on in place of itself (HOME held: fm1-dock). It has
- * the FM-1 to itself: both cores, all the RAM, its own USB, its own flash areas above 0x97000.
- * Its file is an hb_file_t (flags HB_F_BOOT, no relocations, base = FM1 XIP of HB_BOOT_IMG,
- * desc = 0: the entry is the image's first byte, as the SPL's) and the image, its app.bin. The
- * host writes it encrypted with the chip key, as an update would, below the plain window. */
+/* (0.9 and before: the boot slot, a whole firmware fm1-dock started at power-on, flagged HB_F_BOOT; removed. A file
+ * with these flags is refused, and a table entry for one is forgotten) */
 #define HB_F_BOOT       0x200u                  /* hb_file_t.flags */
-#define HB_F_BOOT_NODATA 0x400u                 /* with HB_F_BOOT: it keeps nothing in flash outside its slot
-                                                 * (FM-1 SID), so deployed modules may stay beside it */
-#define HB_BOOT_LO      0x14000u                /* flash: the first sector (the header at its end) */
-#define HB_BOOT_IMG     0x15000u                /* the image */
-#define HB_BOOT_HI      0x93000u                /* the end (the plain window: Felucca's data from 0x97000) */
+#define HB_F_BOOT_NODATA 0x400u
 
 #endif

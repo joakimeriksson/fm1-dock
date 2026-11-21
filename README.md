@@ -186,8 +186,10 @@ RAM needs it. The originals are linked; their manuals apply.
 | **ENSEMBLE** | Joakim Eriksson, after bonszaimusic's Caravel | 6 | 11 KiB | Fourteen string, choir and dark pads in a stereo three-tap ensemble, with a morph from strings through choir to dark: ORRERY's pads as a synth of their own. |
 | **ORRERY** | Joakim Eriksson | a band: strings, a lead on the keys, bass and drums | 176 KiB | The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview, not yet played on an FM-1. [Its source](https://github.com/joakimeriksson/orrery-fm1). |
 
-The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas); the page's meter shows what
-fits before you add one. FM-1 SID, MONK-1, DUB-1, GATOR, ORRERY and Niagara Drift are large: with one of them added, only
+The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas), plus, from 0.10, the room the package's
+built-in synths leave below it: with the Empty dock 744 KiB in all on an FM-1, with Standard 472. The page's meter shows
+what fits before you add one. An update keeps that room: a package whose built-ins would need the room of an added
+synth is refused (the page and the FM-1 name the ones to remove first). FM-1 SID, MONK-1, DUB-1, GATOR, ORRERY and Niagara Drift are large: with one of them added, only
 smaller ones fit beside it. The new modules of 0.8 have been played on an FM-1, both cores running: at their worst ARTIHIVE took 64 % of a block, PROPHET 53 %, Niagara Drift 33 %, Scintilla 46 % (its second core 35 %), with no overruns. Niagara Drift (156 KiB) leaves too little room in one piece for B3 ORGAN beside it and PROPHET: the free room can be split, and the page's meter shows the largest piece.
 
 ## Play it
@@ -243,15 +245,10 @@ power-off instead of crashing again.
 | --- | --- |
 | **OCT+ at power-on** | safe start: the sine only, and the radio not started |
 | **OCT− at power-on** | the USB rescue: no sound, only the updater, for any install |
-| **HOME at power-on** | fm1-dock stays, even with a firmware in its boot slot |
 
 Hold the keys from before you switch on until the screen shows something. A module that crashes twice in a row is
 skipped at boot until you pick it again. One that renders slower than real time is stopped and the sine plays, so
 USB and the updater keep working.
-
-The boot slot (`tools/hbboot.py`, `tools/dock.py deploy --boot`) is a developer's tool: a whole firmware that takes
-over at every power-on, with its own USB. Besides HOME at power-on, switching off while **STARTING** shows, twice in a
-row, makes the third start stay in fm1-dock. Only put a firmware there that answers the installers.
 
 ## Your own module
 

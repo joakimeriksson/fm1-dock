@@ -65,6 +65,7 @@ static int ota_prog(uint32_t off, const void *p, uint32_t n) { (void)off; (void)
 static int ota_fread(uint32_t off, void *p, uint32_t n) { return fl_read_ram(off, p, n); }
 static void ota_show(uint32_t step, int32_t code) { (void)step; (void)code; }
 static void ota_commit(const uint8_t *parm) { (void)parm; }
+#define OTA_KEEP_ADDONS 1                           /* the image's room: written up to the package's end only */
 #include "../src/ota.c"
 
 /* ---- ldr_core.c hooks: interrupts are off for the whole loader ---- */
@@ -86,6 +87,7 @@ static void ldr_record_clear(void)
 static int ldr_flash_known(void) { return FL_JEDEC_OK(fl_jedec_ram()); }   /* as the app (project.c) */
 static void ldr_progress(uint32_t done, uint32_t total) { (void)done; (void)total; ldr_poll(); }
 #include "ldr_core.c"
+static int ota_chip_key(uint32_t *key) { return ldr_chip_key(key); }
 
 extern uint32_t _bss_start[], _bss_end[];
 

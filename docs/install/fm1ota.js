@@ -213,6 +213,10 @@ export class Updater {
       const r = parseRequest(pkt);
       if (!r) continue;
       last = Date.now();
+      if (r.addr === 0xF2000000) {               // fm1-dock refused the package: add-ons where it goes (ota.c ota_keep_check)
+        link.send(response(r.addr, new Array(r.len).fill(0)));
+        throw fail(finishAddr === 0xF0000000 ? "addonsota" : "addons", "");   // (in update mode: the loader's refusal)
+      }
       if (r.addr === 0xE0000000 || r.addr === 0xF0000000) {
         link.send(response(r.addr, [...new TextEncoder().encode("success"), 0]));
         if (r.addr === finishAddr) return { served, finished: true };

@@ -15,7 +15,6 @@
 
 On an FM-1 (USB-MIDI; python-rtmidi: uv run --with python-rtmidi tools/dock.py ...):
   tools/dock.py deploy MOD.dock [--port NAME] [--blind]   the module into its flash, then running
-                                       (a boot firmware, tools/hbboot.py: into the boot slot, then started)
   tools/dock.py deploy MOD.dock --syx OUT.syx            the same as a SysEx file (send it slowly)
   tools/dock.py modules | info | delete NAME | select NAME | safe | logs   [--port NAME]
       (info: the build, the board, the chips, the free flash and RAM, as OPTIONS > ABOUT shows them)
@@ -190,14 +189,6 @@ def find_lcd(img):
     return None
 
 
-BOOT_WARNING = """This is a boot firmware: it takes over the FM-1 at every power-on, with its own USB.
-If its USB does not answer, no installer reaches the FM-1 while it runs. The way back to fm1-dock:
-  - hold HOME while switching on (keep holding while STARTING shows), or
-  - switch off while STARTING shows, twice in a row: the third start stays in fm1-dock.
-Deploy it only if you know it answers the installers (test it in fm1-emu first: tools/dock.py emu).
-Add --boot to deploy it anyway."""
-
-
 def device(a):
     import hbdeploy as hd
     if a.cmd == "deploy" and a.syx:
@@ -210,8 +201,6 @@ def device(a):
     p = hd.Port(a.port, blind=getattr(a, "blind", False))
     if a.cmd == "deploy":
         blob = Path(a.module).read_bytes()
-        if hd.is_boot(blob) and not a.boot:
-            raise SystemExit(BOOT_WARNING)
         hd.deploy(p, blob)
     elif a.cmd == "modules":
         h = hd.hello(p)
@@ -219,7 +208,8 @@ def device(a):
             mark = ">" if m["index"] == h["cur"] else " "
             size = f"{m['size'] // 1024:4d} KiB v{m['version']}" if m["at"] else "          "
             print(f"{mark} {m['index']:2d} {m['name']:<16} {m['kind']:<9} {size}  {m['state']}")
-        print(f"free for deploys: {h['free'] // 1024} KiB (largest gap {h['largest'] // 1024} KiB); "
+        print(f"free for deploys: {h['free'] // 1024} KiB" + (f" of {h['room'] // 1024} KiB" if h.get("room") else "") +
+              f" (largest gap {h['largest'] // 1024} KiB); "
               f"render worst {100 * h['worst'] / h['block']:.0f} % of a block, {h['overruns']} overruns")
         if "cpu1" in h:
             print(f"second core: {h['cpu1']}; a job's last {100 * h['cpu1_job'] / h['block']:.0f} %, worst "
@@ -234,8 +224,12 @@ def device(a):
         ver = i["version"] + (f" ({i['build']})" if i["build"] != i["version"] else "")
         size = f", {i['flash_size'] // 1024} KiB" if i["flash_size"] else ""
         print(f"fm1-dock {ver} on {i['model']}: {i['soc']} {i['mhz']} MHz, {i['cores']}CPU ({i['cpu1']}), reset {i['reset']:02x}")
-        print(f"flash {i['flash_id']:06X}{size}; add-ons {i['free'] // 1024} KiB free (largest {i['largest'] // 1024} KiB); "
+        room = f" of {i['room'] // 1024} KiB" if i.get("room") else ""
+        print(f"flash {i['flash_id']:06X}{size}; add-ons {i['free'] // 1024} KiB free{room} (largest {i['largest'] // 1024} KiB); "
               f"module RAM {i['mod_ram'] // 1024} KiB, {i['mod_ram_used'] // 1024} KiB used")
+        if i.get("image_end"):
+            top = 0x70000 if i["board"] == "SMK-37" else 0x93000
+            print(f"the image ends at flash {i['image_end']:#x}: {(top - i['image_end']) // 1024} KiB of the room is above it")
         print(f"BLE address {i['ble_addr'] or '- (not made yet)'}")
     elif a.cmd == "logs":
         text, _ = hd.log_text(p)
@@ -276,7 +270,6 @@ def main():
     d.add_argument("module")
     d.add_argument("--syx")
     d.add_argument("--blind", action="store_true")
-    d.add_argument("--boot", action="store_true", help="yes, a boot firmware (it takes over at power-on)")
     sd = sub.add_parser("send", help="a file to the module playing, into its RAM (FM-1 SID: a .sid tune, played at once)")
     sd.add_argument("file")
     sd.add_argument("--arg", type=int, default=0, help="for the module (FM-1 SID: the subtune, 0: the tune's own)")

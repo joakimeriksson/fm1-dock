@@ -47,11 +47,8 @@
 #ifndef HX_IRQ_PRIO
 #define HX_IRQ_PRIO 5u
 #endif
-#if BOARD_SMK37
-#define HX_AT 0x65000u                          /* flash: the top 40 KiB of the SMK-37's app area (to 0x6F000; its app slot ends at 0x6F0DC) */
-#else
-#define HX_AT 0x88000u                          /* flash: the top 40 KiB of the image area (to 0x92000; the app slot ends at 0x920DC) */
-#endif
+#define HX_AT 0x19000u                          /* flash: right after the slot table (dock.c HB_TABLE_AT), before the
+                                                 * built-ins, on both boards: at most 40 KiB (to 0x23000) */
 #define HX_SIZE 0xA000u
 #define HX_XIP (0x02000000u + HX_AT - 0x4000u)
 #define HX_KEPT 112u                            /* the settings record: [0..7] the address, [8..107] the trims copy */

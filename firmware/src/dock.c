@@ -2,7 +2,7 @@
 /* fm1-dock: one firmware for the FM-1, installed once; the synths are modules in flash slots
  * (firmware/dock/hb_module.h). This file is the host, on Dinghy's platform (platform.c):
  *
- *   slots      the slot table (flash 0x34000) lists the modules; each is checked (header, ABI,
+ *   slots      the slot table (flash 0x18000) lists the modules; each is checked (header, ABI,
  *              CRC, sizes) before anything of it runs. The built-in sine is always there.
  *   switching  HOME opens the picker: SELECT / PRESETS move, HOME / SEL / PLAY load. A module is
  *              muted at a block boundary, released, its .data copied, .bss cleared, init(). Under the
@@ -32,11 +32,11 @@
  *              is stopped (the sine plays): the main loop, so USB and the updater, keep running.
  *   probes     a program sent as a deploy is, but run once from RAM (RUN) to measure or test, its
  *              result kept through a crash (RESULT): tools/probe.py. Nothing goes into flash.
- *   boot slot  a whole firmware (Felucca, ...; tools/hbboot.py) deployed above the host: at
- *              power-on fm1-dock hands the FM-1 over to it before its own screen, USB and audio
- *              start (HOME held: fm1-dock stays; two starts without a power cycle between: fm1-dock
- *              stays). It is written as an update writes, encrypted with the chip key. One that
- *              keeps no flash data (HB_F_BOOT_NODATA: FM-1 SID) leaves the deployed modules in. */
+ *   room       the image (the host, HX, the built-ins) ends where its JLFS says; the flash from there to the
+ *              end of what an update writes is add-on room too (the image's room, IR): written encrypted
+ *              with the chip key, read through the SFC as the built-ins are. An update leaves it alone
+ *              (the update loader writes the package's own length) and refuses one that would cover an
+ *              add-on there (ota.c ota_keep_check, ldr_core.c). */
 #ifndef APP_NAME                                /* (tools/build.py --app-name: a solo app's) */
 #define APP_NAME "FM1-DOCK"
 #endif
@@ -44,23 +44,28 @@
 #define APP_FAULT_HOOK hb_fault
 #define APP_EARLY_INIT hb_early_init
 #include "fm1_cc.h"                             /* BOARD_SMK37 */
+#include <stdint.h>
+/* what the host may erase / program besides its settings starts at the image's end (ir_init: its room) or, until that
+ * is known, at the plain window; never the image (the host, HX, the built-ins: only an update writes them) */
+#if BOARD_SMK37
+static volatile uint32_t hb_fl_lo = 0x70000u;   /* (HB_AREA_HI, below) */
+#else
+static volatile uint32_t hb_fl_lo = 0x93000u;
+#endif
+#define APP_FL_LO hb_fl_lo
 #if BOARD_SMK37
 /* the SMK-37 (hal/fm1_flash_map.h): the deployed modules, their table and the banks from the app's end up, around
- * the protected calibration (0xC0000..0xC1FFF) and below the stock resources (0xF4000); no boot slot */
-#define APP_FL_LO 0x70000u
+ * the protected calibration (0xC0000..0xC1FFF) and below the stock resources (0xF4000) */
 #define APP_FL_HI 0xF4000u
 #define SETTINGS_AT 0xBA000u
 #define APP_FL_KEEP_LO 0xC0000u                 /* BTIF and the factory calibration: never written (FL_PROTECTED too) */
 #define APP_FL_KEEP_HI 0xC2000u
 #else
-#define APP_FL_LO 0x14000u                      /* what the host may erase / program besides its settings: the boot */
-#define APP_FL_HI 0xFC000u                      /* slot, the deployed modules, their table, the banks; never the host
-                                                 * (below; tools/build.py checks that it ends there) */
-#define SETTINGS_AT 0x95000u                    /* the host's own sector (0xFC000 is a boot firmware's: Felucca's) */
+#define APP_FL_HI 0xFC000u                      /* the image's room, the deployed modules, their table, the banks */
+#define SETTINGS_AT 0x95000u                    /* the host's own sector (0xFC000 is Felucca's) */
 #define APP_FL_KEEP_LO 0xE7000u                 /* stock's VM with the radio's factory trims (0xE8000) and BTIF: */
 #define APP_FL_KEEP_HI 0xEA000u                 /* never written, whatever else the area may take */
 #endif
-#define APP_BOOT_HOOK hb_boot_hook
 #define APP_SYSEX hb_sysex
 #define APP_MIDI_OUT ble_out                    /* BLE-MIDI (src/ble/hx.h): out from the audio ISR, in from TIMER5 */
 #define APP_T5_POLL t5_poll                     /* TIMER5: the DIN jack's UART flushed, BLE-MIDI in */
@@ -69,14 +74,13 @@
 static void rt_in(uint32_t st);
 static void ble_out(uint32_t pkt);
 static void t5_poll(void);
-static void hb_boot_hook(uint32_t p3);
-static void hb_boot_now(void);
 #if !BOARD_SMK37                                /* (the SMK-37's keys have two contacts: their velocity is the scan's) */
 static void hb_analog(uint32_t col, uint32_t rowbit, uint32_t v, uint32_t driven);
 static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #define FM1_INPUT_ANALOG(col, rowbit, v, driven) hb_analog(col, rowbit, v, driven)
 #define FM1_INPUT_DRIVE(col, rowbit) hb_analog_drive(col, rowbit)
 #endif
+#define OTA_KEEP_ADDONS 1                       /* ota.c: an update over add-ons in the image's room is refused */
 #include "platform.c"
 #include "fm1_uart.h"
 #include "hb_module.h"
@@ -116,10 +120,13 @@ static int rt_late_get(uint8_t *st_, uint8_t *d1, uint8_t *d2)   /* main loop */
 #define C_BAD RGB(255, 90, 70)
 #define KEY0 53u                                /* key 0 = F3 */
 
-#if BOARD_SMK37
+/* the image (tools/build.py pack_slots), the same on both boards: the host from flash 0x4120, the slot table of the
+ * built-ins at 0x18000, HX (BLE-MIDI, src/ble/hx.h) at 0x19000, the built-ins from the next 4 KiB after it; app.bin ends
+ * with the last of them and the update writes no further (ir_init) */
 #define HB_TABLE_AT 0x18000u                    /* flash offset of the image's slot table (XIP 0x02014000) */
-#define HB_AREA_LO  0x19000u                    /* the image's modules, packed by tools/build.py */
-#define HB_AREA_HI  FL_APP_HI                   /* (the end of what an update writes: 0x70000) */
+#define HB_AREA_LO  0x19000u                    /* the image's modules (tools/build.py: after HX, from 0x19000 up) */
+#if BOARD_SMK37
+#define HB_AREA_HI  FL_APP_HI                   /* (the end of what an update may write: 0x70000) */
 #define DT_A        0xB8000u                    /* the deployed table, two copies (deploys, below) */
 #define DT_B        0xB9000u
 #define DP_LO       0x70000u                    /* the deployed modules, in the plain window: two areas around */
@@ -129,15 +136,10 @@ static int rt_late_get(uint8_t *st_, uint8_t *d1, uint8_t *d2)   /* main loop */
 #define BANK_LO     0xE2000u                    /* the modules' banks, 8 KiB each, 9 as on the FM-1 */
 #define BANK_HI     0xF4000u
 #define DP_TOP      DP2_HI                      /* the deployed modules' end (the PC limit) */
-static const uint32_t DP_AREA[2][2] = {{DP_LO, DP_HI}, {DP2_LO, DP2_HI}};
-static uint32_t dp_area(uint32_t off)           /* the deploy area flash offset off is in (0, 1), 2: neither */
-{
-    return off >= DP_LO && off < DP_HI ? 0u : off >= DP2_LO && off < DP2_HI ? 1u : 2u;
-}
+#define DP_N        3u
+static uint32_t DP_AREA[DP_N][2] = {{DP_LO, DP_HI}, {DP2_LO, DP2_HI}, {0, 0}};
 #else
-#define HB_TABLE_AT 0x34000u                    /* flash offset of the image's slot table (XIP 0x02030000) */
-#define HB_AREA_LO  0x35000u                    /* the image's modules, packed by tools/build.py */
-#define HB_AREA_HI  0x93000u                    /* (the end of what an update writes) */
+#define HB_AREA_HI  0x93000u                    /* (the end of what an update may write) */
 #define DT_A        0x93000u                    /* the deployed table, two copies (deploys, below) */
 #define DT_B        0x94000u
 #define DP_LO       0x96000u                    /* the deployed modules, in the plain window */
@@ -145,7 +147,20 @@ static uint32_t dp_area(uint32_t off)           /* the deploy area flash offset 
 #define BANK_LO     0xEA000u                    /* the modules' banks, 8 KiB each (Felucca's USR area) */
 #define BANK_HI     0xFC000u
 #define DP_TOP      DP_HI
+#define DP_N        2u
+static uint32_t DP_AREA[DP_N][2] = {{DP_LO, DP_HI}, {0, 0}};
 #endif
+#define IR          (DP_N - 1u)                 /* the last area: the image's room [ir_lo, HB_AREA_HI), encrypted; ir_init */
+static uint32_t ir_end;                         /* the image's end as its JLFS says (4 KiB up), 0: not known this boot */
+static uint32_t ir_key;                         /* the chip key the room is written with */
+static uint32_t dp_area(uint32_t off)           /* the deploy area flash offset off is in, DP_N: none */
+{
+    uint32_t a;
+    for (a = 0; a < DP_N; a++)
+        if (off >= DP_AREA[a][0] && off < DP_AREA[a][1])
+            return a;
+    return DP_N;
+}
 #define FL_OF(xip)  ((uint32_t)(xip) - FM1_XIP(0u))             /* XIP address -> flash offset */
 #define BLOCK_TICKS (HALF_FRAMES * 1000000u / FS * FM1_TICKS_PER_US)   /* one block's time: 139 296 */
 
@@ -227,7 +242,7 @@ static uint32_t crc_upd(uint32_t c, const uint8_t *p, uint32_t n)
 extern const hb_module_t hb_builtin_sine;       /* modules/sine/sine.c, linked into the host */
 enum { M_OK, M_BAD_CRC, M_BAD_HEAD, M_TOO_BIG, M_STRUCK, M_INIT_FAILED, M_SLOW };
 static const char *const M_STATE[] = {"", "BAD CRC", "BAD HEADER", "TOO BIG", "CRASHED", "INIT FAILED", "TOO SLOW"};
-enum { K_BUILTIN, K_IMAGE, K_DEPLOYED, K_BOOT };
+enum { K_BUILTIN, K_IMAGE, K_DEPLOYED, K_BOOT };   /* (K_BOOT: the boot slot's, removed; the number kept) */
 typedef struct {
     const hb_file_t *file;                      /* 0: built in */
     const hb_module_t *desc;
@@ -302,19 +317,9 @@ static void add_slot(const hb_slot_t *sl, uint32_t kind, uint32_t lo, uint32_t h
 }
 
 static void dt_load(void);
+static uint32_t dt_write(const hb_slot_t *e, uint32_t n);
 static struct { uint32_t magic, seq, n, crc; hb_slot_t s[HB_SLOTS]; } dt;   /* the deployed table in force */
 
-/* ---- the boot slot (hb_module.h): its entry in the deployed table, checked as a module is */
-#define BOOT_MAGIC 0x544F4F42u                  /* "BOOT" */
-#define BOOT_AT    (HB_BOOT_IMG - 256u)         /* its hb_file_t */
-static const hb_slot_t *dt_boot(void)
-{
-    uint32_t i;
-    for (i = 0; i < dt.n; i++)
-        if (dt.s[i].magic == BOOT_MAGIC)
-            return &dt.s[i];
-    return 0;
-}
 static uint32_t crc_fast(uint32_t c, const uint8_t *p, uint32_t n)   /* crc_upd's, by a table: 500 KB at boot */
 {
     static uint32_t t[256];
@@ -328,36 +333,6 @@ static uint32_t crc_fast(uint32_t c, const uint8_t *p, uint32_t n)   /* crc_upd'
     while (n--) c = t[(c ^ *p++) & 0xFFu] ^ (c >> 8);
     return ~c;
 }
-static uint32_t check_boot(const hb_slot_t *sl)
-{
-    const hb_file_t *f = (const hb_file_t *)sl->at;
-    if (sl->at != FM1_XIP(BOOT_AT) || sl->size < 256u + 32u || sl->size > HB_BOOT_HI - BOOT_AT)
-        return M_BAD_HEAD;
-    if (f->magic != HB_MAGIC || f->abi != HB_ABI || !(f->flags & HB_F_BOOT) || f->n_relocs || f->desc ||
-        f->base != FM1_XIP(HB_BOOT_IMG) || f->code_size != sl->size - 256u || f->crc != sl->crc)
-        return M_BAD_HEAD;
-    if (crc_fast(crc_fast(0, (const uint8_t *)f, 76u), (const uint8_t *)f->base, f->code_size) != f->crc)
-        return M_BAD_CRC;
-    return M_OK;
-}
-static void add_boot(const hb_slot_t *sl)
-{
-    hb_entry_t *e = &mods[n_mods];
-    const hb_file_t *f = (const hb_file_t *)sl->at;
-    if (n_mods > HB_SLOTS)
-        return;
-    n_mods++;
-    e->state = (uint8_t)check_boot(sl);
-    e->kind = K_BOOT;
-    e->file = f;
-    e->desc = 0;
-    str_cpy(e->name, e->state != M_BAD_HEAD ? f->name : "BOOT ?", sizeof e->name);
-    e->key = name_key(e->name);
-    hb_log_u32(e->state == M_OK ? "boot slot ok" : "boot slot refused", e->state);
-    hb_log(e->name);
-}
-
-static uint32_t dt_write(const hb_slot_t *e, uint32_t n);
 static void scan_slots(void)
 {
     const hb_slot_t *t = (const hb_slot_t *)FM1_XIP(HB_TABLE_AT);
@@ -370,34 +345,29 @@ static void scan_slots(void)
     mods[0].key = name_key("(built in)");       /* its own settings, apart from a slot of the same name */
     n_mods = 1;
     dt_load();
-#ifdef HB_BOOT_SLOT
-#define BOOT_GONE(b) (check_boot(b) == M_BAD_HEAD)
-#else
-#define BOOT_GONE(b) 1                          /* (a release has no boot slot: an old entry goes) */
-#endif
-    if (dt_boot() && BOOT_GONE(dt_boot()) && t[0].magic == HB_SLOT_MAGIC) {
-        /* an install wrote a package (its slot table) where the boot firmware was: it is gone, and
-         * deleting it by name could not find its name any more. The table forgets it, so the
-         * package's own modules (the image's) run */
+    {   /* entries the table should no longer have: a boot firmware's (the boot slot, removed), and an add-on in the
+         * image's room that the image now covers (an install by another loader wrote there: it is gone) */
         static hb_slot_t e[HB_SLOTS];
-        uint32_t m, k = (uint32_t)(dt_boot() - dt.s);
-        for (i = m = 0; i < dt.n; i++)
-            if (i != k) e[m++] = dt.s[i];
-        hb_log_u32("boot firmware gone (an install, or a release): forgotten", dt_write(e, m));
-        dt_load();
+        uint32_t m, gone = 0;
+        for (i = m = 0; i < dt.n; i++) {
+            uint32_t at = FL_OF(dt.s[i].at);
+            if (dt.s[i].magic != HB_SLOT_MAGIC || (ir_end && at >= 0x4000u && at < ir_end))
+                gone++;
+            else
+                e[m++] = dt.s[i];
+        }
+        if (gone) {
+            hb_log_u32("table: entries forgotten (a boot firmware, or covered by the image)", gone);
+            hb_log_u32("table: written", dt_write(e, m));
+            dt_load();
+        }
     }
-    for (i = 0; i < HB_SLOTS && !dt_boot() && t[i].magic == HB_SLOT_MAGIC; i++)
-        add_slot(&t[i], K_IMAGE, HB_AREA_LO, HB_AREA_HI);   /* (a boot firmware is where the image's were) */
-    for (i = 0; i < dt.n; i++)
-        if (dt.s[i].magic == BOOT_MAGIC)
-            add_boot(&dt.s[i]);
-        else
-#if BOARD_SMK37
-            add_slot(&dt.s[i], K_DEPLOYED, DP_AREA[dp_area(FL_OF(dt.s[i].at)) & 1u][0],
-                     DP_AREA[dp_area(FL_OF(dt.s[i].at)) & 1u][1]);   /* (in neither: the check fails) */
-#else
-            add_slot(&dt.s[i], K_DEPLOYED, DP_LO, DP_HI);
-#endif
+    for (i = 0; i < HB_SLOTS && t[i].magic == HB_SLOT_MAGIC; i++)
+        add_slot(&t[i], K_IMAGE, HB_AREA_LO, ir_end ? ir_end : HB_AREA_HI);
+    for (i = 0; i < dt.n; i++) {
+        uint32_t a = dp_area(FL_OF(dt.s[i].at));
+        add_slot(&dt.s[i], K_DEPLOYED, a < DP_N ? DP_AREA[a][0] : 0, a < DP_N ? DP_AREA[a][1] : 0);   /* (none: refused) */
+    }
 }
 
 /* ---- settings: the host's record and one per module, in one sector; flushed when nothing plays */
@@ -408,7 +378,7 @@ typedef struct {
     uint32_t magic, len, crc;                   /* crc over what follows the header */
     uint32_t sel_key;                           /* the module to start */
     int32_t oct;
-    uint32_t spare[3];                          /* [0]: a boot firmware's starts in a row (hb_boot_hook); [1]: OPT_*;
+    uint32_t spare[3];                          /* [0]: (was the boot slot's count, unused); [1]: OPT_*;
                                                  * [2]: the EQ (EQ_ON, the bands' dB: eq_db) */
     st_rec_t rec[ST_RECS];
 } st_t;
@@ -696,8 +666,8 @@ static void ble_boot(uint32_t safe)             /* after the settings, the modul
     const hx_api_t *h = (const hx_api_t *)HX_XIP;
     if (h->magic != HX_MAGIC || h->abi != HX_ABI || h->size < sizeof *h || h->size > HX_SIZE ||
         crc_fast(0, (const uint8_t *)h + 16, h->size - 16u) != h->crc) {
-        hb_log(h->magic == 0xFFFFFFFFu ? "BLE: not in this build" : "BLE: HX damaged (written over?)");
-        hx_built = h->magic != 0xFFFFFFFFu;     /* (damaged: the line says MISSING) */
+        hb_log(h->magic != HX_MAGIC ? "BLE: not in this build" : "BLE: HX damaged (written over?)");
+        hx_built = h->magic == HX_MAGIC;        /* (damaged: the line says MISSING; none: no line) */
         return;
     }
     hx_built = 1;
@@ -1141,7 +1111,7 @@ static int start_module(uint32_t i)
     memset(fm1_led, 0, HB_BTN_RIGHT + 1u - HB_BTN_KNOB_BANK);   /* (the SMK's own buttons: only XBTN lights them) */
 #endif
     if (e->state != M_OK || e->kind == K_BOOT)
-        return -1;                              /* (a boot firmware is started by a reboot: hb_boot_hook) */
+        return -1;
     if (f) {
         const uint8_t *img = (const uint8_t *)f->base;
         memcpy((void *)HB_MOD_RAM, img + f->code_size, f->data_size);
@@ -1547,11 +1517,12 @@ static uint32_t find_key(uint32_t k)
 }
 
 /* ---- deploys: a module file (tools/hbmod.py's .dock) sent over SysEx, USB-MIDI or the DIN jack, into
- * flash of its own. What it may write is APP_FL_LO.. (0x93000 up), never the host or the image's
- * modules below it, which only an update writes:
+ * flash of its own. What it may write starts at the image's end (APP_FL_LO), never the host or the image's
+ * modules below it, which only an update writes (the FM-1's; the SMK-37's are above):
+ *   END-0x93000        the image's room: deployed modules, encrypted with the chip key (room, ir_init)
  *   0x93000, 0x94000   the deployed table, two copies: the valid copy with the higher sequence number
  *                      counts. A new table goes into the other copy, its header last.
- *   0x95000-0xE0000    the deployed modules, each 4 KiB aligned (Dinghy's plain XIP window)
+ *   0x96000-0xE0000    the deployed modules, each 4 KiB aligned (Dinghy's plain XIP window)
  * The module is received whole into the module RAM (the module that ran is stopped) and checked
  * there (the file's CRC, its header, its relocations); only then is flash touched: free space
  * erased, the module relocated to run there and written, read back through XIP and checked as at
@@ -1573,7 +1544,6 @@ static const char *const D_TXT[] = {"DONE", "BAD CRC", "BAD HEADER", "TOO BIG", 
 static uint32_t dt_at;                          /* the table's copy in force: DT_A / DT_B, 0: none */
 static struct {
     uint32_t on, size, crc, got, t_last, t_draw, prev_key;
-    uint32_t boot, next, crc_run, key, sec, t_reboot;   /* a boot firmware: written as it comes (below) */
     char name[24];
     uint8_t have[RX_MAX / 256u / 8u];           /* the 256-byte chunks received */
 } rx;
@@ -1624,20 +1594,19 @@ static uint32_t dt_write(const hb_slot_t *e, uint32_t n)   /* into the other cop
     hb_log_u32("deploy: table", t.seq);
     return dt_at == to && dt.seq == t.seq ? D_OK : D_VERIFY;
 }
-#if BOARD_SMK37
 static uint32_t dt_find(uint32_t key)          /* the table's entry of that name, HB_SLOTS: none */
 {
     uint32_t i;
     for (i = 0; i < dt.n; i++) {
         const hb_slot_t *e = &dt.s[i];
-        if (dp_area(FL_OF(e->at)) < 2u && name_key(((const hb_file_t *)e->at)->name) == key)
+        if (dp_area(FL_OF(e->at)) < DP_N && name_key(((const hb_file_t *)e->at)->name) == key)
             return i;
     }
     return HB_SLOTS;
 }
 static uint32_t dp_room(uint32_t at)            /* the free bytes from at (4 KiB aligned) to the next module */
 {
-    uint32_t i, end = DP_AREA[dp_area(at) & 1u][1];
+    uint32_t i, end = DP_AREA[dp_area(at) % DP_N][1];
     for (i = 0; i < dt.n; i++) {
         uint32_t lo = FL_OF(dt.s[i].at), hi = lo + ((dt.s[i].size + 0xFFFu) & ~0xFFFu);
         if (at >= lo && at < hi)
@@ -1647,60 +1616,38 @@ static uint32_t dp_room(uint32_t at)            /* the free bytes from at (4 KiB
     }
     return end - at;
 }
-static uint32_t dp_place(uint32_t need, uint32_t *largest, uint32_t *total)   /* first fit; 0: none */
+/* where a module of need bytes goes, 0: nowhere; *largest, *total: the free room. The areas in the plain window first,
+ * each first fit from its start (no update ever writes there); the image's room last and from its top down, so that
+ * what is there stays as far as it can from the image's end (a package with more built-ins covers less) */
+static uint32_t dp_place(uint32_t need, uint32_t *largest, uint32_t *total)
 {
-    uint32_t i, at = 0, r;
+    uint32_t i, a, at = 0, at_a = DP_N, r;
     *largest = *total = 0;
-    for (i = 0; i < dt.n + 2u; i++) {           /* the gaps start at an area's start or where a module ends */
-        uint32_t s0 = i < dt.n ? FL_OF(dt.s[i].at) + ((dt.s[i].size + 0xFFFu) & ~0xFFFu) : DP_AREA[i - dt.n][0];
-        if (dp_area(s0) >= 2u || !(r = dp_room(s0)))
-            continue;
-        if (r > *largest) *largest = r;
-        *total += r;
-        if (r >= need && (!at || s0 < at))
-            at = s0;
-    }
+    for (a = 0; a < DP_N; a++)
+        for (i = 0; i <= dt.n; i++) {           /* the gaps start at an area's start or where a module ends */
+            uint32_t s0 = i < dt.n ? FL_OF(dt.s[i].at) + ((dt.s[i].size + 0xFFFu) & ~0xFFFu) : DP_AREA[a][0];
+            if (DP_AREA[a][0] >= DP_AREA[a][1] || dp_area(s0) != a || !(r = dp_room(s0)))
+                continue;
+            if (r > *largest) *largest = r;
+            *total += r;
+            if (r < need || a > at_a)
+                continue;
+            if (a == IR) {                      /* (the gap's top) */
+                if (at_a != IR || s0 + r - need > at) { at = s0 + r - need; at_a = a; }
+            } else if (a < at_a || s0 < at) {
+                at = s0;
+                at_a = a;
+            }
+        }
     return at;
 }
-#else
-static uint32_t dt_find(uint32_t key)          /* the table's entry of that name, HB_SLOTS: none */
+static uint32_t dp_size(void)                   /* every area's bytes: the room for add-ons in all */
 {
-    uint32_t i;
-    for (i = 0; i < dt.n; i++) {
-        const hb_slot_t *e = &dt.s[i];
-        if (e->at >= FM1_XIP(DP_LO) && e->at < FM1_XIP(DP_HI) && name_key(((const hb_file_t *)e->at)->name) == key)
-            return i;
-    }
-    return HB_SLOTS;
+    uint32_t a, n = 0;
+    for (a = 0; a < DP_N; a++)
+        n += DP_AREA[a][1] > DP_AREA[a][0] ? DP_AREA[a][1] - DP_AREA[a][0] : 0u;
+    return n;
 }
-static uint32_t dp_room(uint32_t at)            /* the free bytes from at (4 KiB aligned) to the next module */
-{
-    uint32_t i, end = DP_HI;
-    for (i = 0; i < dt.n; i++) {
-        uint32_t lo = FL_OF(dt.s[i].at), hi = lo + ((dt.s[i].size + 0xFFFu) & ~0xFFFu);
-        if (at >= lo && at < hi)
-            return 0;
-        if (lo >= at && lo < end)
-            end = lo;
-    }
-    return end - at;
-}
-static uint32_t dp_place(uint32_t need, uint32_t *largest, uint32_t *total)   /* first fit; 0: none */
-{
-    uint32_t i, at = 0, r;
-    *largest = *total = 0;
-    for (i = 0; i <= dt.n; i++) {               /* the gaps start at DP_LO or where a module ends */
-        uint32_t s0 = i < dt.n ? FL_OF(dt.s[i].at) + ((dt.s[i].size + 0xFFFu) & ~0xFFFu) : DP_LO;
-        if (s0 < DP_LO || s0 >= DP_HI || !(r = dp_room(s0)))
-            continue;
-        if (r > *largest) *largest = r;
-        *total += r;
-        if (r >= need && (!at || s0 < at))
-            at = s0;
-    }
-    return at;
-}
-#endif
 
 /* OPTIONS, ABOUT and INFO (0x03): what runs here, from what is in RAM (the flash's JEDEC id was read at boot;
  * nothing is read or written for them). info_fill gathers it for both: the build, the board, the chip, the flash, the
@@ -1719,7 +1666,8 @@ static uint32_t dp_place(uint32_t need, uint32_t *largest, uint32_t *total)   /*
 #define AB_KEYS "SELECT: SCROLL    HOME: BACK"
 #endif
 enum { IN_FMT = 1, IN_BOARD, IN_CPU1, IN_RST, IN_BT, IN_ADDR, IN_FLASH = 12, IN_FREE = 16, IN_BIG = 20, IN_RAM = 24,
-       IN_USED = 28, IN_MHZ = 32, IN_SOC = 36, IN_VER = 44, IN_BUILD = 60, IN_MODEL = 72, IN_LEN = 88 };
+       IN_USED = 28, IN_MHZ = 32, IN_SOC = 36, IN_VER = 44, IN_BUILD = 60, IN_MODEL = 72, IN_ROOM = 88, IN_END = 92,
+       IN_LEN = 96 };                           /* (IN_ROOM: every add-on area's bytes; IN_END: the image's end, 0 unknown) */
 typedef char in_fits[sizeof APP_VER <= 16u && sizeof APP_BUILD <= 12u && sizeof AB_BOARD <= 16u ? 1 : -1];
 static char *put_s(char *p, const char *s) { while ((*p = *s++) != 0) p++; return p; }
 static void info_fill(uint8_t *b)               /* [0] the status, then the record (IN_*) */
@@ -1746,6 +1694,8 @@ static void info_fill(uint8_t *b)               /* [0] the status, then the reco
     put_s((char *)b + IN_VER, APP_VER);
     put_s((char *)b + IN_BUILD, APP_BUILD);
     put_s((char *)b + IN_MODEL, AB_BOARD);
+    wr32(b + IN_ROOM, dp_size());
+    wr32(b + IN_END, ir_end);
 }
 
 /* ABOUT's page: the version, then info_fill's, then each module (name, vN, KiB; built in: the sine). SELECT /
@@ -1834,14 +1784,14 @@ static uint32_t d_commit(uint32_t *key)
     hb_file_t *f = (hb_file_t *)RX_BUF;
     const uint32_t *rel = (const uint32_t *)(RX_BUF + sizeof *f);
     uint8_t *img;
-    uint32_t io, isz, total, need, at, i, n, old, rc, big, all, d, took;
+    uint32_t io, isz, total, need, at, i, n, old, rc, big, all, d, took, a;
     hb_slot_t sl;
     if (rx.got != (rx.size + 255u) / 256u)
         return D_MISSING;
     if (crc_upd(0, RX_BUF, rx.size) != rx.crc)
         return D_BAD_CRC;
     if (f->magic != HB_MAGIC || f->abi != HB_ABI || f->n_relocs > 65536u || f->code_size > RX_MAX ||
-        f->data_size > RX_MAX || f->rt_size > RX_MAX || (f->flags & HB_F_PROBE))
+        f->data_size > RX_MAX || f->rt_size > RX_MAX || (f->flags & (HB_F_PROBE | HB_F_BOOT)))
         return D_BAD_HEAD;                      /* (a probe is run, never written: RUN) */
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     isz = f->code_size + f->data_size + f->rt_size;
@@ -1857,8 +1807,6 @@ static uint32_t d_commit(uint32_t *key)
     for (i = 0; i < f->n_relocs; i++)
         if (rel[i] > isz - 4u)
             return D_BAD_HEAD;
-    if (dt_boot() && !(((const hb_file_t *)dt_boot()->at)->flags & HB_F_BOOT_NODATA))
-        return D_NO_SPACE;                      /* (the boot firmware's own data is where modules would go) */
     *key = name_key(f->name);
     old = dt_find(*key);
     if (old == HB_SLOTS && dt.n >= HB_SLOTS)
@@ -1888,8 +1836,13 @@ static uint32_t d_commit(uint32_t *key)
             return D_FLASH;
         fm1_wdt_feed();
     }
-    for (i = 0; i < total; i += 0x1000u) {
-        if (fl_write(at + i, RX_BUF + i, total - i < 0x1000u ? total - i : 0x1000u))
+    a = dp_area(at);
+    for (i = 0; i < total; i += 0x1000u) {     /* (the image's room: encrypted as an update writes, its own inverse) */
+        uint32_t m = total - i < 0x1000u ? total - i : 0x1000u;
+        if (a == IR) ota_sfc(RX_BUF + i, m, at + i - 0x4000u, ir_key);
+        rc = (uint32_t)fl_write(at + i, RX_BUF + i, m);
+        if (a == IR) ota_sfc(RX_BUF + i, m, at + i - 0x4000u, ir_key);
+        if (rc)
             return D_FLASH;
         fm1_wdt_feed();
     }
@@ -1897,12 +1850,8 @@ static uint32_t d_commit(uint32_t *key)
     sl.at = FM1_XIP(at);
     sl.size = total;
     sl.crc = f->crc;
-#if BOARD_SMK37
-    if (fl_verify_xip(at, RX_BUF, total) || check_module(&sl, DP_AREA[dp_area(at) & 1u][0], DP_AREA[dp_area(at) & 1u][1]) != M_OK)
-#else
-    if (fl_verify_xip(at, RX_BUF, total) || check_module(&sl, DP_LO, DP_HI) != M_OK)
-#endif
-        return D_VERIFY;
+    if (fl_verify_xip(at, RX_BUF, total) || check_module(&sl, DP_AREA[a][0], DP_AREA[a][1]) != M_OK)
+        return D_VERIFY;                        /* (read back through XIP: decrypted by the SFC in the room) */
     for (i = n = 0; i < dt.n; i++)              /* the new one in the old one's place, else at the end */
         e[n++] = i == old ? sl : dt.s[i];
     if (old == HB_SLOTS)
@@ -1938,12 +1887,10 @@ static void rx_end(uint32_t status)
     }
 }
 
-/* ---- a boot firmware's deploy: too big for RX_BUF, so each 4 KiB sector is written as it fills
- * (the chunks in order; over USB each is answered after its sector is written, over DIN the
- * sender pauses: tools/hbdeploy.py). Its table entry goes first, so a cut or a failed transfer
- * leaves no boot firmware, never a broken one: fm1-dock boots. Encrypted as the updater writes
- * the app area: SFC, per 32 bytes, the chip key ^ (offset in the area / 4). */
-static int chip_key(uint32_t *key)              /* as the loader's ldr_chip_key: the isd_config blob */
+/* ---- the image's room (room, above): its end from its own JLFS (as ota.c reads a package's), the chip key that writes
+ * it, its area. Read once at boot, before the table is scanned; anything that does not add up: no room this boot (the
+ * add-ons there are listed as refused, not forgotten) */
+static int ota_chip_key(uint32_t *key)          /* (ota.c's hook) as the loader's ldr_chip_key: the isd_config blob */
 {
     uint8_t e[32], blob[34];
     uint32_t off, i, sum, k;
@@ -1972,98 +1919,30 @@ static int chip_key(uint32_t *key)              /* as the loader's ldr_chip_key:
     }
     return -3;
 }
-static void sfc_enc(uint8_t *p, uint32_t n, uint32_t area_off, uint32_t key)
+static int ir_rd(uint32_t off, uint8_t *p, uint32_t n) { return st_read(0x4000u + off, p, n); }
+static void ir_init(void)
 {
-    uint32_t i, j, k;
-    for (i = 0; i < n; i += 32u)
-        for (k = key ^ ((area_off + i) >> 2), j = 0; j < 32u && i + j < n; j++) {
-            p[i + j] ^= (uint8_t)k;
-            k = ((k << 1) ^ (k & 0x8000u ? 0x1021u : 0u)) & 0xFFFFu;
-        }
-}
-static uint32_t boot_begin(const uint8_t *h)    /* chunk 0 is a boot firmware's header: ready to write */
-{
-    static hb_slot_t e[HB_SLOTS];
-    const hb_file_t *f = (const hb_file_t *)h;
-    uint32_t i, n;
-#ifndef HB_BOOT_SLOT
-    (void)e; (void)f; (void)i; (void)n;
-    hb_log("deploy: this build takes no boot firmware (tools/build.py --boot-slot)");
-    return D_BAD_HEAD;
-#endif
-    if (f->magic != HB_MAGIC || f->abi != HB_ABI || f->n_relocs || f->desc || f->base != FM1_XIP(HB_BOOT_IMG) ||
-        f->code_size + 256u != rx.size || rx.size > HB_BOOT_HI - BOOT_AT)
-        return D_BAD_HEAD;
-    for (i = 0; i < n_mods; i++)                /* a module's name: picking one would start the other (2026-10-25) */
-        if (mods[i].kind != K_BOOT && mods[i].key == name_key(f->name)) {
-            hb_log("deploy: a boot firmware may not have a module's name");
-            return D_BAD_HEAD;
-        }
-    for (i = n = 0; i < dt.n; i++)
-        if (dt.s[i].magic != BOOT_MAGIC) {
-            if (!(f->flags & HB_F_BOOT_NODATA))
-                return D_NO_SPACE;              /* deployed modules: their flash is the boot firmware's data */
-            e[n++] = dt.s[i];                   /* (one that keeps no data: they stay) */
-        }
-    if (chip_key(&rx.key))
-        return D_FLASH;
-    if (dt.n && dt_write(e, n) != D_OK)        /* the old boot firmware out of the table first */
-        return D_FLASH;
-    if (BOOT_AT + rx.size > HX_AT)
-        ble_stop();                             /* it reaches HX's flash: BLE off until the next boot */
-    rx.boot = 1;
-    rx.next = rx.crc_run = 0;
-    rx.sec = HB_BOOT_LO;
-    memset(RX_BUF, 0xFF, 0x1000u);
-    hb_log_u32("deploy: a boot firmware, key", rx.key);
-    return D_OK;
-}
-static uint32_t boot_sector(void)               /* RX_BUF, the sector at rx.sec, encrypted and written */
-{
-    uint32_t took;
-    sfc_enc(RX_BUF, 0x1000u, rx.sec - 0x4000u, rx.key);
-    if (fl_erase4k(rx.sec, &took) || fl_write(rx.sec, RX_BUF, 0x1000u))
-        return D_FLASH;
-    fm1_wdt_feed();
-    rx.sec += 0x1000u;
-    memset(RX_BUF, 0xFF, 0x1000u);
-    return D_OK;
-}
-static uint32_t boot_data(uint32_t off, const uint8_t *p, uint32_t n)
-{
-    uint32_t at = BOOT_AT + off;
-    if (off < rx.next)
-        return D_OK;                            /* (sent again: it is in) */
-    if (off != rx.next || at < rx.sec || at + n > rx.sec + 0x1000u)
-        return D_BAD_MSG;
-    memcpy(RX_BUF + (at - rx.sec), p, n);
-    rx.crc_run = crc_fast(rx.crc_run, p, n);
-    rx.next += n;
-    rx.got++;
-    if (at + n == rx.sec + 0x1000u || rx.next == rx.size)
-        return boot_sector();
-    return D_OK;
-}
-static uint32_t boot_commit(uint32_t *key)
-{
-    static hb_slot_t e[HB_SLOTS];
-    hb_slot_t sl;
-    uint32_t n = dt.n;
-    if (rx.next != rx.size)
-        return D_MISSING;
-    if (rx.crc_run != rx.crc)
-        return D_BAD_CRC;
-    sl.magic = BOOT_MAGIC;
-    sl.at = FM1_XIP(BOOT_AT);
-    sl.size = rx.size;
-    sl.crc = ((const hb_file_t *)sl.at)->crc;
-    if (crc_fast(0, (const uint8_t *)sl.at, rx.size) != rx.crc || check_boot(&sl) != M_OK)
-        return D_VERIFY;                        /* read back through the SFC: decrypted as written */
-    memcpy(e, dt.s, 16u * n);
-    e[n++] = sl;
-    *key = name_key(((const hb_file_t *)sl.at)->name);
-    hb_log_u32("deploy: boot firmware at", sl.at);
-    return dt_write(e, n);
+    const hb_slot_t *t = (const hb_slot_t *)FM1_XIP(HB_TABLE_AT);
+    uint32_t end, i;
+    ir_end = 0;
+    hb_fl_lo = HB_AREA_HI;
+    DP_AREA[IR][0] = DP_AREA[IR][1] = 0;
+    if (!flash_ok || ota_chip_key(&ir_key) || ota_area_end(ir_rd, ir_key, &end)) {
+        hb_log("room: the image's end not known: no room in it this boot");
+        return;
+    }
+    for (i = 0; i < HB_SLOTS && t[i].magic == HB_SLOT_MAGIC; i++)   /* (the built-ins are inside it) */
+        if (FL_OF(t[i].at) + t[i].size > end)
+            end = 0;
+    if (end < HB_TABLE_AT + 0x1000u || end > HB_AREA_HI) {
+        hb_log_u32("room: the image's end does not add up", end);
+        return;
+    }
+    ir_end = end;
+    hb_fl_lo = end;                             /* (the flash driver's net: nothing below the room) */
+    DP_AREA[IR][0] = end;
+    DP_AREA[IR][1] = HB_AREA_HI;
+    hb_log_u32("room: the image ends at", end);
 }
 
 /* ---- probes (hb_module.h, tools/probe.py): received as a deploy is, then RUN instead of COMMIT:
@@ -2187,7 +2066,7 @@ static uint32_t deploy_frame(void)
 {
     uint32_t usb_src = df_usb_n != 0, n = usb_src ? df_usb_len[df_usb_r % DF_USB_Q] : df_din_n, len, cmd, seq, i, k, ch = 0;
     const uint8_t *p = usb_src ? df_usb[df_usb_r % DF_USB_Q] : df_din;
-    uint8_t r[60];
+    uint8_t r[68];
     uint32_t rn = 1;
     char name[24];
     memset(r, 0, sizeof r);
@@ -2216,7 +2095,8 @@ static uint32_t deploy_frame(void)
         wr32(r + 40, BLOCK_TICKS);
         r[44] = cpu1_state; r[45] = (uint8_t)(cpu1_timeouts > 255u ? 255u : cpu1_timeouts);   /* the second core */
         wr32(r + 48, cpu1_job_ticks); wr32(r + 52, cpu1_job_worst); wr32(r + 56, cpu1_stack_free());
-        rn = 60;
+        wr32(r + 60, dp_size()); wr32(r + 64, ir_end);   /* every area's bytes (free + largest's whole); the image's end */
+        rn = 68;
         break;
     }
     case D_INFO: {                              /* the unit and the build: ABOUT's facts (info_fill) */
@@ -2243,7 +2123,7 @@ static uint32_t deploy_frame(void)
     case D_BEGIN: {
         uint32_t size = len >= 8u ? rd32(d_msg) : 0;
         if (len < 32u) { r[0] = D_BAD_MSG; break; }
-        if (size < sizeof(hb_file_t) + 4u || size > HB_BOOT_HI - BOOT_AT) { r[0] = D_TOO_BIG; break; }
+        if (size < sizeof(hb_file_t) + 4u || size > RX_MAX) { r[0] = D_TOO_BIG; break; }
         k = rx.on ? rx.prev_key : mods[cur].key;   /* (a BEGIN again: the same module to go back to) */
         stop_module();
         memset(&rx, 0, sizeof rx);
@@ -2267,16 +2147,6 @@ static uint32_t deploy_frame(void)
         if (!rx.on) { r[0] = D_IDLE; break; }
         want = off < rx.size ? (rx.size - off < 256u ? rx.size - off : 256u) : 0;
         if ((off & 255u) || !want || len - 4u != want) { r[0] = D_BAD_MSG; break; }
-        if (off == 0 && !rx.boot && (((const hb_file_t *)(d_msg + 4))->flags & HB_F_BOOT)) {
-            r[0] = (uint8_t)boot_begin(d_msg + 4);
-            if (r[0]) { rx_end(r[0]); d_restart(rx.prev_key); ch = 1; break; }
-        }
-        if (rx.boot) {
-            r[0] = (uint8_t)boot_data(off, d_msg + 4, want);
-            rx.t_last = fm1_ms;
-            if (r[0] == D_FLASH) { rx_end(D_FLASH); d_restart(rx.prev_key); ch = 1; }
-            break;
-        }
         if (rx.size > RX_MAX) { r[0] = D_TOO_BIG; break; }
         memcpy(RX_BUF + off, d_msg + 4, want);
         if (!(rx.have[off >> 11] >> (off >> 8 & 7u) & 1u)) {
@@ -2287,20 +2157,13 @@ static uint32_t deploy_frame(void)
         break;
     }
     case D_COMMIT: {
-        uint32_t key = 0, st_ = !rx.on ? D_IDLE : rx.boot ? boot_commit(&key) : d_commit(&key);
+        uint32_t key = 0, st_ = !rx.on ? D_IDLE : d_commit(&key);
         r[0] = (uint8_t)st_;
         if (rx.on) {
             uint32_t back = st_ == D_OK ? key : rx.prev_key;
             if (st_ == D_OK) hb_log("deploy: done");
             rx_end(st_);
             d_restart(back);
-            if (st_ == D_OK && rx.boot) {      /* it starts: a reboot, after the answer */
-                st.sel_key = key;
-                stop_module();
-                store_flush();
-                rx_draw("STARTING", C_ACC);
-                rx.t_reboot = fm1_ms | 1u;
-            }
             wr32(r + 4, mods[cur].file ? (uint32_t)mods[cur].file : 0);
             r[1] = (uint8_t)cur;
             rn = 8;
@@ -2319,8 +2182,6 @@ static uint32_t deploy_frame(void)
     case D_DELETE:
         if (rx.on) { r[0] = D_IDLE; break; }
         k = dt_find(name_key(name));
-        if (k == HB_SLOTS && dt_boot() && name_key(((const hb_file_t *)dt_boot()->at)->name) == name_key(name))
-            k = (uint32_t)(dt_boot() - dt.s);   /* (its flash is left as it is; the table no longer has it) */
         if (k == HB_SLOTS) { r[0] = D_NOT_FOUND; break; }
         {
             static hb_slot_t e[HB_SLOTS];
@@ -2418,8 +2279,6 @@ static uint32_t deploy_tick(void)               /* the main loop's: a frame, the
     uint32_t ch = 0;
     if (df_usb_n || df_din_n)
         ch = deploy_frame();
-    if (rx.t_reboot && fm1_ms - rx.t_reboot > 300u)
-        hb_boot_now();
     if (rx.on && fm1_ms - rx.t_last > 15000u) {
         hb_log("deploy: timed out");
         rx_end(D_MISSING);
@@ -2430,100 +2289,6 @@ static uint32_t deploy_tick(void)               /* the main loop's: a frame, the
         rx_draw("RECEIVING", C_WHITE);
     }
     return ch;
-}
-
-/* ---- the hand-over (platform.c's APP_BOOT_HOOK: in fm1_cstart after RAM is set up, before the
- * guard, the screen, USB, audio and the timer). The boot firmware gets the chip as the SPL leaves
- * it but for what its own start sets again anyway (vectors, interrupts, watchdog, GPIO), and r0,
- * the SPL's boot-parameter pointer. It starts when it is the selected one, checks out (header,
- * CRC through the SFC) and no key is held. A counter in NOINIT, cleared by a power-on, keeps
- * fm1-dock from handing over a third time without one: a boot firmware that crashes or hangs at
- * start lands in fm1-dock's menu, not in a loop. */
-static volatile uint32_t GO[2] __attribute__((section(".hbgo")));   /* [magic, starts], app.ld: above a boot firmware's
-                                                 * NOINIT (Felucca's ends at 0x01C7FCD0), below the SPL's area */
-#define GO_MAGIC 0x4F474248u                    /* "HBGO" */
-static uint32_t boot_why;                       /* why fm1-dock stayed: 1 a key held, 2 started twice, 3 it fails its check,
-                                                 * 4 switched off twice while STARTING, 5 its name is a module's */
-/* the keys at power-on, read for long enough (50 ms missed them on a real FM-1, 2026-10-25): any
- * of HOME, OCT-, OCT+ held */
-static int boot_keys(uint32_t ms)
-{
-    uint32_t t0 = fm1_ticks();
-    fm1_input_init();
-    do {
-        fm1_wdt_feed();
-        fm1_input_scan();
-        if (fm1_in.buttons & (1u << BTN_HOME | 1u << BTN_OCT_DOWN | 1u << BTN_OCT_UP))
-            return 1;
-    } while ((uint32_t)(fm1_ticks() - t0) < ms * 1000u * FM1_TICKS_PER_US);
-    return 0;
-}
-static void hb_boot_now(void)                   /* the boot firmware is the selected one: a reboot hands over */
-{
-    GO[0] = GO_MAGIC;
-    GO[1] = 0;
-    fm1_reboot();
-}
-static void hb_boot_hook(uint32_t p3)
-{
-    const hb_slot_t *b;
-    uint32_t t0;
-#ifndef HB_BOOT_SLOT                            /* a release takes no boot firmware (tools/build.py --boot-slot: a developer's) */
-    (void)p3; (void)b; (void)t0;
-    return;
-#endif
-    if (GO[0] != GO_MAGIC || ((p3 & 1u) && !(p3 & (4u | 0x40u)))) {   /* a power-on */
-        GO[0] = GO_MAGIC;
-        GO[1] = 0;
-    }
-    flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());
-    if (!flash_ok)
-        return;
-    fl_plain_window_init();                     /* (the table and the settings are plain) */
-    store_load();
-    dt_load();
-    if (!(b = dt_boot()) || name_key(((const hb_file_t *)b->at)->name) != st.sel_key)
-        return;
-    for (t0 = 0; t0 < dt.n; t0++)               /* a module of the same name: that is the one picked, never the boot */
-        if (dt.s[t0].magic != BOOT_MAGIC && name_key(((const hb_file_t *)dt.s[t0].at)->name) == st.sel_key) {
-            boot_why = 5;
-            return;
-        }
-    if (boot_keys(500u)) {
-        boot_why = 1;                           /* HOME: fm1-dock; OCT- the rescue; OCT+ the safe boot */
-        return;
-    }
-    if (GO[1] >= 2u) { boot_why = 2; return; }
-    if (check_boot(b) != M_OK) { boot_why = 3; return; }
-    /* a way back that needs no key and survives a firmware whose USB is dead: switched off while
-     * STARTING shows, twice in a row, the third start stays in fm1-dock (the count is in flash) */
-    if (st.spare[0] >= 2u) {
-        st.spare[0] = 0;
-        store_flush();
-        boot_why = 4;
-        return;
-    }
-    st.spare[0]++;
-    store_flush();
-    lcd_init();
-    lcd_fill(0, 0, 240, 240, C_BLACK);
-    draw_text_box(0, 56, 240, &FONT_S, "STARTING", C_WHITE, 1);
-    draw_text_box(0, 80, 240, &FONT_S, ((const hb_file_t *)b->at)->name, C_ACC, 1);
-    draw_text_box(0, 132, 240, &FONT_S, "HOLD HOME: " APP_NAME, C_OFF, 1);
-    draw_text_box(0, 156, 240, &FONT_S, "OR SWITCH OFF NOW, TWICE", C_OFF, 1);
-    lcd_sync();
-    t0 = boot_keys(1500u);
-    st.spare[0] = 0;
-    store_flush();
-    if (t0) {
-        boot_why = 1;
-        return;
-    }
-    GO[1]++;
-    bootguard_clear(&bootguard);                /* (its own boot guard counts its own boots) */
-    fm1_irq_off();
-    fm1_wdt_feed();
-    ((void (*)(uint32_t))FM1_XIP(HB_BOOT_IMG))(fm1_boot_param());
 }
 
 /* OCT- held as fm1-dock starts (its first 600 ms, the keys scanned by the timer): the USB rescue,
@@ -2712,6 +2477,7 @@ static void app_main(void)
     sense_init(sense_mask);
     sense_defaults();
     fl_plain_window_init();                     /* flash 0x93000 up reads as stored: the deployed modules */
+    ir_init();                                  /* (below it: the image's room, read through the SFC) */
     scan_slots();
 
     fm1_delay_ms(60);                           /* the key scan sees what is held at power-on */
@@ -2730,10 +2496,6 @@ static void app_main(void)
     if (!safe && !st.sel_key && n_mods > 1u && mods[1].kind == K_IMAGE)
         k = 1;                                  /* a solo app's new install (nothing picked yet): its module */
 #endif
-    if (k && mods[k].kind == K_BOOT) {          /* the boot firmware is the one, but fm1-dock stayed: the sine */
-        hb_log_u32("boot firmware not started", boot_why);
-        k = 0;
-    }
     if (k && mods[k].state != M_OK) {
         hb_log_u32("skipped at boot", k);
         k = 0;
@@ -3001,13 +2763,6 @@ static void app_main(void)
                 picker = 0;
                 full = 1;
                 lcd_fill(0, 0, 240, 240, C_BLACK);
-                if (mods[sel].kind == K_BOOT && mods[sel].state == M_OK) {   /* a boot firmware: started by a reboot */
-                    stop_module();
-                    st.sel_key = mods[sel].key;
-                    store_flush();
-                    draw_text_box(0, 120, 240, &FONT_S, "STARTING", C_ACC, 1);
-                    hb_boot_now();
-                }
                 if (sel != cur || mods[sel].state == M_STRUCK || mods[sel].state == M_SLOW) {
                     if (mods[sel].state == M_STRUCK || mods[sel].state == M_SLOW) {   /* picked again: another chance */
                         hb_nv.strikes[sel] = 0;

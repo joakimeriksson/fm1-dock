@@ -160,31 +160,18 @@ nothing on hardware):
   (`probes/exec.c`). Probes so far: HELLO (the path itself), TIMING (instructions, RAM, flash,
   calls), EXEC, CRASH (FM-1 only). Tested in fm1-emu; on an FM-1 they are the way to do P5 and to
   fit fm1-emu's timing (it charges one instruction per 240 MHz cycle) and its instructions.
-- **Boot slot** (`tools/hbboot.py`, `tests/boot_test.py`): a whole firmware, rebuilt from its source to
-  run at flash 0x15000 (`hbboot.py relink`: its app.ld, its PC guard, its build's start address),
-  deployed as a module is (streamed: each 4 KiB sector encrypted with the chip key and written as
-  it arrives; the table entry last). At power-on fm1-dock hands the FM-1 over in fm1_cstart, after its
-  50 ms key scan and before its guard, screen, USB and audio (platform.c `APP_BOOT_HOOK`): the
-  firmware has both cores, all RAM, its own USB and flash areas. HOME (or OCT-/OCT+) held: fm1-dock
-  stays; a firmware that fails its CRC (read back through the SFC) or was started twice without a
-  power-on between (a counter at 0x01C7FD40, app.ld `.hbgo`): fm1-dock stays. Picking it in fm1-dock's
-  list reboots into it. Modules and a boot firmware exclude each other (its data is where they go).
-  - Felucca 1.6.1 (511 KB): relinked, deployed over DIN in fm1-emu (218 s), its own UI and sound at
-    power-on; HOME gives fm1-dock's list; a flipped bit, a module deploy and DELETE behave (6 cases).
-  - For it: the host's settings moved off 0xFC000 (Felucca's) to 0x95000; the fonts packed to 1 bit
-    per pixel (`tools/font_1bpp.py`: they are bitmap fonts) to bring the host from 75 to 51 KB, so the
-    slot can start at 0x14000; Felucca leaves 4.6 KiB of it free.
-  - fm1-emu (branch `fm1-sfc-window`, on `fm1-key-pressure`): the SFC's decryption below the plain
-    window the firmware sets, the window rebuilt from a `--flash` file, `FM1_BENCH_KEYS=@FILE`.
-  - A boot firmware that keeps nothing in flash outside its slot (`hbboot.py make --no-data`,
-    HB_F_BOOT_NODATA) leaves the deployed modules in: they deploy beside it, and it beside them.
-    FM-1 SID (fm1-emu's fm1-sid, relinked for the slot, its tunes in its pack: 485 KiB with 15) with
-    CS-1 and SCINTILLA deployed (`tests/trio_test.py`, both orders): power-on starts the last pick
-    (FM-1 SID, or fm1-dock with a module), HOME held keeps fm1-dock, picking FM-1 SID in the list
-    stores it and reboots into it.
-  - Not yet: SLOOP and the others (each one's flash map and NOINIT checked: Felucca's NOINIT ends at
-    0x01C7FCD0), a resend of the deploy over USB (nothing tested over USB), a firmware's own updater
-    (it would write over fm1-dock: an install, as from the Hub).
+- **Boot slot**: removed (2026-11-17, #107). It was a whole firmware deployed at flash 0x14000 that fm1-dock handed the
+  FM-1 to at power-on (Felucca 1.6.1 and FM-1 SID ran there in fm1-emu). Its 128 KiB below the slot table let the image
+  move down (table 0x18000, HX 0x19000, the built-ins after it), so the flash a package leaves is add-on room. A table
+  entry of a boot firmware is forgotten at boot; a file flagged HB_F_BOOT is refused.
+- **The image's room** (#107): app.bin ends with the image (no padding to the app slot); from its end (its JLFS: the
+  app_area_head block and the cfg dir, 4 KiB up) to 0x93000 (SMK-37: 0x70000) is an add-on area, written encrypted
+  with the chip key and read through the SFC as the built-ins are. The update loader writes up to the package's end
+  only, and refuses (nothing written, the record kept) a package that would cover an add-on there; the running
+  firmware refuses it before it stages the loader (ota.c ota_keep_check), and the installers ask LIST first. Tested
+  in fm1-emu (`tests/deploy_test.py --fwsc` the Empty dock: deploys and power cuts in the room) and with the loader on
+  the computer over fm1-live's flash (`tests/install_room_test.py`: same package, Empty -> Standard with cuts, the
+  refusals, 0.9.0 -> this with cuts). Not yet on an FM-1.
 - [ ] P5 hardware: not started.
 - **Interface v2** (ABI 2): a module may take the whole screen (HB_F_SCREEN) and the whole panel
   (HB_F_PANEL: every key and button as events, OCT and HOME too; HOME held 1.5 s alone opens the

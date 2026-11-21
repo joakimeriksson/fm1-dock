@@ -19,13 +19,19 @@ Exit codes: 0 done, 1 cancelled or other error, 2 bad arguments or package,
 3 FM-1 not found, 4 connection lost or the device stopped, 5 timeout (no
 loader / no restart), 6 wrong model, another identity after the install, or the
 FM-1 is in the update mode of another firmware (only SLOOP's own loader,
-ota-FM-1_9XX, is resumed).
+ota-FM-1_9XX, is resumed), 7 fm1-dock has add-ons where the package goes.
+
+fm1-dock keeps add-ons in the room its image leaves (below 0x93000 on the FM-1, 0x70000 on the SMK-37: the
+image's room, firmware/src/dock.c). A package whose image would reach one of them is not installed: the
+running fm1-dock is asked first (LIST: each add-on's place), and the FM-1 itself refuses it too.
 """
 import argparse
 import queue
 import re
+import struct
 import sys
 import time
+import zlib
 
 HS_QUERY = bytes([0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7])
 UPGRADE = bytes([0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7])
@@ -43,7 +49,7 @@ DELAY = {"open": 0.3, "start": 2.0, "reply": 0.01, "loader": 3.0, "reboot": 3.0,
          "wait_loader": 30.0, "wait_reboot": 40.0}
 
 EXIT = {"usage": 2, "badpkg": 2, "notfound": 3, "model": 6, "lost": 4, "stopped": 4, "badreq": 4,
-        "noloader": 5, "noreturn": 5, "mismatch": 6, "foreign": 6}
+        "noloader": 5, "noreturn": 5, "mismatch": 6, "foreign": 6, "addons": 7}
 
 
 class InstallError(Exception):
@@ -304,6 +310,14 @@ class Updater:
                 continue
             fl, addr, n = r
             last = time.monotonic()
+            if addr == REFUSED_AT:              # (ota.c ota_keep_check: add-ons where the package goes)
+                link.send(response(addr, bytes(n), fl))
+                if finish == FINISH_WRITE:          # (the loader: in update mode, a resume with another package)
+                    raise InstallError("addons", "the update loader refused the package: fm1-dock has add-ons where it "
+                                                 "goes. Nothing was written. Finish the install with the package you "
+                                                 "started it with (it keeps them), then remove them first.")
+                raise InstallError("addons", "the FM-1 refused the package: fm1-dock has add-ons where it goes. "
+                                             "Nothing was written. " + REMOVE_FIRST)
             if addr in (FINISH_CHECK, FINISH_WRITE):
                 link.send(response(addr, b"success\0"))
                 if addr == finish:
@@ -377,9 +391,87 @@ class Updater:
             dev.link.close()           # another firmware's loader: its image layout may differ
             raise InstallError("foreign", f"the FM-1 is in the update mode of another firmware ({dev.id.text}): "
                                           "finish that update with its own updater (M-UPGRADE), then install again")
+        if not dev.id.loader:
+            in_way = addons_in_the_way(dev.link, image)
+            if in_way:
+                dev.link.close()
+                raise InstallError("addons", f"this package's image reaches the add-ons {', '.join(in_way)}: they sit in "
+                                             f"the room it needs. Nothing was sent. {REMOVE_FIRST}")
         ota = dev if dev.id.loader else self.check(dev, image, step)
         self.write(ota, image, step)
         return self.verify(product, step)
+
+
+# ------------------------------------------------- fm1-dock's add-ons ---
+# The room an image leaves (firmware/src/dock.c room): an update writes up to the package's end, as its JLFS says
+# (app_area_head's block, then the cfg dir), 4 KiB up (ota.c ota_area_end); above it are fm1-dock's add-ons.
+REFUSED_AT = 0xF2000000                 # ota.c OTA_REFUSED_AT: the device's read that says it refused
+REMOVE_FIRST = ("Remove those add-ons first (Remove on the page, or tools/dock.py delete NAME) and add them again "
+                "after the install if they fit, or install a package with fewer built-in synths.")
+DOCK_MAN = bytes([0x7D, 0x48, 0x42])    # fm1-dock's SysEx (tools/hbdeploy.py)
+
+
+def package_end(flash, key=0x980F):
+    """the end (a flash offset, 4 KiB aligned) of the app area flash.bin describes; the whole app area when its JLFS
+    does not say (another layout)"""
+    top = 0x70000 if package_board_of_flash(flash) == "smk" else 0x93000
+    try:
+        h = _sfc(flash[0x4000:0x4020], 0, key)
+        if _crc16(h[2:32]) != int.from_bytes(h[0:2], "little") or h[16:30] != b"app_area_head\0":
+            return top
+        blk = int.from_bytes(h[8:12], "little")
+        c0 = blk & ~31
+        c = _sfc(flash[0x4000 + c0:0x4000 + c0 + 64], c0, key)[blk & 31:]
+        if _crc16(c[2:32]) != int.from_bytes(c[0:2], "little") or c[16:20] != b"cfg\0":
+            return top
+        return min(top, (0x4000 + blk + int.from_bytes(c[8:12], "little") + 0xFFF) & ~0xFFF)
+    except (IndexError, ValueError):
+        return top
+
+
+def package_board_of_flash(flash):
+    rt = region_table(flash)
+    return "smk" if rt.get("BTIF", (0,))[0] == LAYOUT["smk"][0] else "fm1"
+
+
+def image_end(image):
+    """package_end of the package's flash.bin"""
+    fl = next((f for f in package_files(image) if f[0] == 0), None)
+    return package_end(image[fl[1]:fl[1] + fl[2]]) if fl else 0x93000
+
+
+def dock_list(link, timeout=1.5):
+    """fm1-dock's LIST on the running firmware: [(name, kind, XIP address)], None when nothing answers (not fm1-dock)"""
+    packed = pack7(struct.pack("<I", zlib.crc32(b"")))    # (no payload, its CRC-32)
+    link.drain()
+    if not link.send(bytes([0xF0, *DOCK_MAN, 0x02, 0x11, *packed, 0xF7])):
+        return None
+    out, end = [], time.monotonic() + timeout
+    while time.monotonic() < end:
+        pkt = link.read(end - time.monotonic())
+        if pkt is None:
+            break
+        if len(pkt) < 8 or pkt[1:4] != DOCK_MAN or pkt[4] != 0x42 or pkt[5] != 0x11:
+            continue
+        d = unpack7(pkt[6:-1])
+        if len(d) < 6 or zlib.crc32(d[:-4]) != int.from_bytes(d[-4:], "little"):
+            continue
+        d = d[:-4]
+        if len(d) >= 2 and d[1] == 0xFF:
+            return out
+        if len(d) >= 40:
+            out.append((d[16:40].split(b"\0")[0].decode("latin-1"), d[3], int.from_bytes(d[12:16], "little")))
+            end = time.monotonic() + timeout
+    return out or None
+
+
+def addons_in_the_way(link, image):
+    """the add-ons (by name) of the fm1-dock on link that the package's image would reach; [] for none, or when the
+    device is not fm1-dock or has none in an image's room (0.9 and before)"""
+    mods = dock_list(link) or []
+    end = image_end(image)
+    link.drain()
+    return [name for name, kind, at in mods if kind == 2 and 0x4000 <= at - 0x02000000 + 0x4000 < end]
 
 
 # ------------------------------------------------------------------- CLI ---

@@ -180,8 +180,8 @@ async function deployFile() {
   let info;
   try { info = moduleInfo(f.blob); } catch (e) { msg.textContent = e.message; msg.className = "msg bad"; return; }
   if (info.probe) { msg.textContent = `${info.name} is a probe: run it under "Run a probe"`; msg.className = "msg bad"; return; }
-  if (info.boot) {                              // it would take over at every power-on, with its own USB
-    msg.textContent = `${info.name} is a boot firmware: it takes over the FM-1 at power-on with its own USB. Deploy it with tools/dock.py deploy --boot, only if it answers the installers.`;
+  if (info.boot) {                              // (the boot slot of 0.9 and before: gone)
+    msg.textContent = `${info.name} is a boot firmware: fm1-dock no longer takes those.`;
     msg.className = "msg bad";
     return;
   }
@@ -286,15 +286,17 @@ for (const l of document.querySelectorAll(".file")) {
 // the flash map (flash offsets; firmware/src/dock.c)
 const FLASH = [
   [0x000000, 0x004000, "boot and the package header", "other"],
-  [0x004000, 0x034000, "fm1-dock (the host)", "upd"],
-  [0x034000, 0x035000, "slot table", "upd"],
-  [0x035000, 0x093000, "image modules", "upd"],
+  [0x004000, 0x018000, "fm1-dock (the host)", "upd"],
+  [0x018000, 0x019000, "slot table", "upd"],
+  [0x019000, 0x023000, "BLE-MIDI (HX)", "upd"],
+  [0x023000, 0x050000, "built-in synths (as many as the package has)", "upd"],
+  [0x050000, 0x093000, "add-ons, in the room the package leaves (from its end)", "keep"],
   [0x093000, 0x095000, "deployed table, two copies", "keep"],
   [0x095000, 0x096000, "settings", "keep"],
   [0x096000, 0x0e0000, "deployed modules", "keep"],
   [0x0e0000, 0x0ea000, "not fm1-dock's", "other"],
   [0x0ea000, 0x0fc000, "banks (9 × 8 KiB)", "keep"],
-  [0x0fc000, 0x100000, "a boot firmware's sector", "other"],
+  [0x0fc000, 0x100000, "not fm1-dock's", "other"],
 ];
 $("fmap").innerHTML = FLASH.map(([a, b, what, cls]) => {
   const h = Math.max(22, Math.round(Math.sqrt((b - a) / 1024) * 6));

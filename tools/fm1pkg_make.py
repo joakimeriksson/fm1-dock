@@ -130,7 +130,9 @@ def sdk_file(rel):
         raise SystemExit(f"fm1pkg_make: {path}: {e.strerror}. Set AC79_SDK to a JieLi AC79 SDK checkout.")
 
 
-def flash_image(app, key):
+def flash_image(app, key, pad=True):
+    """pad: app.bin takes the whole app slot (Felucca's packages); False (fm1-dock's): app.bin is the image as it is,
+    cfg_tool.bin and the EQ table right after it, and the app area ends there (the flash above is the firmware's)"""
     spl = sdk_file("uboot.boot")                         # SDK SPL, BANKCB-encoded as in the SDK
     cfg_tool = sdk_file("cfg_tool.bin")
     eq = sdk_file("cfg/eq_cfg_hw.bin")
@@ -154,13 +156,14 @@ def flash_image(app, key):
     # ---- app area (plain first, then SFC)
     if len(app) > APP_SLOT:
         raise SystemExit(f"app is {len(app)} B, the slot is {APP_SLOT} B")
-    app = app + b"\xFF" * (APP_SLOT - len(app))
-    blk = 0x120 + APP_SLOT + len(cfg_tool)              # app_area_head block size
+    app = app + b"\xFF" * ((APP_SLOT if pad else -len(app) % 16) - (len(app) if pad else 0))
+    n = len(app)
+    blk = 0x120 + n + len(cfg_tool)                     # app_area_head block size
     area = bytearray(b"\xFF" * blk)
-    area[0x120:0x120 + APP_SLOT] = app
-    area[0x120 + APP_SLOT:blk] = cfg_tool
-    ents = [entry(crc16(app), 0x120, APP_SLOT, 0x82, 0xFF, 0, "app.bin"),
-            entry(crc16(cfg_tool), 0x120 + APP_SLOT, len(cfg_tool), 0x82, 0xFF, 0, "cfg_tool.bin"),
+    area[0x120:0x120 + n] = app
+    area[0x120 + n:blk] = cfg_tool
+    ents = [entry(crc16(app), 0x120, n, 0x82, 0xFF, 0, "app.bin"),
+            entry(crc16(cfg_tool), 0x120 + n, len(cfg_tool), 0x82, 0xFF, 0, "cfg_tool.bin"),
             # region descriptors; the bytes after the names are SDK packer fields (VM size, "CODE", "AUTO")
             *(entry(0xFFFF, o, FLASH_SIZE if sz is None else sz, fl, rs, ix, nm)
               for o, sz, fl, rs, ix, nm in REGIONS[BOARD])]

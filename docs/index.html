@@ -111,7 +111,7 @@
   </div>
   <div class="sec-h"><h2 id="new09-h">New in 0.9</h2></div>
   <p class="sub"><a href="https://www.youtube.com/watch?v=INpj91BmUJM">The 0.9 video</a>, <a href="https://github.com/joakimeriksson/fm1-dock/releases/tag/v0.9.0">the release and its notes</a>. <b>OPTIONS &gt; AFTERTOUCH</b>: pressing a held key harder reaches synths that ignore poly aftertouch too, as it comes or as channel pressure, the mod wheel or the filter (<a href="guide.html">the guide</a>).</p>
-  <p class="sub"><b>Pick your package</b> at <a href="#install">Install</a>: <b>Standard</b> (CS-1, Scintilla and OberVave built in), the <b>Analog pack</b> (those and PROPHET, FM-1 only), the <b>Digital pack</b> (FM6, ARTIHIVE and GATOR; on the SMK-37 FM6, ARTIHIVE and KEYS) or the <b>Empty dock</b> (only the sine; for now the same room for add-ons as Standard, more in the next version: <a href="https://github.com/joakimeriksson/fm1-dock/issues/107">#107</a>). All are the same fm1-dock; a built-in synth takes no room from the add-ons, and CS-1, Scintilla and OberVave are add-ons in the catalog too, so any package can have any synth. Switching keeps your added synths, settings and presets.</p>
+  <p class="sub"><b>Pick your package</b> at <a href="#install">Install</a>: <b>Standard</b> (CS-1, Scintilla and OberVave built in), the <b>Analog pack</b> (those and PROPHET, FM-1 only), the <b>Digital pack</b> (FM6, ARTIHIVE and GATOR; on the SMK-37 FM6, ARTIHIVE and KEYS) or the <b>Empty dock</b> (only the sine; from 0.10 the most room). All are the same fm1-dock; from 0.10 the fewer built-in synths a package has, the more room for added ones, and CS-1, Scintilla and OberVave are add-ons in the catalog too, so any package can have any synth. Switching keeps your added synths, settings and presets.</p>
   <div class="new-synths">
     <a class="synth" href="#mod-s1vave"><img src="media/screen_s1vave.png" width="480" height="480" alt="" loading="lazy">
       <div><h3>S1Vave</h3><p class="by">Andrew GG</p><p>An 8-voice synth after the SH-101 and the S-1: mono, unison, poly or chord, OSC DRAW and CHOP, a step sequencer.</p><span class="go">Try it or add it →</span></div></a>
@@ -143,7 +143,7 @@
     <div class="feat"><h3>The second core</h3><p>Modules can play voices on the chip's second CPU (CS-1, FM-106). The top line shows 1CPU or 2CPU; after a crash with both, one core until power-off.</p></div>
     <div class="feat"><h3>A master EQ</h3><p>Low, mid and high on whatever plays, in the chip's hardware EQ, heard while you set it.</p></div>
     <div class="feat"><h3>MIDI options</h3><p>MIDI CH, LOCAL, MIDI THRU, KNOBS CC and CC 7 volume, for every module.</p></div>
-    <div class="feat"><h3>This page</h3><p>Connect, install or update fm1-dock, then add and remove modules, with a meter for the 296 KiB they share. Try any of them in the emulator first.</p></div>
+    <div class="feat"><h3>This page</h3><p>Connect, install or update fm1-dock, then add and remove modules, with a meter for the room they share (from 0.10 up to 744 KiB on an FM-1, with the Empty dock). Try any of them in the emulator first.</p></div>
   </div>
   </details>
 </section>
@@ -223,7 +223,6 @@
       <dt>OPTIONS</dt><dd>past the picker's last module: <b>SEL</b> changes the option, <b>HOME</b> goes back.</dd>
       <dt>OCT+ at power-on</dt><dd>safe start: fm1-dock plays the sine only.</dd>
       <dt>OCT− at power-on</dt><dd>the USB rescue: no sound, only the updater, for any install.</dd>
-      <dt>HOME at power-on</dt><dd>fm1-dock stays, even with a boot firmware in its slot.</dd>
     </dl>
     <p>fm1-dock starts whatever played last. A module that crashes, or hangs into the watchdog, twice in a row is skipped at
       boot until you pick it again. One that renders slower than real time for 64 blocks (0.4 s) is stopped and the sine
@@ -405,7 +404,7 @@ uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock
         <tr><td>module RAM (<code>.data</code> + <code>.bss</code>)</td><td>272 KiB at 0x01C30000</td></tr>
         <tr><td><code>.ram_text</code> (code in RAM)</td><td>16 KiB, call it through <code>HB_FAR</code></td></tr>
         <tr><td>a deploy file</td><td>up to 272 KiB</td></tr>
-        <tr><td>deploy area</td><td>296 KiB for all deployed modules</td></tr>
+        <tr><td>deploy area</td><td>296 KiB, and from 0.10 the room the package's image leaves below 0x93000 (448 KiB with the Empty dock)</td></tr>
         <tr><td>settings record</td><td>240 B per module</td></tr>
         <tr><td>banks</td><td>9 × 8 KiB, shared by all modules</td></tr>
         <tr><td>audio block</td><td>256 frames at 44.1 kHz: 5.8 ms</td></tr>
@@ -414,8 +413,9 @@ uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock
       </table>
       <h3>Flash</h3>
       <div class="fmap" id="fmap"></div>
-      <p class="dim">Offsets in the FM-1's 1 MiB flash. An update writes up to 0x93000; deployed modules, their table, the settings and the
-        banks are above it, so installing a new fm1-dock keeps them.</p>
+      <p class="dim">Offsets in the FM-1's 1 MiB flash, as of 0.10 (0.9: every package's image fills 0x4000 to 0x93000). An update writes up to its package's end (0x23000 for the Empty dock, more with
+        built-in synths); deployed modules, their table, the settings and the banks are above it, so installing a new fm1-dock keeps
+        them. One whose end would reach a deployed module is refused before it writes.</p>
     </div>
   </div>
 </section>

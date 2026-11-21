@@ -27,7 +27,7 @@ def slots():
     img = APP.read_bytes()
     out = []
     for i in range(32):
-        magic, at, size, crc = struct.unpack_from("<IIII", img, 0x30000 + 16 * i)
+        magic, at, size, crc = struct.unpack_from("<IIII", img, 0x14000 + 16 * i)
         if magic != 0x544F4C53:
             break
         h, _, _ = hbmod.parse(img[at - 0x02000000:at - 0x02000000 + size])

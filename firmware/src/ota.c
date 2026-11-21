@@ -50,6 +50,9 @@ static int ota_prog(uint32_t off, const void *p, uint32_t n);
 static int ota_fread(uint32_t off, void *p, uint32_t n);
 static void ota_show(uint32_t step, int32_t code);
 static void ota_commit(const uint8_t *parm);
+#ifdef OTA_KEEP_ADDONS
+static int ota_chip_key(uint32_t *key);           /* this chip's SFC key (its isd_config blob), 0 ok */
+#endif
 
 static uint32_t ota_rd16(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8; }
 static uint32_t ota_rd24(const uint8_t *p) { return ota_rd16(p) | (uint32_t)p[2] << 16; }
@@ -225,6 +228,117 @@ static int ota_memeq(const uint8_t *a, const uint8_t *b, uint32_t n)
     return 1;
 }
 
+#ifdef OTA_KEEP_ADDONS
+/* ---- fm1-dock's add-ons in the image's room (firmware/src/dock.c, room): the flash between the end of the installed
+ * image and the end of what an update writes holds add-ons, which an update must leave alone. An app area's end is
+ * what its JLFS says (app_area_head's block, then the cfg dir after it), rounded up to 4 KiB; the update loader writes
+ * no further (ldr_core.c), and a package whose end would cover an add-on is refused before anything is written: here
+ * by the running firmware, before it stages the loader, and by the loader itself */
+#if BOARD_SMK37
+#define OTA_DT_A 0xB8000u                        /* dock.c DT_A / DT_B: the deployed table's two copies */
+#define OTA_DT_B 0xB9000u
+#define OTA_APP_HI 0x70000u
+#else
+#define OTA_DT_A 0x93000u
+#define OTA_DT_B 0x94000u
+#define OTA_APP_HI 0x93000u
+#endif
+#define OTA_EADDONS (-15)                        /* refused: add-ons where the package goes */
+#define OTA_REFUSED_AT 0xF2000000u               /* the read that tells the host so (an older host: "outside the package") */
+
+static void ota_sfc(uint8_t *p, uint32_t n, uint32_t area_off, uint32_t key)   /* SFC: per 32 B, key ^ (offset / 4) */
+{
+    uint32_t i, j, k;
+    for (i = 0; i < n; i += 32u)
+        for (k = key ^ ((area_off + i) >> 2), j = 0; j < 32u && i + j < n; j++) {
+            p[i + j] ^= (uint8_t)k;
+            k = ((k << 1) ^ (k & 0x8000u ? 0x1021u : 0u)) & 0xFFFFu;
+        }
+}
+
+/* the app area's end (a flash offset, 4 KiB aligned) from its JLFS; rd(offset in the area, p, n) reads it as stored,
+ * key its SFC key. 0 ok */
+static int ota_area_end(int (*rd)(uint32_t, uint8_t *, uint32_t), uint32_t key, uint32_t *end)
+{
+    uint8_t b[64];
+    const uint8_t *c;
+    uint32_t blk, cfg;
+    if (rd(0, b, 32))
+        return -1;
+    ota_sfc(b, 32, 0, key);
+    if (ota_crc16(b + 2, 30, 0) != ota_rd16(b) || !ota_memeq(b + 16, (const uint8_t *)"app_area_head", 14))
+        return -2;
+    blk = ota_rd32(b + 8);
+    if (blk < 0x140u || blk > 0x100000u - 0x4000u)
+        return -3;
+    if (rd(blk & ~31u, b, 64))                  /* the cfg dir's head, inside its 32-byte cipher block */
+        return -1;
+    ota_sfc(b, 64, blk & ~31u, key);
+    c = b + (blk & 31u);
+    cfg = ota_rd32(c + 8);
+    if (ota_crc16(c + 2, 30, 0) != ota_rd16(c) || !ota_memeq(c + 16, (const uint8_t *)"cfg", 4) || cfg > 65536u)
+        return -4;
+    *end = (0x4000u + blk + cfg + 0xFFFu) & ~0xFFFu;
+    return 0;
+}
+
+static uint32_t ota_crc32(uint32_t c, const uint8_t *p, uint32_t n)   /* zlib's, as dock.c's crc_upd */
+{
+    uint32_t k;
+    c = ~c;
+    while (n--) {
+        c ^= *p++;
+        for (k = 0; k < 8u; k++)
+            c = c & 1u ? (c >> 1) ^ 0xEDB88320u : c >> 1;
+    }
+    return ~c;
+}
+
+/* the add-ons the deployed table in force (dock.c dt_load: the valid copy with the higher sequence number) lists
+ * in flash [0x4000, end): the image's room that a package of that end would write over */
+static uint32_t ota_addons_below(uint32_t end)
+{
+    static uint8_t t[16u + 16u * 32u];
+    uint32_t at[2] = {OTA_DT_A, OTA_DT_B}, i, k, n, seq = 0, hits = 0, any = 0;
+    for (i = 0; i < 2u; i++) {
+        uint32_t h = 0;
+        if (ota_fread(at[i], t, 16) || ota_rd32(t) != 0x54444248u || (n = ota_rd32(t + 8)) > 32u ||
+            (n && ota_fread(at[i] + 16u, t + 16, 16u * n)) || ota_crc32(ota_crc32(0, t + 4, 8), t + 16, 16u * n) != ota_rd32(t + 12))
+            continue;
+        for (k = 0; k < n; k++) {
+            uint32_t off = ota_rd32(t + 16 + 16u * k + 4) - 0x01FFC000u;   /* (XIP -> flash: the XIP map's base less 0x4000) */
+            if (ota_rd32(t + 16 + 16u * k) == 0x544F4C53u && off >= 0x4000u && off < end)   /* "SLOT" */
+                h++;
+        }
+        if (!any || (int32_t)(ota_rd32(t + 4) - seq) > 0) {
+            seq = ota_rd32(t + 4);
+            hits = h;
+            any = 1;
+        }
+    }
+    return hits;
+}
+
+static uint32_t ota_pkg_fl;                      /* (ota_pkg_rd: flash.bin's offset in the package) */
+static int ota_pkg_rd(uint32_t off, uint8_t *p, uint32_t n) { return ota_read(ota_pkg_fl + 0x4000u + off, p, n); }
+
+/* a package (flash.bin at fl_off, as the host serves it) that would write over an add-on here: 1, after telling the
+ * host (a read of OTA_REFUSED_AT; its answer does not matter). Its end: its JLFS's with this chip's key; one that does
+ * not say (another layout, another key): all of the app area */
+static int ota_keep_check(uint32_t fl_off, uint32_t key, uint32_t whole)
+{
+    uint8_t b[8];
+    uint32_t end = OTA_APP_HI;
+    ota_pkg_fl = fl_off;
+    if (whole || ota_area_end(ota_pkg_rd, key, &end) || end > OTA_APP_HI)
+        end = OTA_APP_HI;
+    if (!ota_addons_below(end))
+        return 0;
+    ota_read(OTA_REFUSED_AT, b, 8);
+    return 1;
+}
+#endif
+
 /* JLFS head "LOADER.BIN" in front of the staged loader (vm_update_defrag), written last */
 static int ota_stage_head(uint32_t len)
 {
@@ -302,6 +416,14 @@ static int ota_stage(void)                       /* steps 1..6; 0 = host said su
         own = ota_memeq(b + i, (const uint8_t *)"FELUCCA-LOADER-1", 16) && ota_rd32(b + 0x20 + 4) <= 0x14000u;
     if (!official && !own)
         return -7;
+#ifdef OTA_KEEP_ADDONS
+    {   /* add-ons in the image's room this package would write over: refused, nothing staged */
+        uint32_t key = 0;
+        int nokey = ota_chip_key(&key);             /* (no key: its end is not known, all of the app area) */
+        if (ota_keep_check(fl_off, key, official || nokey))
+            return OTA_EADDONS;
+    }
+#endif
     if (official) {                    /* the official loader writes the head: it must equal ours */
         ota_show(2, 0);
         for (i = 0; i < 0x4000u; i += 512u) {

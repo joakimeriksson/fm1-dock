@@ -9,9 +9,11 @@
  *   2. checks that the package's app area decrypts with THIS chip's key
  *      (taken from isd_config.ini in the device's own flash head), so a
  *      package for another key is refused before anything is erased;
- *   3. writes ONLY the app area [0x4000, 0x93000), sector by sector, skipping
- *      sectors that are already equal, and verifies each one; the flash head
- *      (SPL, isd_config) is never written;
+ *   3. writes ONLY the app area [0x4000, 0x93000), and of it only up to the package's end (its JLFS: app.bin,
+ *      cfg_tool.bin and the cfg dir, 4 KiB up; ota.c ota_area_end), sector by sector, skipping sectors that are
+ *      already equal, and verifies each one; the flash head (SPL, isd_config) is never written. Above the end is
+ *      fm1-dock's room for add-ons: a package whose end would cover one that the deployed table lists is refused
+ *      before anything is written (the record stays: finish with a package that leaves them, OTA_EADDONS);
  *   4. checks the CRC16 the package stores for flash.bin against everything it
  *      was served (the head too, which it never writes; a mismatch: up to two
  *      more passes, rewriting what differs), asks 0xF0000000 ("success"), then
@@ -113,7 +115,7 @@ static void ldr_records_drop(void)
 static int ldr_pass(void)
 {
     static uint8_t hdr[0x400], sec[0x1000], cur[0x1000];
-    uint32_t i, k, fl_off, fl_size, ota_off, ota_len, key, s, n, want, crc = 0, done = 0;
+    uint32_t i, k, fl_off, fl_size, ota_off, ota_len, key, s, n, want, crc = 0, done = 0, end;
     int rc;
     /* 1. UFW header + entry list (ota.c) */
     if ((rc = ota_ufw(hdr, &fl_off, &fl_size, &ota_off, &ota_len, &want)) != 0)
@@ -132,6 +134,14 @@ static int ldr_pass(void)
         ldr_records_drop();                              /* be updated again: keep the firmware there is */
         return LDR_EFLASH;
     }
+    /* the package's end: nothing above it is written; an add-on below it: refused, nothing written */
+    ota_pkg_fl = fl_off;
+    if (ota_area_end(ota_pkg_rd, key, &end) || end > LDR_APP_HI || end < LDR_APP_LO + 0x1000u)
+        end = LDR_APP_HI;
+    if (ota_addons_below(end)) {
+        ota_read(OTA_REFUSED_AT, sec, 8);                /* (tells the host; its answer does not matter) */
+        return OTA_EADDONS;
+    }
     /* the head of flash.bin is never written, but it is part of the package's CRC */
     for (s = 0; s < LDR_APP_LO; s += 512u) {
         if (ota_read(fl_off + s, sec, 512))
@@ -144,6 +154,11 @@ static int ldr_pass(void)
             if (ota_read(fl_off + s + k, sec + k, 512))
                 return -7;
         crc = ota_crc16(sec, 0x1000u, crc);
+        if (s >= end) {                                  /* (past the package's end: read for the CRC only) */
+            done += 0x1000u;
+            ldr_progress(done, LDR_APP_HI - LDR_APP_LO);
+            continue;
+        }
         if (ldr_fread(s, cur, 0x1000u))
             return -8;
         if (!ota_memeq(sec, cur, 0x1000u)) {

@@ -117,6 +117,8 @@ async function moduleBlob(m) {
 const latest = () => (S.index && S.index.firmwares && S.index.firmwares["fm1-dock"]) || null;
 const dock = () => (S.dev && S.dev.dock) || null;
 const boardOf = () => BOARD[(S.dev && S.dev.board) || "fm1"];
+// the add-on room of the connected fm1-dock: every area's, the image's room too (HELLO's room); an older one: its board's
+const roomOf = (d) => (d && d.hello && d.hello.room) || boardOf().area;
 const devName = () => (S.dev && S.dev.board ? BOARD[S.dev.board].name : "FM-1");
 const onDevice = (m) => { const d = dock(); return d ? d.modules.find((x) => x.name === m.module) : null; };
 
@@ -234,7 +236,7 @@ function renderDevice() {
     ${i ? `<tr><th>Hardware</th><td>${esc(i.model)} · ${esc(i.soc)}, ${i.cores} CPU core${i.cores > 1 ? "s" : ""} · flash
       <span class="mono">${esc(i.flashId)}</span>${i.flashSize ? `, ${kib(i.flashSize)}` : ""}</td></tr>` : ""}
     <tr><th>Modules</th><td><div class="dev-mods">${mods}</div></td></tr>
-    <tr><th>Room for add-ons</th><td>${kib(d.hello.free)} free of ${kib(boardOf().area)}${i ? `, the largest piece ${kib(i.largest)}` : ""}</td></tr></table>`;
+    <tr><th>Room for add-ons</th><td>${kib(d.hello.free)} free of ${kib(roomOf(d))}${i ? `, the largest piece ${kib(i.largest)}` : ""}</td></tr></table>`;
 }
 
 function renderRelease() {
@@ -267,7 +269,7 @@ function renderMeter() {
     total = b.area; free = total;
     head = `<h3>Room for add-ons</h3><span class="figs"><b>${kib(BOARD.fm1.area)}</b> on an FM-1 · <b>${kib(BOARD.smk37.area)}</b> on an SMK-37</span>`;
   } else {
-    total = b.area; free = d.hello.free; largest = d.hello.largest;
+    total = roomOf(d); free = d.hello.free; largest = d.hello.largest;
     const sizeOf = (x) => { const c = S.mods.find((m) => m.module === x.name && m.size); return sectors(c ? c.size : x.size); };
     segs = d.modules.filter((x) => x.kind === "deployed").map((x) => ({ name: x.name, n: sizeOf(x) }));
     const used = Math.max(0, total - free), sum = segs.reduce((a, s) => a + s.n, 0);
@@ -386,9 +388,9 @@ function card(m) {
   return a;
 }
 
-// what a large add-on costs: most of an FM-1's deploy area (296 KiB), so little else fits beside it
+// what a large add-on costs: much of an FM-1's room (296 KiB and what its package's image leaves), so little else fits beside it
 function largeNote(m) {
-  return `A big one: it takes ${kib(sectors(m.size))} of the FM-1's ${kib(BOARD.fm1.area)} for add-ons on its own, so only smaller ones fit beside it.`;
+  return `A big one: it takes ${kib(sectors(m.size))} of the FM-1's ${kib(roomOf(dock()))} for add-ons on its own, so only smaller ones fit beside it.`;
 }
 
 function button(text, cls, fn, disabled = false) {
@@ -433,7 +435,7 @@ function actions(m) {
         if (S.dev && !d) out.push(node("p", "note", "Install fm1-dock first (above)."));
         else if (!fits) out.push(node("p", "note bad", `Needs ${kib(sectors(m.size))}; the largest free piece is ${kib(d.hello.largest)}. Remove another add-on first.`));
         else if (d && m.size) out.push(node("p", `note${large ? " warn" : ""}`, `Takes ${kib(sectors(m.size))} of the ${kib(d.hello.free)} free.`
-          + (large && boardOf() === BOARD.fm1 ? ` A big one: about half of the FM-1's ${kib(BOARD.fm1.area)} on its own.` : "")));
+          + (large && boardOf() === BOARD.fm1 ? ` A big one: ${kib(sectors(m.size))} of the FM-1's ${kib(roomOf(d))} on its own.` : "")));
         else if (large) out.push(node("p", "note warn", largeNote(m)));
       }
     }

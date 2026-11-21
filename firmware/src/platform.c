@@ -156,6 +156,12 @@ static void ota_show(uint32_t step, int32_t code)
         draw_text_box(0, 124, 240, &FONT_S, STEP[step < 6u ? step : 0], C_WHITE, 1);
     else
         draw_text_box(0, 124, 240, &FONT_S, code == 1 ? "DRY RUN OK" : "FAILED", C_WHITE, 1);
+#ifdef OTA_EADDONS
+    if (step == 9u && code == OTA_EADDONS) {   /* (ota.c ota_keep_check: nothing was written) */
+        draw_text_box(0, 156, 240, &FONT_S, "ADD-ONS WHERE IT GOES:", C_WHITE, 1);
+        draw_text_box(0, 180, 240, &FONT_S, "REMOVE THEM FIRST", C_WHITE, 1);
+    }
+#endif
 }
 static void ota_commit(const uint8_t *parm)
 {
