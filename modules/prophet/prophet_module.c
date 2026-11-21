@@ -866,20 +866,29 @@ static void draw(uint32_t full)
 static uint8_t fbuf[40960];
 static uint32_t fsize;
 static uint32_t rd32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
-static int imp_save(void)
+#define IMP_BANKS ((uint32_t)((sizeof imp + HB_BANK_MAX - 1u) / HB_BANK_MAX))   /* the banks a full import takes */
+static int imp_save(void)                       /* 0: kept. The banks past its end (a longer import before) are given
+                                                 * back, and all of them when a part did not save: a part loads as nothing */
 {
     const uint8_t *b = (const uint8_t *)&imp;
     uint32_t n = 8u + imp.count * (uint32_t)sizeof(p5_patch_t), idx = 1;
+    int bad = 0;
     if (!HB_HOST_HAS(H, bank_free))
         return -1;
-    while (n) {
+    while (n && !bad) {
         uint32_t k = n < HB_BANK_MAX ? n : HB_BANK_MAX;
-        if (H->bank_save_n(idx++, b, k))
-            return -1;
-        b += k;
-        n -= k;
+        bad = H->bank_save_n(idx, b, k) != 0;
+        if (!bad) {
+            idx++;
+            b += k;
+            n -= k;
+        }
     }
-    return 0;
+    if (bad)
+        idx = 1;
+    for (; idx <= IMP_BANKS; idx++)
+        H->bank_save_n(idx, 0, 0);
+    return bad ? -1 : 0;
 }
 static void imp_load(void)
 {
@@ -903,6 +912,7 @@ static void imp_load(void)
 static int data(const uint8_t *p, uint32_t n)
 {
     uint32_t i, j, cnt = 0;
+    int kept;
     if (!n)
         return 1;
     if (p[0] == HB_FILE_BEGIN) {
@@ -932,10 +942,11 @@ static int data(const uint8_t *p, uint32_t n)
     imp.magic = IMP_MAGIC;
     imp.count = cnt;
     H->log_u32("prophet: programs in", cnt);
-    if (imp_save())
-        H->log("prophet: the bank is not kept (no flash bank free)");
+    kept = !imp_save();
+    if (!kept)
+        H->log("prophet: the bank is not kept (the flash banks)");
     patch_select(NOWN);
-    return 0;
+    return kept ? 0 : 6;                        /* 6: it plays, but is gone at power-off (the host says so on the screen) */
 }
 
 static int init(const hb_host_t *h)

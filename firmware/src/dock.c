@@ -834,7 +834,8 @@ static int h_key_sense(uint32_t k, hb_key_sense_t *o)
 }
 
 /* ---- the service table */
-static uint8_t scr_hidden;                      /* the picker on screen: the module's drawing does nothing */
+static uint8_t scr_hidden;                      /* 1: the picker on screen: the module's drawing does nothing; 2: the
+                                                 * host's note (save_failed) is: its drawing only, the LEDs are its own */
 static uint32_t h_ms(void) { return fm1_ms; }
 static uint32_t h_ticks(void) { return fm1_ticks(); }
 static void h_fill(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
@@ -884,7 +885,7 @@ static void h_led(uint32_t id, uint32_t on)   /* the buttons' LEDs (the SMK's ke
 static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (hal/fm1_input.h's fm1_led_dim) */
 {
     uint32_t p, r;
-    if (id >= 41u || scr_hidden)                /* (under the picker: its LEDs, the module's again after) */
+    if (id >= 41u || scr_hidden == 1u)          /* (under the picker: its LEDs, the module's again after) */
         return;
     fm1_led_key(id, on == 1u);
     for (p = 0; p < FM1_NCOL; p++)
@@ -954,12 +955,44 @@ static int h_bank_load(void *p, uint32_t n)
     hb_log_u32("bank loaded", cur);
     return 0;
 }
+/* A save that did not reach the flash is said by the host, on the screen and in the log (the main loop draws
+ * save_note): a module's own code may show SAVED whatever the host answers, and an autosave shows nothing. Said
+ * once, and again after a button: an autosave that tries every pass does not repeat it. */
+static const char *save_note;                   /* its second line (0: no note) */
+static uint32_t save_note_at;
+static uint8_t save_note_on, save_note_armed = 1;
+static const char SAVE_NO_ROOM[] = "NO ROOM FOR PRESETS", SAVE_FLASH[] = "FLASH ERROR";
+static void save_failed(const char *why, uint32_t v)
+{
+    if (!save_note_armed)
+        return;
+    save_note_armed = 0;
+    hb_log_u32(why == SAVE_NO_ROOM ? "bank not saved: no bank free" : "bank not saved: flash", v);
+    save_note = why;
+}
+static int bank_check(uint32_t at, const uint32_t h[4])   /* the bank in flash is the one sent (its header, its CRC): 0 */
+{
+    static uint8_t b[256];
+    uint32_t g[4], c = 0, i, k;
+    if (st_read(at, g, 16u) || memcmp(g, h, 16u))
+        return -5;
+    for (i = 0; i < h[2]; i += k) {
+        k = h[2] - i > sizeof b ? (uint32_t)sizeof b : h[2] - i;
+        if (st_read(at + 16u + i, b, k))
+            return -5;
+        c = crc_upd(c, b, k);
+    }
+    return c == h[3] ? 0 : -5;
+}
 static int bank_save_key(uint32_t key, const void *p, uint32_t n)
 {
     uint32_t h[4] = {BANK_MAGIC, key, n, 0}, g[4], at, b, spare = 0, took;
     int rc;
-    if (!flash_ok || n > HB_BANK_MAX || !in_mod_ram(p, n))
+    if (!flash_ok || n > HB_BANK_MAX || !in_mod_ram(p, n)) {
+        if (!flash_ok)
+            save_failed(SAVE_FLASH, flash_id);
         return -1;
+    }
     at = bank_find(h[1], g);
     for (b = BANK_LO; !at && b + BANK_SIZE <= BANK_HI; b += BANK_SIZE) {
         if (st_read(b, g, 16u))
@@ -971,14 +1004,21 @@ static int bank_save_key(uint32_t key, const void *p, uint32_t n)
         if (!bank_owned(g[1]) && !spare)
             spare = b;
     }
-    if (!at && !(at = spare))
+    if (!at && !(at = spare)) {
+        save_failed(SAVE_NO_ROOM, key);
         return -1;
+    }
     h[3] = crc_upd(0, (const uint8_t *)p, n);
-    if ((rc = fl_erase4k(at, &took)) != 0 || (rc = fl_erase4k(at + 0x1000u, &took)) != 0 ||
-        (rc = fl_write(at + 16u, (const uint8_t *)p, n)) != 0)
+    if ((rc = fl_erase4k(at, &took)) == 0 && (rc = fl_erase4k(at + 0x1000u, &took)) == 0 &&
+        (rc = fl_write(at + 16u, (const uint8_t *)p, n)) == 0 &&
+        (rc = fl_write(at, (const uint8_t *)h, sizeof h)) == 0)   /* the header last */
+        rc = bank_check(at, h);                 /* (a chip that took the commands and kept nothing: read back) */
+    if (rc) {
+        save_failed(SAVE_FLASH, (uint32_t)rc);
         return rc;
+    }
     hb_log_u32("bank saved", key);
-    return fl_write(at, (const uint8_t *)h, sizeof h);   /* the header last */
+    return 0;
 }
 static int h_bank_save(const void *p, uint32_t n) { return bank_save_key(bank_key(0), p, n); }
 /* bank idx (1..HB_BANK_IDX_MAX): up to n of its bytes into p, their length (all of them, the CRC
@@ -2867,6 +2907,8 @@ static void app_main(void)
         }
 
         b = fm1_input_edges(&rel);              /* buttons pressed / released since the last call */
+        if (b)
+            save_note_armed = 1;                /* (a failed save after it is said again) */
         if (rx.on) {                            /* receiving: the module RAM is the deploy's */
             b = rel = 0;
             for (e = 0; e < 7u; e++)
@@ -3024,9 +3066,27 @@ static void app_main(void)
             draw_top(st.oct);
         }
         m = hb_active;                          /* under the picker: the module's loop still (its keys), not seen */
-        scr_hidden = (uint8_t)(picker != 0);
+        if (save_note && !picker && !rx.on) {   /* a save that failed: said for 2.5 s over the module's screen */
+            if (!save_note_on) {
+                save_note_on = 1;
+                save_note_at = fm1_ms;
+                lcd_fill(0, 0, 240, 240, C_BLACK);   /* (all of it: the module may have drawn its own SAVED) */
+                cv_begin(240, 56, C_BLACK);
+                cv_rect(0, 0, 240, 2, C_BAD);
+                cv_rect(0, 54, 240, 2, C_BAD);
+                cv_text(120 - text_w(&FONT_S, "NOT SAVED") / 2, 8, &FONT_S, "NOT SAVED", C_BAD);
+                cv_text(120 - text_w(&FONT_S, save_note) / 2, 30, &FONT_S, save_note, C_WHITE);
+                cv_blit(0, 92);
+            } else if (fm1_ms - save_note_at > 2500u) {
+                save_note = 0;
+                save_note_on = 0;
+                lcd_fill(0, 0, 240, 240, C_BLACK);
+                full = 1;
+            }
+        }
+        scr_hidden = (uint8_t)(picker ? 1u : save_note_on ? 2u : 0u);
         if (m && m->draw) m->draw(picker ? 0 : full);
-        scr_hidden = 0;
+        scr_hidden = (uint8_t)(save_note_on ? 2u : 0u);   /* (under the note: what its ui() and midi() draw too) */
         if (!picker)
             full = 0;                           /* (the picker gone: full, all of it again) */
 
