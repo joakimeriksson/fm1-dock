@@ -40,7 +40,7 @@ export const FIRMWARES = {
       { id: "digital", label: "Digital pack", has: "FM6, ARTIHIVE and GATOR built in", smk: "FM6, ARTIHIVE and KEYS built in",
         why: "FM pianos and bells, the hive and the drum machine." },
       { id: "empty", label: "Empty dock", has: "Only the sine built in",
-        why: "The most room: add just the synths you want from the catalog." },
+        why: "Only the synths you pick, from the catalog. For now the same room for add-ons as Standard: the room the built-ins leave comes to the add-ons in the next version (#107)." },
     ] },
   "fm1-sid": { name: "FM-1 SID", keeps: "" },
   "scintilla": { name: "Scintilla", keeps: "" },

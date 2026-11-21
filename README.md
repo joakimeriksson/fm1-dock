@@ -84,7 +84,9 @@ over USB.
 
 - **The empty dock**: `fm1-dock-0.9.0-empty.fwsc` (and `-empty-smk37`, `-elite`, `-mke`) carries only the sine; you
   add the synths you want from the page, CS-1, Scintilla and OberVave among them (add-ons on the page too). The first
-  step of the open dock ([ROADMAP.md](ROADMAP.md)). Your added synths, settings and presets stay either way.
+  step of the open dock ([ROADMAP.md](ROADMAP.md)). Your added synths, settings and presets stay either way. It does
+  not yet give the add-ons more room: the flash the built-ins leave stays the firmware's until the next version
+  ([#107](https://github.com/joakimeriksson/fm1-dock/issues/107)).
 - **Synth packs**: the same firmware with other synths built in. `fm1-dock-0.9.0-analog.fwsc` carries CS-1, Scintilla,
   OberVave and PROPHET; `fm1-dock-0.9.0-digital.fwsc` FM6, ARTIHIVE and GATOR (the SMK-37's `-digital-smk37`: FM6,
   ARTIHIVE and KEYS). A built-in synth leaves the add-on room free for others. The page's Install step lets you pick
