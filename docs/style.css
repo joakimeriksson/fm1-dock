@@ -233,6 +233,9 @@ main section { max-width: 1180px; margin: 0 auto; padding: 72px 24px 24px; }
 .legend i.ghost { background: transparent; border: 1.5px dashed var(--acc); }
 .legend b { color: var(--fg); font-weight: 600; }
 .legend .meter-rm { margin-left: 4px; min-height: 24px; padding: 1px 8px; font-size: 0.76rem; vertical-align: 1px; }
+.act label.imp { cursor: pointer; position: relative; align-self: flex-start; }
+.act label.imp.disabled { opacity: 0.5; pointer-events: none; }
+.act label.imp:focus-within { outline: 2px solid var(--acc); outline-offset: 2px; }
 .meter-say { margin: 8px 0 0; font-size: 0.86rem; }
 .presets-act { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
 .presets-act .dim { font-size: 0.8rem; color: var(--muted); flex: 1 1 260px; }

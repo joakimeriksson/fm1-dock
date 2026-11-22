@@ -13,12 +13,13 @@
 //   over 150 KiB: about half of an FM-1's 296 KiB on its own), kind (analog, digital, ambient, keys or utility: the
 //   catalog's second row of filters), untested: true until the module has been played on a real FM-1 (a label on its
 //   card), screenshot (media/...png), alt, accent (a colour from its screen, for the card's frame);
+//   imports { label, accept, what }: a file the synth takes over USB (its data()): a button on its card when it is on the device;
 //   save: how a player saves a sound in it, in the FM-1's button names (or that it cannot, and what it keeps): the
 //   Presets box lists it for the synths on the device, the guide for all (read from the synth's source);
 //   packaged: true for one in fm1-dock's package (no file, no button; size_kib for the card);
 //   else file (the .dock next to modules.json), version, source, songs; pending: why the file is not here yet.
 import { catalog, installButton, tuneButtons, inspectDevice, addModule, removeModule, loadModule, explain,
-  backupPresets, restorePresets, deletePresets } from "./install/fm1install.js";
+  backupPresets, restorePresets, deletePresets, importFile } from "./install/fm1install.js";
 import { moduleInfo } from "./dock.js";
 import { tryIndex, emulatorUrl, tryOutNews } from "./tryit.js";
 
@@ -542,6 +543,16 @@ function actions(m) {
       out.push(p);
     }
   }
+  if (m.imports && here) {                      // a file of the synth's own kind (FM6: DX7 SysEx)
+    const l = document.createElement("label"), f = document.createElement("input");
+    l.className = `btn small imp${S.busy ? " disabled" : ""}`;
+    l.title = m.imports.what;
+    Object.assign(f, { type: "file", accept: m.imports.accept, disabled: !!S.busy, className: "vh" });
+    f.setAttribute("aria-label", `${m.title}: ${m.imports.label}`);
+    f.addEventListener("change", () => { if (f.files[0]) importInto(m, f.files[0]); });
+    l.append(m.imports.label, f);
+    out.push(l, node("p", "note", m.imports.what));
+  }
   if (msg) { const p = node("p", `note ${msg.cls || ""}`, msg.text); p.setAttribute("role", "status"); out.push(p); }
   return out;
 }
@@ -586,6 +597,26 @@ async function add(m) {
       (x, t) => say(m, `Sending: ${t}`, "", x));
     if (got === null) say(m, "Cancelled: nothing was sent.");
     else say(m, `Done: ${got} is in fm1-dock. Hold HOME on the ${devName()} and pick it.`, "ok");
+  } catch (e) {
+    say(m, ACCESS[e.code] || explain(e), "bad");
+    console.error(e);
+  }
+  S.busy = null;
+  await connect({ log: !(dock() && dock().version) });
+}
+
+async function importInto(m, file) {
+  if (S.busy) return;
+  S.busy = m.id;
+  S.msg[m.id] = { text: `Sending ${file.name}…` };
+  renderCatalog();
+  renderDevice();
+  try {
+    const got = await importFile(await midiAccess(), m.module, new Uint8Array(await file.arrayBuffer()), (q) => ask(q, "Send"),
+      (x) => say(m, `Sending ${file.name}…`, "", x));
+    if (got === null) say(m, "Cancelled: nothing was sent.");
+    else if (got === "kept") say(m, `✓ ${file.name} is in ${m.title}, after its own sounds on PRESETS, and it plays the first one.`, "ok");
+    else say(m, `${m.title} plays ${file.name}, but could not keep it: it is gone at power-off. Delete another synth's presets to make room, and send it again.`, "bad");
   } catch (e) {
     say(m, ACCESS[e.code] || explain(e), "bad");
     console.error(e);
