@@ -73,7 +73,7 @@ SMK-37, OPTIONS, and how to start each synth.
 | **ARP · FX · SEQ** | ARP · FX · SEQ | |
 | **SEQ PLAY · SEQ REC** | PLAY · REC | |
 | **OCTAVE- · OCTAVE+** | OCT- · OCT+ | at power-on: OCTAVE- the USB rescue, OCTAVE+ the safe start (the sine only) |
-| **16 pads** | | notes 36 .. 51 on channel 10 (the bottom row 36 .. 43, the top row 44 .. 51, left to right), with their velocity; a hit lights the pad |
+| **16 pads** | | notes 36 .. 51 on channel 10 (the bottom row 36 .. 43, the top row 44 .. 51, left to right), with their velocity; a hit lights the pad. **OPTIONS > PADS**: NOTES (this), OFF, or CHORDS in a major key (a knob picks it, C to B): the bottom row its seven triads and the first an octave up, the top row their seventh chords, on the keys' channel and in their octave |
 | **4 faders** | | CC 70 .. 73 on the keys' channel |
 | **Mod wheel** | | CC 1 |
 | **Pitch wheel** | | the pitch bend |
