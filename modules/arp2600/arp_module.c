@@ -240,6 +240,7 @@ static void draw_chain(uint32_t full)
 static void draw(uint32_t full)
 {
     uint32_t k;
+    hb_key0(H, 53 + 12 * (int32_t)set.oct);   /* (the SMK-37's outer keys go on from this octave) */
     if (full || set.page != drawn_page) {
         H->fill(0, 0, 240, 240, C_BLACK);
         draw_head();

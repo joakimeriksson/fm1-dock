@@ -91,6 +91,7 @@ static void atm_draw(uint32_t full)
     } else {
         app_input_only();
     }
+    hb_key0(H, 53 + 12 * set.octave);   /* (the SMK-37's outer keys go on from this octave) */
 }
 
 static int atm_init(const hb_host_t *h)
