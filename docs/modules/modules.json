@@ -35,7 +35,7 @@
   "license": "GPL-3.0-only",
   "voices": "8, half on the second core",
   "description": "The 1981 Elka Synthex with all 80 factory patches, the laser harp among them, checked sample by sample against its browser original.",
-  "save": "Cannot save a sound yet: it remembers only which preset, page and octave you were on. Not listed under Presets.",
+  "save": "Press SAVE, turn PRESETS to pick USR 1 to 12, press SAVE again: the sound as it plays is kept. Any other button cancels. Your sounds come after the factory's on PRESETS.",
   "tags": ["synth", "poly", "vintage"],
   "kind": "analog",
   "screenshot": "media/screen_scintilla.png",

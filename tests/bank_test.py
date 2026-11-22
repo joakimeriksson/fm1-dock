@@ -9,6 +9,7 @@ fm1-emu: the package booted in fm1-live with a computer on USB (FM1_USB_SEND) an
   - a wrong CRC, a missing chunk, a synth that is not on the unit, a bank too big: refused, the flash as it was;
   - with every bank taken: no space, the banks as they were;
   - BANK_ERASE gives the bank back; with another key than the bank's it is refused;
+  - Scintilla's SAVE, SAVE keeps a sound of the player's own: its bank is listed as SCINTILLA's;
   - a .hbk file packs and unpacks to the same banks.
 Needs CS-1 in the package (the Standard one)."""
 import os
@@ -174,6 +175,15 @@ def main():
         bl = listed(got, 2)
         check("erase", st(got, 0) == "not found" and st(got, 1) == "done" and [(x["name"], x["idx"]) for x in bl] == [("CS-1", 2)]
               and "bank erased" in log, "BANK_ERASE with another key: not found; with the bank's: gone from the list, the other stays")
+
+        # Scintilla keeps a sound of the player's own (SAVE, SAVE): its bank is listed as SCINTILLA's
+        if "SCINTILLA" in names:
+            e = wd / "e.bin"
+            sc = f"700:8,750:8^,900:e6:{1 + names.index('SCINTILLA')},1100:8,1150:8^"
+            log, got = live(4200, [sc, "1700:e2:5", "2100:9", "2150:9^", "2500:9", "2550:9^"], e, [(3400, hd.BANKS, b"")])
+            bl = listed(got, 0)
+            check("scintilla", "bank saved" in log and [(x["name"], x["idx"]) for x in bl] == [("SCINTILLA", 0)] and bl[0]["size"] == 8 + 12 * 620,
+                  f"Scintilla's SAVE, SAVE keeps the sound: one bank, SCINTILLA's, {bl[0]['size'] if bl else '-'} B")
 
         # the file
         ent = [dict(name="CS-1", idx=0, version=3, data=mine), dict(name="FM-106", idx=2, version=0, data=bytes(8176))]

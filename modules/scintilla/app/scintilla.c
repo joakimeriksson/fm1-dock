@@ -38,7 +38,9 @@
  *                   it springs back as the press eases. MIDI out: the keys' notes, and their poly pressure
  *                   while TOUCH is on
  *
- * The preset, the octave, the page and the settings are kept in flash; edits to a sound are not (yet).
+ * The preset, the octave, the page and the settings are kept in flash. Where the platform has a bank for it
+ * (SC_USER: fm1-dock's module) a sound as it plays is kept too: SAVE, PRESETS for one of USR 1..12, SAVE again;
+ * the sounds kept come after the factory's on PRESETS. Elsewhere edits to a sound are not kept (yet).
  * Rules of the road: integers only, no float, no 64-bit division (docs/RULES.md). */
 #define APP_NAME "SCINTILLA"
 #ifdef HB_MODULE                                /* a module of fm1-harbor (its modules/scintilla): its platform calls */
@@ -540,6 +542,34 @@ static int quiet(void)                          /* nothing sounds, not even a re
     return 1;
 }
 
+/* ---- the player's own sounds (SC_USER: the platform gives user_load / user_save, one record of up to 8 KiB, as
+ * fm1-dock's bank): USR 1..N_USER after the factory's on PRESETS, those in use only. A sound is kept as the
+ * engine has it (sc_patch_t, so the record's magic says which build's); its name stays the one it came from. */
+#ifdef SC_USER
+#define N_USER 12u
+#define USER_MAGIC 0x31554353u                  /* "SCU1" */
+static struct { uint32_t magic, used; sc_patch_t p[N_USER]; } ubank;
+static uint8_t save_arm, save_said;             /* SAVE pressed once: the slot it would take + 1 (0: not asked); as shown */
+static uint32_t save_ms;
+#else
+#define N_USER 0u
+#endif
+#define N_SOUNDS (SC_N_PRESETS + N_USER)
+static int sound_ok(uint32_t i)                 /* a factory preset, or one of the player's that is in use */
+{
+#ifdef SC_USER
+    if (i >= SC_N_PRESETS)
+        return i < N_SOUNDS && (ubank.used >> (i - SC_N_PRESETS) & 1u);
+#endif
+    return i < SC_N_PRESETS;
+}
+static uint32_t sound_step(uint32_t i, int32_t d)   /* d sounds on (back) from i, round */
+{
+    for (; d; d += d > 0 ? -1 : 1)
+        do i = (i + (d > 0 ? 1u : N_SOUNDS - 1u)) % N_SOUNDS; while (!sound_ok(i));
+    return i;
+}
+
 /* a preset in, whole: the audio interrupt takes it at its next block (nothing waits for it, so it also
  * works before the audio runs, as in a harbor module's init). Notes and edits posted before then are lost
  * with the old sound. */
@@ -548,6 +578,10 @@ static void load(uint32_t i)
     uint32_t n;
     load_req = 0;                               /* (the interrupt leaves staged alone while it is written) */
     __asm__ volatile("" ::: "memory");
+#ifdef SC_USER
+    if (i >= SC_N_PRESETS) staged = ubank.p[i - SC_N_PRESETS];
+    else
+#endif
     sc_preset_load(i, &staged);
     __asm__ volatile("" ::: "memory");
     load_req = 1;
@@ -585,9 +619,9 @@ static int black(uint32_t note) { return (0x54Au >> (note % 12u)) & 1u; }
 static void draw_head(uint32_t preset, int edited, uint32_t cpu)
 {
     char s[24], t[12];
-    uint32_t a = SC_PRESET_ADDR[preset];
+    uint32_t a = preset < SC_N_PRESETS ? SC_PRESET_ADDR[preset] : preset - SC_N_PRESETS + 1u;
     cv_begin(240, 20, C_BLACK);
-    str_cpy(s, a >= 100u ? "MEM " : "PRE ", 8);
+    str_cpy(s, preset >= SC_N_PRESETS ? "USR " : a >= 100u ? "MEM " : "PRE ", 8);
     fmt_int(s + 4, (int32_t)(a % 100u));
     if (edited) str_cpy(s + str_len(s), " *", 4);
     cv_text(4, 2, &FONT_S, s, C_ACC);
@@ -609,7 +643,11 @@ static void draw_head(uint32_t preset, int edited, uint32_t cpu)
 static void draw_name(uint32_t preset)
 {
     char s[32];
+#ifdef SC_USER
+    const char *name = preset >= SC_N_PRESETS ? ubank.p[preset - SC_N_PRESETS].name : sc_preset_name(preset);
+#else
     const char *name = sc_preset_name(preset);
+#endif
     uint32_t i;
     for (i = 0; i < 31u && name[i]; i++) {   /* FONT_L has capitals only */
         char c = name[i];
@@ -875,7 +913,11 @@ static void app_init(void)
         else if (!settings_load(&set, 3))       /* 0.1's: 0.2's without SETTINGS (10) */
             set.page = set.page < 13u ? OLD_PAGE[set.page + (set.page >= 10u)] : 0;
     }
-    if (set.preset >= SC_N_PRESETS) set.preset = 0;
+#ifdef SC_USER
+    if (user_load(&ubank, sizeof ubank) || ubank.magic != USER_MAGIC) ubank.magic = ubank.used = 0;   /* (.bss: none yet) */
+    save_arm = 0;
+#endif
+    if (!sound_ok(set.preset)) set.preset = 0;
     if (set.page >= N_PAGES) set.page = 0;
     if (set.oct < -2 || set.oct > 2) set.oct = 0;
     if (set.at_on != 1) set.at_on = 0;
@@ -950,6 +992,49 @@ static void app_loop(void)
         toast_ms = fm1_ms;
         page_drawn = ~0u;
     }
+#ifdef SC_USER
+    /* SAVE: the slot asked (the sound's own if it is one of the player's, else the first free), PRESETS turns it,
+     * SAVE again keeps the sound as it plays now; any other button, or 5 s, and it is not kept */
+    if (save_arm && (fm1_ms - save_ms >= 5000u || (b & ~(1u << BTN_SAVE)))) { save_arm = 0; toast[0] = 0; page_drawn = ~0u; }
+    if (b & (1u << BTN_SAVE) && !load_req) {
+        uint32_t u;
+        if (!save_arm) {
+            u = set.preset >= SC_N_PRESETS ? set.preset - SC_N_PRESETS : 0;
+            while (set.preset < SC_N_PRESETS && u < N_USER && (ubank.used >> u & 1u)) u++;
+            save_arm = (uint8_t)((u < N_USER ? u : 0u) + 1u);
+            save_ms = fm1_ms;
+        } else {
+            u = save_arm - 1u;
+            save_arm = 0;
+            ubank.p[u] = syn.patch;
+            ubank.used |= 1u << u;
+            ubank.magic = USER_MAGIC;
+            if (user_save(&ubank, sizeof ubank) == 0) {
+                set.preset = (uint8_t)(SC_N_PRESETS + u);
+                edited = 0;
+                dirty = 1; t_change = fm1_ms;
+                str_cpy(toast, "SAVED USR ", 12);
+            } else {
+                str_cpy(toast, "NOT SAVED USR ", 16);
+            }
+            fmt_int(toast + str_len(toast), (int32_t)(u + 1u));
+            toast_ms = fm1_ms;
+            page_drawn = ~0u;
+        }
+    }
+    if (save_arm) {
+        if ((d = fm1_enc_take(ENC_PRESETS)) != 0) {
+            save_arm = (uint8_t)(((int32_t)save_arm - 1 + d % (int32_t)N_USER + (int32_t)N_USER) % (int32_t)N_USER + 1);
+            save_ms = fm1_ms;
+        }
+        str_cpy(toast, "SAVE TO USR ", 16);
+        fmt_int(toast + 12, (int32_t)save_arm);
+        str_cpy(toast + str_len(toast), ubank.used >> (save_arm - 1u) & 1u ? " (USED)?" : "?", 10);
+        if (save_said != save_arm) page_drawn = ~0u;
+        toast_ms = fm1_ms;                      /* (it stays while the question is open) */
+    }
+    save_said = save_arm;
+#endif
     if (toast[0] && fm1_ms - toast_ms >= 1500u) { toast[0] = 0; page_drawn = ~0u; }
     if (grp_held >= 0) {
         const uint32_t g = (uint32_t)grp_held, n = GROUP[g].n, i = set.page - GROUP[g].first;
@@ -965,7 +1050,7 @@ static void app_loop(void)
     }
 
     if ((d = fm1_enc_take(ENC_PRESETS)) != 0) {
-        set.preset = (uint8_t)(((int32_t)set.preset + d % SC_N_PRESETS + SC_N_PRESETS) % SC_N_PRESETS);
+        set.preset = (uint8_t)sound_step(set.preset, d);
         load(set.preset);
         edited = 0;
         dirty = 1; t_change = fm1_ms;
@@ -999,7 +1084,10 @@ static void app_loop(void)
         else if (ty == 0xD0u) at_chan = d1;                 /* channel pressure */
         else if (ty == 0xA0u) { at_poly[d1 & 127u] = d2; at_any_poly = 1; }   /* poly pressure */
         else if (ty == 0xE0u) sc_post(&syn, SC_EV_BEND, 0, ((int32_t)(d1 | d2 << 7) - 8192) * 16);   /* +-2 st, Q16 */
-        else if (ty == 0xC0u) { set.preset = (uint8_t)(d1 % SC_N_PRESETS); load(set.preset); edited = 0; dirty = 1; t_change = fm1_ms; }
+        else if (ty == 0xC0u) {                 /* (80 up: the player's own, those in use) */
+            set.preset = (uint8_t)(sound_ok(d1) ? d1 : d1 % SC_N_PRESETS);
+            load(set.preset); edited = 0; dirty = 1; t_change = fm1_ms;
+        }
         else if (ty == 0xB0u && d1 == 1u) {                  /* the mod wheel: the stick pushed left */
             perf.joy_x = syn.perf.joy_x = -(int32_t)(d2 * 516u);
             perf_dirty = 1;
@@ -1047,6 +1135,9 @@ static void app_loop(void)
         fm1_led_key(GROUP[k].btn, group_of(set.page) == k);
     XLED(BTN_KNOB_BANK, syn.patch.voice_mode != SC_VM_SINGLE && edit.layer != ED_BOTH);
     XLED(BTN_FADER_BANK, fbank != 0u);
+#ifdef SC_USER
+    fm1_led_key(BTN_SAVE, save_arm != 0);
+#endif
 
     /* redraw only what changed */
     cpu = cpu_pub * 100u / BLOCK_TICKS;

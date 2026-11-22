@@ -89,6 +89,10 @@ static void sc_render_hb(sc_synth_t *s, int32_t *out, uint32_t n)
 /* ---- settings */
 static int settings_load(void *p, uint32_t n) { return H->load(p, n); }
 static int settings_save(const void *p, uint32_t n) { H->save(p, n); return 0; }
+/* the player's own sounds (the app's SC_USER): the module's bank, so they are in the page's Presets and its backups */
+#define SC_USER 1
+static int user_load(void *p, uint32_t n) { return H->bank_load(p, n); }
+static int user_save(const void *p, uint32_t n) { return H->bank_save(p, n); }
 
 /* ---- libc.c's */
 static unsigned str_len(const char *s)
