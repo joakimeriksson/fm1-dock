@@ -318,20 +318,21 @@ if (dir && existsSync(`${dir}/index.json`)) {
     const blob = new Uint8Array(readFileSync(`${dir}/${entry.file}`));
     const mod = { blob, info: moduleInfo(blob) };
     ok(mod.info.name === entry.name && mod.info.abi === entry.abi, `${id}: ${entry.file} is the module ${entry.name}, ABI ${entry.abi}`);
-    const dev = new FakeDock();
+    const fx = mod.info.fx ? 1 : 0;             // (an effect: the dock has effects, and lists it as one)
+    const dev = new FakeDock({ fx });
     const asked = [];
     const got = await addModule(dev.access, mod, async (q) => { asked.push(q); return true; }, () => {});
     ok(got === entry.name && dev.committed && eq(Array.from(dev.committed), Array.from(blob)),
       `${id}: added to fm1-dock, every byte as in the file (${dev.frames} frames; asked "${asked[0]}")`);
-    const dev2 = new FakeDock({ modules: ["SINE", entry.name] });
+    const dev2 = new FakeDock(fx ? { fx, effects: [entry.name] } : { modules: ["SINE", entry.name] });
     const asked2 = [];
     await addModule(dev2.access, mod, async (q) => { asked2.push(q); return true; }, () => {});
     ok(/^Update/.test(asked2[0]), `${id}: already there: asks to update it`);
-    const dev3 = new FakeDock();
+    const dev3 = new FakeDock({ fx });
     ok(await addModule(dev3.access, mod, no, () => {}) === null && !dev3.got, `${id}: Cancel: nothing sent after the question`);
-    const e = await reject(addModule(new FakeDock({ abi: 1 }).access, mod, yes, () => {}));
+    const e = await reject(addModule(new FakeDock({ abi: 1, fx }).access, mod, yes, () => {}));
     ok(e && e.code === "abi", `${id}: an fm1-dock of another ABI: refused`);
-    const dev4 = new FakeDock({ modules: ["SINE"], largest: blob.length - 1 }), asked4 = [];
+    const dev4 = new FakeDock({ modules: ["SINE"], fx, largest: blob.length - 1 }), asked4 = [];
     const e4 = await reject(addModule(dev4.access, mod, async (q) => { asked4.push(q); return true; }, () => {}));
     ok(e4 && e4.code === "space" && !asked4.length && !dev4.got, `${id}: no room in fm1-dock: said so, nothing sent ("${e4 && e4.message}")`);
   }

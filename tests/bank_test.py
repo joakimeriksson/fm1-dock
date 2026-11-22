@@ -185,13 +185,14 @@ def main():
             check("scintilla", "bank saved" in log and [(x["name"], x["idx"]) for x in bl] == [("SCINTILLA", 0)] and bl[0]["size"] == 8 + 12 * 620,
                   f"Scintilla's SAVE, SAVE keeps the sound: one bank, SCINTILLA's, {bl[0]['size'] if bl else '-'} B")
 
-            # its second SAVE counts 7 s later, and with another button in the same pass; another button alone cancels
+            # its second SAVE counts 7 s later; another button cancels (SAVE and another button's edge in one pass: not
+            # tested, fm1-live does not bring two presses in one)
             got = {}
-            for lab, ev in (("late", ["9000:9", "9050:9^"]), ("with OCT-", ["3000:9", "3000:0", "3050:9^", "3050:0^"]), ("cancel", ["3000:0", "3050:0^"])):
+            for lab, ev in (("late", ["9000:9", "9050:9^"]), ("cancel", ["3000:0", "3050:0^"])):
                 e2 = wd / "e2.bin"
                 e2.unlink(missing_ok=True)
                 got[lab] = "bank saved" in live(10500, [sc, "2000:9", "2050:9^", *ev], e2)[0]
-            check("scintilla_question", got == {"late": True, "with OCT-": True, "cancel": False}, f"SAVE's question kept the sound: {got}")
+            check("scintilla_question", got == {"late": True, "cancel": False}, f"SAVE's question kept the sound: {got}")
 
         # the file
         ent = [dict(name="CS-1", idx=0, version=3, data=mine), dict(name="FM-106", idx=2, version=0, data=bytes(8176))]
