@@ -21,7 +21,7 @@ const SCENES = {
   fm1: { model: "FM-1", identity: "FM-1_921", dock: "0.5", added: [["FM-1 SID", 272640]] },
   fresh: { model: "FM-1", identity: "FM-1_921", dock: "0.6", added: [] },
   smk: { model: "SMK-37 Pro", identity: "SMK-37 Pro_921", dock: "0.6", added: [["FM-1 SID", 272640], ["AMB-1", 77764]] },
-  presets: { model: "FM-1", identity: "FM-1_921", dock: "0.10", added: [["FM-106", 110000]],
+  presets: { model: "FM-1", identity: "FM-1_921", dock: "0.10", added: [["FM-106", 110000], ["FM6", 43000]],
     banks: [["CS-1", 0, 4096], ["FM-106", 1, 8176], ["FM-106", 2, 3000], ["B3 ORGAN", 0, 200]] },
   stock: { model: "FM-1", identity: "FM-1_015", dock: null, added: [] },
   none: null,
@@ -238,7 +238,7 @@ class Device {
         this.reply(cmd, seq, [i >= 0 ? 0 : 9], 200);
         break;
       }
-      case CMD.MODULE: this.reply(cmd, seq, [mods[this.cur] && mods[this.cur].name === "FM-1 SID" ? 0 : 9]); break;
+      case CMD.MODULE: this.reply(cmd, seq, [mods[this.cur] && ["FM-1 SID", "FM6", "PROPHET"].includes(mods[this.cur].name) ? 0 : 9]); break;
       case CMD.BANKS: case CMD.BANK_READ: case CMD.BANK_WRITE: case CMD.BANK_ERASE: {   // (dock.c "the banks from the computer")
         const B = this.banks, has = (n) => mods.some((m) => m.name === n);
         const key = (b) => (crc32(Uint8Array.from(name24(b.name).slice(0, b.name.length))) ^ (b.idx ? 0x5B000000 | b.idx : 0)) >>> 0;

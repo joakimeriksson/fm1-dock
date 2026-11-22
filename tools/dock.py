@@ -246,7 +246,7 @@ def device(a):
             step, d = bad
             why = f"the module's error {d[1]}" if d and d[0] == 11 else hd.status(d)
             raise SystemExit(f"{a.file}: {why} (at {step})")
-        print(f"{a.file}: sent, {len(blob)} bytes (nothing written to flash)")
+        print(f"{a.file}: sent, {len(blob)} bytes")
     elif a.cmd == "banks":
         got, end = hd.banks(p)
         for b in got:

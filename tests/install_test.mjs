@@ -5,7 +5,7 @@
 //   node tests/install_test.mjs [DIR [TRYIT_DIR]]      (TRYIT_DIR: tools/tryit.py's OUT)
 import { readFileSync, existsSync } from "node:fs";
 import { checkPackage, packageDamage, logicalImage, productOf, installOn, entryFor, addModule, playTune, tuneSteps,
-  inspectDevice, removeModule, packageEnd, backupPresets, restorePresets, deletePresets } from "../docs/install/fm1install.js";
+  inspectDevice, removeModule, packageEnd, backupPresets, restorePresets, deletePresets, importFile } from "../docs/install/fm1install.js";
 import { pack7, unpack7, Updater, sameKeyboard } from "../docs/install/fm1ota.js";
 import { Dock, frame, parse, moduleInfo, crc32, CMD, hbkPack, hbkUnpack } from "../docs/dock.js";
 
@@ -250,6 +250,13 @@ class FakeDock {
       this.reply(r.cmd, r.seq, [i >= 0 ? 0 : 9]);
     } else if (r.cmd === CMD.MODULE) {
       const rd = (o) => (d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | (d[o + 3] << 24)) >>> 0;
+      if (this.mods[this.cur] === "FM6") {        // a file of its own (importFile): kept, or what refuse says at the end
+        if (d[0] === 0x42) this.file = new Uint8Array(rd(1));
+        else if (d[0] === 0x44) this.file.set(d.subarray(5), rd(1));
+        else { this.ends = (this.ends || 0) + 1; this.reply(r.cmd, r.seq, this.refuse ? [11, this.refuse] : [0]); return; }
+        this.reply(r.cmd, r.seq, [0]);
+        return;
+      }
       if (this.mods[this.cur] !== "FM-1 SID") { this.reply(r.cmd, r.seq, [9]); return; }
       if (this.refuse) { this.reply(r.cmd, r.seq, [11, this.refuse]); return; }
       if (d[0] === 0x42) this.tune = { bytes: new Uint8Array(rd(1)), song: rd(5) };
@@ -395,6 +402,31 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
   ok(seen.dock.hello.fx === 1 && fx && fx.kind === "effect" && fx.index === 0x80 && seen.dock.modules.length === 3,
     "inspectDevice: an added effect is in the list, as an effect, after the synths");
   ok(await removeModule(dev.access, "DELAY", yes) === "done" && dev.deleted === "DELAY" && !dev.effects.length, "removeModule: an effect is removed as a synth is");
+}
+
+// ------------------------------------------------------------------ a synth's own file (FM6: DX7 SysEx) ---
+{
+  const syx = Uint8Array.from({ length: 4104 }, (_, i) => (i === 0 ? 0xf0 : i === 4103 ? 0xf7 : i & 127));
+  const dev = new FakeDock({ modules: ["SINE", "FM6"], cur: 1 });
+  ok(await importFile(dev.access, "FM6", syx, no) === null && !dev.file, "importFile: Cancel at the question: nothing sent");
+  ok(await importFile(dev.access, "FM6", syx, yes) === "kept" && eq(Array.from(dev.file), Array.from(syx)) && dev.ends === 1,
+    "importFile: the file's bytes to the synth as they are, the end asked once");
+  const full = await importFile(new FakeDock({ modules: ["SINE", "FM6"], cur: 1, refuse: 6 }).access, "FM6", syx, yes);
+  ok(full === "notkept", "importFile: the synth plays it but could not keep it (6): said, not an error");
+  const e1 = await reject(importFile(new FakeDock({ modules: ["SINE", "FM6"], cur: 1, refuse: 2 }).access, "FM6", syx, yes));
+  ok(e1 && e1.code === "import" && /no sound of its kind/.test(e1.message), "importFile: a file without its sounds: the reason in words");
+  const e2 = await reject(importFile(dev.access, "FM6", Uint8Array.of(0x4d, 0x54), yes));
+  ok(e2 && e2.code === "import", "importFile: not a SysEx file: refused before the device is asked");
+  const e3 = await reject(importFile(new FakeDock({ modules: ["SINE"] }).access, "FM6", syx, yes));
+  ok(e3 && e3.code === "notadded", "importFile: the synth is not on the device: notadded");
+  const old = new FakeDock({ modules: ["SINE", "FM6"], cur: 1 });
+  const orx = old.rx.bind(old);
+  old.rx = (f) => { orx(f); const r = parse(Uint8Array.from(f)); if (r && r.cmd === CMD.MODULE && r.d[0] === 0x45) old.logText += "900 fm6: voices not kept, no flash bank free\n"; };
+  ok(await importFile(old.access, "FM6", syx, yes) === "notkept", "importFile: an older FM6 answers done, its log says not kept: not kept");
+  const big = await reject(importFile(dev.access, "FM6", new Uint8Array(70000).fill(0xf0), yes));
+  ok(big && big.code === "import" && /too big/.test(big.message), "importFile: a file bigger than any synth takes: refused before the device is asked");
+  const sw = new FakeDock({ modules: ["SINE", "FM6"], cur: 0 });
+  ok(await importFile(sw.access, "FM6", syx, yes) === "kept" && sw.cur === 1, "importFile: another synth plays: switched to it first");
 }
 
 // ------------------------------------------------------------------ COMMIT's answer lost ---
