@@ -517,7 +517,7 @@ function actions(m) {
   } else {
     const busy = S.busy === m.id, other = S.busy && !busy;
     if (here && here.kind === "deployed") {
-      row.append(node("span", "state ok", "✓ Installed"), button(busy ? "Removing…" : "Remove", "danger", () => remove(m), !!S.busy));
+      row.append(node("span", "state ok", "✓ Installed"), button(busy && S.doing !== "import" ? "Removing…" : "Remove", "danger", () => remove(m), !!S.busy));
       if (canTry) row.append(tryBtn());
     } else if (here) {
       row.append(node("span", "state ok", `✓ On your ${name} (in its package)`));
@@ -606,21 +606,23 @@ async function add(m) {
 }
 
 async function importInto(m, file) {
-  if (S.busy) return;
+  if (S.busy || S.connecting) return;
   S.busy = m.id;
+  S.doing = "import";
   S.msg[m.id] = { text: `Sending ${file.name}…` };
   renderCatalog();
   renderDevice();
   try {
     const got = await importFile(await midiAccess(), m.module, new Uint8Array(await file.arrayBuffer()), (q) => ask(q, "Send"),
-      (x) => say(m, `Sending ${file.name}…`, "", x));
+      (x) => say(m, `Sending ${file.name}…`, "", x), m.imports.warn);
     if (got === null) say(m, "Cancelled: nothing was sent.");
     else if (got === "kept") say(m, `✓ ${file.name} is in ${m.title}, after its own sounds on PRESETS, and it plays the first one.`, "ok");
-    else say(m, `${m.title} plays ${file.name}, but could not keep it: it is gone at power-off. Delete another synth's presets to make room, and send it again.`, "bad");
+    else say(m, `${m.title} plays ${file.name}, but could not keep it: it is gone at power-off. The preset banks are full: make room, then send it again.`, "bad");
   } catch (e) {
     say(m, ACCESS[e.code] || explain(e), "bad");
     console.error(e);
   }
+  S.doing = null;
   S.busy = null;
   await connect({ log: !(dock() && dock().version) });
 }

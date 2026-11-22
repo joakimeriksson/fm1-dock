@@ -178,7 +178,8 @@ class Port:
 
 def send_file(p, blob, arg=0, chunk=CHUNK):
     """a file to the module playing, in MODULE frames (hb_module.h, "a file to a module"): B [size][arg],
-    D [at][bytes] in order, E. Nothing is written to flash; the module takes it as it arrives.
+    D [at][bytes] in order, E. The host writes nothing to flash; the module takes it as it
+    arrives (FM6 and PROPHET keep it in their banks).
     Returns None when it was taken, else (the step, the reply)"""
     steps = [b"B" + struct.pack("<II", len(blob), arg)]
     steps += [b"D" + struct.pack("<I", at) + blob[at:at + chunk] for at in range(0, len(blob), chunk)]

@@ -402,6 +402,12 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
   ok(e2 && e2.code === "import", "importFile: not a SysEx file: refused before the device is asked");
   const e3 = await reject(importFile(new FakeDock({ modules: ["SINE"] }).access, "FM6", syx, yes));
   ok(e3 && e3.code === "notadded", "importFile: the synth is not on the device: notadded");
+  const old = new FakeDock({ modules: ["SINE", "FM6"], cur: 1 });
+  const orx = old.rx.bind(old);
+  old.rx = (f) => { orx(f); const r = parse(Uint8Array.from(f)); if (r && r.cmd === CMD.MODULE && r.d[0] === 0x45) old.logText += "900 fm6: voices not kept, no flash bank free\n"; };
+  ok(await importFile(old.access, "FM6", syx, yes) === "notkept", "importFile: an older FM6 answers done, its log says not kept: not kept");
+  const big = await reject(importFile(dev.access, "FM6", new Uint8Array(70000).fill(0xf0), yes));
+  ok(big && big.code === "import" && /too big/.test(big.message), "importFile: a file bigger than any synth takes: refused before the device is asked");
   const sw = new FakeDock({ modules: ["SINE", "FM6"], cur: 0 });
   ok(await importFile(sw.access, "FM6", syx, yes) === "kept" && sw.cur === 1, "importFile: another synth plays: switched to it first");
 }

@@ -222,9 +222,9 @@ export class Dock {
     return out;
   }
 
-  async log() {
+  async log(since = 0) {                        // its last 2 KiB, or from the byte count since on
     const h = await this.hello();
-    let from = Math.max(0, h.logW - 2048);
+    let from = Math.max(since, h.logW - 2048, 0);
     const bytes = [];
     while (from < h.logW) {
       const d = await this.ask(CMD.LOG, Uint8Array.from(u32(from)));

@@ -455,10 +455,13 @@ export async function playTune(midi, bytes, song, progress = () => {}) {
 // frames, as tools/dock.py send. The synth reads it, plays its first sound and keeps it in its banks.
 
 const IMPORT_ERR = { 1: "it did not understand the request", 2: "there is no sound of its kind in the file", 3: "the file is too big for it",
-  4: "the file arrived damaged: try again" };
+  4: "the file arrived damaged: try again",
+  5: "it has no room for more: send a whole bank, which replaces what is there" };
+const IMPORT_MAX = 65536;                       // (more than any synth's buffer)
 // the module `name`'s dock file takes the file (switched to it first when another synth plays); ask(text) confirms, since
 // what was imported before may be replaced. -> "kept", "notkept" (it plays, but is gone at power-off), or null: cancelled
-export async function importFile(midi, name, bytes, ask, progress = () => {}) {
+export async function importFile(midi, name, bytes, ask, progress = () => {}, warn = "") {
+  if (bytes.length > IMPORT_MAX) throw fail("import", "the file is too big for it.");
   if (!bytes.length) throw fail("import", "the file is empty.");
   if (bytes[0] !== 0xf0) throw fail("import", "that is not a SysEx file (.syx).");
   const found = await findDock(midi);
@@ -467,22 +470,29 @@ export async function importFile(midi, name, bytes, ask, progress = () => {}) {
   try {
     const m = (await dock.modules()).find((x) => x.name === name);
     if (!m) throw fail("notadded", name);
-    if (!await ask(`Send this file to ${name} on the device? A bank replaces what was imported into ${name} before.`)) return null;
+    if (!await ask(`Send this file to ${name} on the device? ${warn}`.trim())) return null;
     if (hello.cur !== m.index) {
       const st = await dock.command(CMD.SELECT, name);
       if (st !== "done") throw fail("import", `fm1-dock did not switch to ${name}: ${st}.`);
       await sleep(2000);                        // (it starts)
+      if ((await dock.hello()).cur !== m.index) throw fail("import", `${name} did not start on the device.`);
     }
+    const logAt = (await dock.hello()).logW;
     const steps = tuneSteps(bytes);
     for (let i = 0; i < steps.length; i++) {
       const end = i === steps.length - 1;       // the end: read and written to flash; asked once (again: the voices twice)
-      const d = await dock.ask(CMD.MODULE, steps[i], end ? { timeout: 10000, tries: 1 } : { timeout: 1500, tries: 3 });
+      let d;
+      try { d = await dock.ask(CMD.MODULE, steps[i], end ? { timeout: 10000, tries: 1 } : { timeout: 1500, tries: 3 }); } catch (e) {
+        throw end ? fail("import", `${name} got the file, but did not answer: look on the device before you send it again.`) : e;
+      }
       if (end && d[0] === 11 && d[1] === 6) return "notkept";
       if (d[0] === 11) throw fail("import", `${name} did not take it: ${IMPORT_ERR[d[1]] || `its error ${d[1]}`}.`);
+      if (d[0] === 9) throw fail("import", `${name} is not playing, or this version of it takes no files.`);
       if (d[0]) throw fail("import", `${name} did not take it (status ${d[0]}).`);
       progress((i + 1) / steps.length);
     }
-    return "kept";
+    // (FM6 and PROPHET before version 3 answer "done" whether it was kept or not: their log line tells)
+    return /not kept|no flash bank/i.test((await dock.log(logAt)).text) ? "notkept" : "kept";
   } finally { dock.close(); }
 }
 
