@@ -416,6 +416,7 @@ typedef struct {
     uint32_t hn;
     float hv, hu, hup, hf, hk, hp, hc2, hc3, hdt;
     float og;                                   /* the bridge's velocity to the output */
+    uint32_t live;                              /* samples a fresh strike is still on its way round the string */
 } kd_piano_t;
 
 #define KP_E 200e9f                             /* steel: Young's modulus (Pa), density (kg / m^3) */
@@ -520,7 +521,8 @@ static void kd_piano_on(kd_piano_t *pn, float f0, float vn, float key, const kd_
     pn->hu = pn->hup = pn->hf = 0.0f;
     pn->hon = 1;
     pn->hn = 0;
-    pn->og = 96.0f;
+    pn->og = 80.0f;
+    pn->live = 2u * KD_LEN;
 }
 
 static float kd_piano_run(kd_piano_t *pn, int gate, float g, float *out, uint32_t n)
@@ -573,6 +575,13 @@ static float kd_piano_run(kd_piano_t *pn, int gate, float g, float *out, uint32_
         out[i] += o;
         o = o < 0.0f ? -o : o;
         if (o > pk) pk = o;
+    }
+    /* a low string's first wave is longer on its way than a block is: silence at the bridge for a block or two is
+     * not a voice that has died away (the part ends a voice by its peak: before this a key under G2 was cut off
+     * a block after its hammer) */
+    if (pn->live) {
+        pn->live = pn->live > n ? pn->live - n : 0u;
+        if (pk < 1e-3f) pk = 1e-3f;
     }
     return pk;
 }
