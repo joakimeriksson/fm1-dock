@@ -41,7 +41,7 @@ def pick(name):
     return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
 
 
-O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_AT, O_THRU, O_ABOUT = range(9)   # the OPTIONS lines (dock.c), past the
+O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_AT, O_FX, O_THRU, O_ABOUT = range(10)   # the OPTIONS lines (dock.c), past the
 # list's modules; then BLUETOOTH, the last
 ACC = (180, 140, 255)                   # dock.c C_ACC, as the panel shows it (RGB565)
 
@@ -577,7 +577,7 @@ def main():
     ver = (re.findall(r"fm1-dock (\S+) boot", log) or ["?"])[-1]
     x0, x1 = acc_span("about", 28, 44)
     _, _ = run("about_back", at + ",1500:8,1550:8^", 2000)
-    y = 50 + O_ABOUT * 16                   # (dock.c OPT_Y)
+    y = 44 + O_ABOUT * 15                   # (dock.c OPT_Y)
     b0, b1 = acc_span("about_back", y, y + 18)
     n = len(f"fm1-dock {ver}") + (10 if "." in ver else 0)   # (a release's: " (abc1234)" after it)
     check("about", re.fullmatch(r"\d\.\d(\.\d)?|[0-9a-f]{7}\+?|unknown", ver) is not None and x0 >= 2 and
@@ -978,6 +978,43 @@ def main():
         check("midi_thru", (0x90, 0x3C, 0x64) in out and (0x80, 0x3C, 0) in out and (0x90, 0x3C, 0x64) not in out2 and
               p1 > 1000 and p2 > 1000, f"MIDI THRU: the DIN jack's note on and off go out on USB ({out}), and play; "
               f"OFF: not sent ({out2})")
+
+        # Effects (hb_module.h "Effects": modules/fxdelay, fxchorus): one deployed into the DIN jack is picked and
+        # runs under the sine; a note of 250 ms: the DELAY repeats it after it has ended, the CHORUS makes left and
+        # right differ; OPTIONS, EFFECT, SEL on its page: the next of those in the dock, then OFF; kept over a restart
+        with tempfile.TemporaryDirectory() as fwd:
+            fl = str(Path(fwd) / "fx.bin")
+            mod = lambda n: str(SRC / "build" / "modules" / f"{n}.dock")
+            def fx_run(case, keys, ms, deploy=None, note=None):
+                """-> (the note's RMS, the RMS 0.2 s after it ended, mean |L - R| in the note, the log)"""
+                ex = ("--flash", fl) + (("--deploy", deploy, "--at", "1000") if deploy else ())
+                s, log = run(case, keys + (f",{note}:21,{note + 250}:21^" if note else ""), ms, extra=ex)
+                if not note:
+                    return 0, 0, 0, log
+                on = note / 1000 - 0.2
+                a, b = int((on + 0.05) * 44100), int((on + 0.25) * 44100)
+                return (rms_left(s, on + 0.05, on + 0.25), rms_left(s, on + 0.40, on + 0.52),
+                        sum(abs(s[2 * i] - s[2 * i + 1]) for i in range(a, b)) // (b - a), log)
+            d = fx_run("fx_delay", "", 6000, mod("fxdelay"), 4200)
+            c = fx_run("fx_chorus", "", 6000, mod("fxchorus"), 4200)
+            keys, t = options([(O_FX, 2)])                # (its page; SEL: after CHORUS, the last, OFF)
+            o = fx_run("fx_off", keys + f",{t + 150}:8,{t + 200}:8^", t + 2200, note=t + 500)
+            keys, t = options([(O_FX, 2)])                # (SEL again: the first of them, DELAY)
+            fx_run("fx_next", keys + f",{t + 150}:8,{t + 200}:8^", t + 4200)   # (and time for the settings to be kept)
+            r = fx_run("fx_kept", "", 3200, note=1300)
+            # TRIO (modules/fxtrio): the three in one, by its MODE: deployed it is the CHORUS; KNOB1 two detents on
+            # its page: the DELAY (the page's lines are the effect's own words)
+            tc = fx_run("fx_trio", "", 6000, mod("fxtrio"), 4200)
+            nm = 1 + len(slots())
+            td = fx_run("fx_trio_delay", f"700:8,750:8^,900:e6:{nm + O_FX},1000:3,1050:3^,1200:e2:2,1400:8,1450:8^,1600:8,1650:8^",
+                        3900, note=2000)
+            m = re.search(r"worst \d+ \(([\d.]+) %\)", c[3])
+        check("effect", "effect on" in d[3] and d[1] > 0.15 * d[0] and d[2] == 0 and "effect on" in c[3] and c[2] > 200
+              and c[1] < 5 and o[1] < 5 and o[2] == 0 and o[0] > 1000 and "effect on" in r[3] and r[1] > 0.15 * r[0]
+              and tc[2] > 200 and tc[1] < 5 and td[1] > 0.15 * td[0] and td[2] == 0 and float(m.group(1)) < 15,
+              f"effects as add-ons: DELAY deployed is picked and repeats a note ({d[1]:.0f} of {d[0]:.0f} RMS 0.2 s after it ended); "
+              f"CHORUS deployed: left and right differ by {c[2]}; SEL on its page to OFF: the note as it is ({o[1]:.0f} after it, "
+              f"|L-R| {o[2]}); SEL again: DELAY, kept over a restart ({r[1]:.0f}); the chorus's block at worst {m.group(1)} %; TRIO: the chorus (|L-R| {tc[2]}), its MODE turned to DELAY: repeats ({td[1]:.0f})")
 
         res = {}
         for case, n in (("knobs_cc", 1), ("knobs_off", 0)):   # KNOBS CC: KNOB1 up 5 detents, KNOB2 down 3, slowly;

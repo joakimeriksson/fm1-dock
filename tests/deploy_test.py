@@ -39,6 +39,7 @@ import flashlib  # noqa: E402
 FWSC = SRC / "build" / "fm1-dock.fwsc"
 SINE = SRC / "build" / "modules" / "sine.dock"
 DT = (0x93000, 0x94000)
+SETTINGS = 0x95000                              # dock.c SETTINGS_AT
 NOTE = 21                                       # C4's key (14 + 7)
 failures = []
 
@@ -236,6 +237,21 @@ def main():
               f"a module written where code ran, three times within 30 s: a restart each, and the fourth build is in flash {got} "
               "and plays (the boot guard's USB rescue would have taken no third)")
 
+        # an effect deleted and deployed again to the flash it ran from: a restart too; the module before it plays after
+        fxd = SRC / "build" / "modules" / "fxdelay.dock"
+        if fxd.exists():
+            f9 = wd / "f9.bin"
+            e1, t1 = hbdeploy.din_script(variant("UNDERFX", 1), 1000)
+            e2, t2 = hbdeploy.din_script(fxd.read_bytes(), int(t1) + 4500)
+            t = int(t2) + 4500
+            e3, t3 = hbdeploy.din_script(fxd.read_bytes(), t + 1500)
+            out, log = live("shot", int(t3) + 6500, e1 + e2 + [f"{t}:m{hbdeploy.frame(hbdeploy.DELETE, 9, hbdeploy.name24('DELAY')).hex()}"] + e3 +
+                            [f"{int(t3) + 5500}:{NOTE}"], f9)
+            last = log.split(" boot, reset")[-1]
+            check("ran_effect", "code ran from that flash: restarting" in log and "effect on" in last
+                  and re.search(r"started 0*[1-9a-f][0-9a-f]*\n\s*\d+ UNDERFX", last) and peak(out) > 1000,
+                  "an effect deployed where its code ran: a restart, then it is on and the module before it plays")
+
         # a module's bank: CS-1's user presets, there after a reboot
         img = (SRC / "build" / "fm1-dock.bin").read_bytes()
         names = []
@@ -267,6 +283,34 @@ def main():
             kept = bytes(f6.read_bytes()[0xEA000:0xFC000]) == bytes(fl[0xEA000:0xFC000])
             check("bank_full", "bank not saved: no bank free" in log and "bank saved" not in log and kept,
                   "with no bank free CS-1's save is refused and logged (the screen: NOT SAVED), the banks as they were")
+
+            # the settings as 0.9 kept them (eight records, 2016 bytes), each with a record: read as they are, CS-1 starts; saved
+            # again (OCT+ on the list) the sector is still one 0.9 reads (its length, its CRC), with the same eight and the
+            # BLE's among them; a wrong CRC: the sine
+            f7 = wd / "f7.bin"
+            live("shot", 600, [], f7)
+            fl = bytearray(f7.read_bytes())
+            keys8 = [zlib.crc32(f"MODULE{r}".encode()) for r in range(7)] + [0x454C4248]
+            recs = b"".join(struct.pack("<II", k8, 24) + bytes([r + 1]) * 24 + bytes(216) for r, k8 in enumerate(keys8))
+            body = struct.pack("<IiIII", zlib.crc32(b"CS-1"), 0, 0, 0, 0) + recs
+            old = struct.pack("<III", 0x53425248, 12 + len(body), zlib.crc32(body)) + body
+            fl[SETTINGS:SETTINGS + 0x1000] = old + b"\xff" * (0x1000 - len(old))
+            f7.write_bytes(fl)
+            out, log = live("shot", 900, [], f7)
+            live("shot", 6500, ["900:8,2500:8^", "2800:1", "2850:1^", "3200:8", "3250:8^"], f7)   # (HOME held: the list; OCT+)
+            got = f7.read_bytes()[SETTINGS:SETTINGS + 0x1000]
+            mg, ln, crc = struct.unpack_from("<III", got)
+            kept = {struct.unpack_from("<I", got, 32 + 248 * r)[0]: got[32 + 248 * r + 8:][:24] for r in range(8)}
+            want8 = {k8: bytes([r + 1]) * 24 for r, k8 in enumerate(keys8)}
+            saved = got[:len(old)] != old
+            same = sum(kept.get(k8) == v8 for k8, v8 in want8.items())
+            fl[SETTINGS + 8] ^= 1                # (its CRC wrong)
+            f7.write_bytes(fl)
+            out, log2 = live("shot", 900, [], f7)
+            check("settings_old", f"started {idx:08x}" in log and saved and (mg, ln) == (0x53425248, 2016) and crc == zlib.crc32(got[12:2016])
+                  and same == 8 and kept.get(0x454C4248) == want8[0x454C4248] and "started 00000000" in log2 and f"started {idx:08x}" not in log2,
+                  f"0.9's settings are read (CS-1 starts); saved again: a sector 0.9 reads ({ln} B), {same} of its 8 records in it as they were, "
+                  "the radio's too; with a wrong CRC: the sine")
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")

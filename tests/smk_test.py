@@ -287,7 +287,7 @@ def main():
             """PADS `clicks` on from NOTES (K2... SCALE), then the events; -> the notes out, and the sine's peak"""
             fl = flash.with_name(f"pad{name}.bin")
             fl.write_bytes(base)
-            o = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 7}"]
+            o = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 8}"]
             for i in range(clicks):
                 o += [f"{2900 + 120 * i}:scale", f"{2950 + 120 * i}:scale^"]
             o += ["3900:patch", "3950:patch^"]
@@ -316,7 +316,7 @@ def main():
         # a chord held while MIDI CH changes ends on the channel it began on; with LOCAL OFF it sounds nothing here
         fl = flash.with_name("padch.bin")
         fl.write_bytes(base)
-        opt = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 7}", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^", "3900:patch", "3950:patch^"]
+        opt = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 8}", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^", "3900:patch", "3950:patch^"]
         live(5200, opt, fl)
         kept = fl.read_bytes()
         _, _, usb = live(5600, ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 2}", "2400:a8:700", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^",
@@ -330,7 +330,7 @@ def main():
         # in a synth with its own octave the chords follow it
         fl = flash.with_name("padoct.bin")
         fl.write_bytes(base)
-        live(5200, ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 7}", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^", "3900:patch", "3950:patch^"], fl)
+        live(5200, ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 8}", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^", "3900:patch", "3950:patch^"], fl)
         _, log, usb = live(5600, ["900:patch", "1000:patch^", "1400:e1:-40", "2300:e1:2", "2600:scale", "2700:scale^", "3600:octave-", "3700:octave-^",
                                   "4300:a8:700", "4700:a8:0"], fl, usb=[])
         check("pads octave", "started 00000001" in log and on(notes(usb)) == [("0", 36), ("0", 40), ("0", 43)],

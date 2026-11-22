@@ -10,12 +10,14 @@ export const CMD = { HELLO: 0x01, LIST: 0x02, INFO: 0x03, BEGIN: 0x10, DATA: 0x1
 export const STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed",
   "data missing", "not started", "not found", "bad message", "refused"];
 export const STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"];
-export const KIND = ["built in", "image", "deployed", "boot"];
+export const KIND = ["built in", "image", "deployed", "boot", "effect", "effect (image)"];   // (4, 5: effects, their places 0x80 up)
+// a module the player added (a synth, or an effect: hb_module.h "Effects"): it can be removed, and takes the add-ons' room
+export const isAdded = (m) => m.kind === "deployed" || m.kind === "effect";
 export const PROBE_STATE = ["none", "running", "done", "crashed", "hung"];
 const MAN = [0x7d, 0x48, 0x42];
 const CHUNK = 256;
 const HRBR_MAGIC = 0x52425248;
-const F_PROBE = 0x100, F_BOOT = 0x200;
+const F_PROBE = 0x100, F_BOOT = 0x200, F_FX = 0x800;
 const TICKS_PER_US = 24;
 
 const CRC_TAB = (() => {
@@ -93,7 +95,7 @@ export function moduleInfo(blob) {              // a .dock's header (hb_file_t),
   const flags = rd32(blob, 8);
   return { abi: rd32(blob, 4), flags, name: cstr(blob, 12, 36), version: rd32(blob, 36),
     code: rd32(blob, 40), data: rd32(blob, 44), bss: rd32(blob, 48), rt: rd32(blob, 52),
-    probe: !!(flags & F_PROBE), boot: !!(flags & F_BOOT) };
+    probe: !!(flags & F_PROBE), boot: !!(flags & F_BOOT), fx: !!(flags & F_FX) };
 }
 
 export const status = (d) => { const s = d.length ? d[0] : 10; return STATUS[s] || `status ${s}`; };
@@ -188,7 +190,8 @@ export class Dock {
     const d = await this.ask(CMD.HELLO);
     const w = (i) => rd32(d, 8 + 4 * i);
     // room: every add-on area's bytes, imageEnd: where the image's room starts (dock.c room); null from an fm1-dock before it
-    return { proto: d[1], abi: d[2], n: d[3], cur: d[4], receiving: d[5], largest: w(0), free: w(1),
+    // fx: the effects' ABI this fm1-dock takes (0: one before effects)
+    return { proto: d[1], abi: d[2], n: d[3], cur: d[4], receiving: d[5], fx: d[6], largest: w(0), free: w(1),
       maxFile: w(2), crashPc: w(3), crashModule: w(4), worst: w(5), overruns: w(6), logW: w(7), block: w(8),
       room: d.length >= 68 ? rd32(d, 60) : null, imageEnd: d.length >= 68 ? rd32(d, 64) : null };
   }

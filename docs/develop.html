@@ -82,6 +82,74 @@ python3 tools/hbmod.py modules/mysynth
       <li>The build refuses what would crash the chip: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/docs/RULES.md">RULES.md</a>.</li>
     </ul>
   </div>
+  <div class="dv-note" id="effect">
+    <h3>Or write an effect</h3>
+    <p>From fm1-dock 0.10 an add-on can also be an <b>effect</b>. It runs on what the playing synth renders, under
+      every synth, and the player picks it and sets its values under <b>OPTIONS &gt; EFFECT</b>. It is built, tested
+      and shared exactly like a synth; the difference is one line in <code>module.cfg</code> and a much smaller
+      interface.</p>
+    <pre class="code"><span class="c"># modules/fxtremolo/module.cfg</span>
+name = TREMOLO
+version = 1
+kind = effect</pre>
+    <p>The whole effect, <code>modules/fxtremolo/tremolo.c</code>:</p>
+    <pre class="code">#include "hb_module.h"
+
+static volatile uint32_t inc;                   /* the triangle's phase a sample (2^32 a turn) */
+static volatile int32_t depth;                  /* Q16 */
+static uint32_t ph;
+
+static int init(void) { return 0; }
+
+static void set(uint32_t k, int32_t v)          /* the main loop's: a value turned (or kept from before) */
+{
+    if (k == 0) inc = (uint32_t)v * 9739u;      /* v / 10 Hz: 2^32 / 44100 a Hz */
+    else depth = v * 65536 / 100;
+}
+
+static void run(int32_t *lr, uint32_t n)        /* the audio interrupt's: n frames, L R, in place */
+{
+    uint32_t i;
+    for (i = 0; i &lt; n; i++, ph += inc) {
+        uint32_t t = ph &gt;&gt; 15;
+        int32_t g;
+        if (t &gt; 65535u) t = 131071u - t;        /* a triangle, 0..65535 */
+        g = 65536 - (int32_t)(((int64_t)depth * (int32_t)t) &gt;&gt; 16);
+        lr[2 * i] = (int32_t)(((int64_t)lr[2 * i] * g) &gt;&gt; 16);
+        lr[2 * i + 1] = (int32_t)(((int64_t)lr[2 * i + 1] * g) &gt;&gt; 16);
+    }
+}
+
+static const hb_fx_param_t PARAMS[] = {
+    {"RATE", "/10 Hz", 1, 100, 40, 1},          /* name, unit, from, to, where it starts, a detent's step */
+    {"DEPTH", "%", 0, 100, 60, 1}};
+HB_FX = {HB_FX_ABI, "TREMOLO", 2, PARAMS, init, set, run};</pre>
+    <pre class="code">python3 tools/hbmod.py modules/fxtremolo        <span class="c"># -> build/modules/fxtremolo.dock</span>
+tools/dock.py deploy build/modules/fxtremolo.dock   <span class="c"># added, and picked as the effect at once</span></pre>
+    <ul class="mt-list">
+      <li><b>Three functions.</b> <code>init()</code> when the effect is picked (its RAM is cleared first),
+        <code>set(k, value)</code> for each of its values (once after <code>init()</code>, then whenever the player
+        turns one), and <code>run(block, frames)</code> in the audio interrupt: up to 256 stereo frames, each sample
+        within &plusmn;32767, changed in place.</li>
+      <li><b>Up to four values.</b> Each has a name, a unit, a range, a start and a step. fm1-dock draws the page,
+        puts them on KNOB1&ndash;4, and keeps them.</li>
+      <li><b>Its own 24 KiB of RAM.</b> The synth keeps all of its 272 KiB. No code in RAM, integers only, no call
+        into fm1-dock from <code>run()</code>.</li>
+      <li><b><code>set()</code> can be interrupted by <code>run()</code>.</b> Write each value as one word, as the
+        tremolo does, or prepare a set and flag it last, as <code>modules/fxdelay</code> does.</li>
+      <li><b>Keep it light.</b> Its time counts with the synth's. When the blocks run late with an effect on,
+        fm1-dock drops the effect (TOO SLOW) and the synth plays on.</li>
+      <li><b>One effect runs at a time.</b> To offer several kinds in one add-on, give it a MODE value:
+        <code>modules/fxtrio</code> is a chorus, a flanger or a delay that way. Its optional
+        <code>label()</code> and <code>show()</code> tell fm1-dock what a line is called in the current mode and how
+        its value reads ("FLANGER", "185 ms").</li>
+      <li><b>If it crashes</b>, that is charged to the effect, not to the synth: fm1-dock leaves it off until the
+        player picks it again or switches the unit off.</li>
+    </ul>
+    <p>More examples: <code>modules/fxchorus</code>, <code>fxflanger</code> and <code>fxdelay</code>, 40 to 80 lines
+      each. The interface is <code>hb_fx_t</code> in <code>firmware/dock/hb_module.h</code>, "Effects". In the
+      catalog an effect's entry has <code>"kind": "effect"</code>.</p>
+  </div>
 </section>
 
 <section id="test" class="dv-step" aria-labelledby="test-h">

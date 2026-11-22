@@ -264,6 +264,48 @@ typedef struct hb_probe {
 } hb_probe_t;
 #define HB_PROBE const hb_probe_t hb_module __attribute__((section(".hb_desc"), used))
 
+/* Effects: a module of another kind (hb_file_t.flags HB_F_FX, tools/hbmod.py `kind = effect`, modules/fx.ld). The
+ * host runs one effect on what the module playing renders, before the EQ, under whatever synth plays: OPTIONS,
+ * EFFECT picks it among those in the dock and shows its values. An effect is added and removed as a synth is (the
+ * page, tools/dock.py deploy / delete) and takes room in the same flash; it is not in the list of synths.
+ *
+ * It runs in place from flash and has a RAM of its own, HB_FX_RAM, 24 KiB of the host's: a synth keeps all of
+ * HB_MOD_RAM. No .ram_text. Its descriptor is an hb_fx_t at the start of its image:
+ *   init()   in the main loop when the effect is picked: its .data copied, its .bss cleared; 0: ready
+ *   set()    in the main loop: value k of its params (within min..max); once each after init(), then as the
+ *            player turns them. Make it safe against run(), which may interrupt it (one word written last)
+ *   run()    in the audio interrupt, after the synth's render: n frames (up to 256) interleaved L R, each
+ *            +-32767, changed in place. Integers; no host call; its time counts as the synth's: when the blocks
+ *            run late with an effect on, the host drops the effect first (TOO SLOW) and the synth plays on
+ * The host keeps each effect's values (the EFFECT record) and draws its page from params: up to HB_FX_PARAMS,
+ * each a name, a range, where it starts, its step a detent, and a unit ("%", "ms", "" ...).
+ * Two more, both optional (0: the params' name, the number and its unit), for an effect whose lines depend on
+ * one another (modules/fxtrio: a MODE, and what the other three are called in it), asked in the main loop when
+ * the page is drawn:
+ *   label()  value k's name now (0: params[k].name)
+ *   show()   value k's v as text into out, up to 11 characters and a 0 ("FLANGER", "185 ms") */
+#define HB_F_FX         0x800u                  /* hb_file_t.flags */
+#define HB_FX_ABI       1u
+#define HB_FX_RAM       0x01C1A000u             /* an effect's .data + .bss */
+#define HB_FX_RAM_SIZE  0x6000u
+#define HB_FX_PARAMS    4u
+typedef struct {
+    const char *name, *unit;
+    int16_t min, max, def, step;
+} hb_fx_param_t;
+typedef struct hb_fx {
+    uint32_t abi;                               /* HB_FX_ABI */
+    const char *name;
+    uint32_t n_params;                          /* 0..HB_FX_PARAMS */
+    const hb_fx_param_t *params;
+    int (*init)(void);
+    void (*set)(uint32_t k, int32_t v);
+    void (*run)(int32_t *lr, uint32_t n);
+    const char *(*label)(uint32_t k);
+    void (*show)(uint32_t k, int32_t v, char *out);
+} hb_fx_t;
+#define HB_FX const hb_fx_t hb_module __attribute__((section(".hb_desc"), used))
+
 /* (0.9 and before: the boot slot, a whole firmware fm1-dock started at power-on, flagged HB_F_BOOT; removed. A file
  * with these flags is refused, and a table entry for one is forgotten) */
 #define HB_F_BOOT       0x200u                  /* hb_file_t.flags */
