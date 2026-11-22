@@ -75,7 +75,7 @@ static void run(int32_t *o, uint32_t n)
         const uint32_t len = c_run.len;
         for (i = 0; i < n; i++) {
             int32_t l = o[2 * i], r = o[2 * i + 1], y;
-            lp += ((((l + r) >> 1) - lp) * 39321) >> 16;        /* about 6 kHz: the line runs at half the rate */
+            lp += q16(((l + r) >> 1) - lp, 39321);        /* about 6 kHz: the line runs at half the rate */
             if (!odd) {
                 uint32_t rd = w >= len ? w - len : w + N - len;
                 y0 = y1;

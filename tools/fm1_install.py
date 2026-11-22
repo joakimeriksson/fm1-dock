@@ -471,7 +471,7 @@ def addons_in_the_way(link, image):
     mods = dock_list(link) or []
     end = image_end(image)
     link.drain()
-    return [name for name, kind, at in mods if kind == 2 and 0x4000 <= at - 0x02000000 + 0x4000 < end]
+    return [name for name, kind, at in mods if kind in (2, 4) and 0x4000 <= at - 0x02000000 + 0x4000 < end]
 
 
 # ------------------------------------------------------------------- CLI ---

@@ -44,7 +44,7 @@ static void run(int32_t *o, uint32_t n)
     len = d_c.len; fb = d_c.fb; wet = d_c.wet; dry = d_c.dry;
     for (i = 0; i < n; i++) {
         int32_t l = o[2 * i], r = o[2 * i + 1], y;
-        lp += ((((l + r) >> 1) - lp) * 39321) >> 16;            /* about 6 kHz: the line runs at half the rate */
+        lp += q16(((l + r) >> 1) - lp, 39321);            /* about 6 kHz: the line runs at half the rate */
         if (!d_odd) {                           /* a sample of the line every other frame */
             uint32_t rd = w >= len ? w - len : w + D_N - len;
             y0 = y1;

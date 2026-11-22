@@ -252,21 +252,33 @@ def main():
             check("bank_full", "bank not saved: no bank free" in log and "bank saved" not in log and kept,
                   "with no bank free CS-1's save is refused and logged (the screen: NOT SAVED), the banks as they were")
 
-            # the settings as 0.9 kept them (eight records, 2016 bytes): read as they are, CS-1 starts again; a
-            # record made up is not (the sine)
+            # the settings as 0.9 kept them (eight records, 2016 bytes), each with a record: read as they are, CS-1 starts; saved
+            # again (OCT+ on the list) the sector is still one 0.9 reads (its length, its CRC), with the same eight and the
+            # BLE's among them; a wrong CRC: the sine
             f7 = wd / "f7.bin"
             live("shot", 600, [], f7)
             fl = bytearray(f7.read_bytes())
-            body = struct.pack("<IiIII", zlib.crc32(b"CS-1"), 0, 0, 0, 0) + bytes(8 * 248)
+            keys8 = [zlib.crc32(f"MODULE{r}".encode()) for r in range(7)] + [0x454C4248]
+            recs = b"".join(struct.pack("<II", k8, 24) + bytes([r + 1]) * 24 + bytes(216) for r, k8 in enumerate(keys8))
+            body = struct.pack("<IiIII", zlib.crc32(b"CS-1"), 0, 0, 0, 0) + recs
             old = struct.pack("<III", 0x53425248, 12 + len(body), zlib.crc32(body)) + body
             fl[SETTINGS:SETTINGS + 0x1000] = old + b"\xff" * (0x1000 - len(old))
             f7.write_bytes(fl)
             out, log = live("shot", 900, [], f7)
+            live("shot", 6500, ["900:8,2500:8^", "2800:1", "2850:1^", "3200:8", "3250:8^"], f7)   # (HOME held: the list; OCT+)
+            got = f7.read_bytes()[SETTINGS:SETTINGS + 0x1000]
+            mg, ln, crc = struct.unpack_from("<III", got)
+            kept = {struct.unpack_from("<I", got, 32 + 248 * r)[0]: got[32 + 248 * r + 8:][:24] for r in range(8)}
+            want8 = {k8: bytes([r + 1]) * 24 for r, k8 in enumerate(keys8)}
+            saved = got[:len(old)] != old
+            same = sum(kept.get(k8) == v8 for k8, v8 in want8.items())
             fl[SETTINGS + 8] ^= 1                # (its CRC wrong)
             f7.write_bytes(fl)
             out, log2 = live("shot", 900, [], f7)
-            check("settings_old", f"started {idx:08x}" in log and "started 00000000" in log2 and f"started {idx:08x}" not in log2,
-                  "0.9's settings (eight records) are read as they are: CS-1 starts; with a wrong CRC: the sine")
+            check("settings_old", f"started {idx:08x}" in log and saved and (mg, ln) == (0x53425248, 2016) and crc == zlib.crc32(got[12:2016])
+                  and same >= 7 and kept.get(0x454C4248) == want8[0x454C4248] and "started 00000000" in log2 and f"started {idx:08x}" not in log2,
+                  f"0.9's settings are read (CS-1 starts); saved again: a sector 0.9 reads ({ln} B), {same} of its 8 records in it as they were, "
+                  "the radio's too; with a wrong CRC: the sine")
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")

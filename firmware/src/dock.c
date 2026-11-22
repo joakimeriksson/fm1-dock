@@ -272,6 +272,10 @@ static uint32_t name_key(const char *s)
     return crc_upd(0, (const uint8_t *)s, n);
 }
 
+static int fx_fits(const hb_file_t *f)           /* an effect's RAM, and no code in RAM */
+{
+    return f->data_size <= HB_FX_RAM_SIZE && f->bss_size <= HB_FX_RAM_SIZE - f->data_size && !f->rt_size;
+}
 static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /* in flash [lo, hi) */
 {
     const hb_file_t *f = (const hb_file_t *)sl->at;
@@ -286,7 +290,7 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
         f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : HB_DESC_MIN) > f->code_size || (f->desc & 3u))
         return M_BAD_HEAD;
     if (f->flags & HB_F_FX) {                   /* an effect: its own RAM, no code in RAM */
-        if (f->data_size + f->bss_size > HB_FX_RAM_SIZE || f->rt_size)
+        if (!fx_fits(f))
             return M_TOO_BIG;
     } else if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
         return M_TOO_BIG;
@@ -297,7 +301,12 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
         return M_BAD_CRC;
     if (f->flags & HB_F_FX) {
         const hb_fx_t *x = (const hb_fx_t *)(f->base + f->desc);
-        return x->abi == HB_FX_ABI && x->n_params <= HB_FX_PARAMS && x->init && x->set && x->run ? M_OK : M_BAD_HEAD;
+        uint32_t lo = f->base, hi = f->base + f->code_size, pa = (uint32_t)x->params;
+#define FX_IN(p) ((uint32_t)(p) >= lo && (uint32_t)(p) < hi)
+        return x->abi == HB_FX_ABI && x->n_params <= HB_FX_PARAMS && FX_IN(x->init) && FX_IN(x->set) && FX_IN(x->run) &&
+               (!x->label || FX_IN(x->label)) && (!x->show || FX_IN(x->show)) &&
+               (!x->n_params || (FX_IN(pa) && hi - pa >= x->n_params * sizeof(hb_fx_param_t) && !(pa & 3u))) ? M_OK : M_BAD_HEAD;
+#undef FX_IN
     }
     if (((const hb_module_t *)(f->base + f->desc))->abi != HB_ABI)
         return M_BAD_HEAD;
@@ -427,27 +436,44 @@ typedef struct {
 static st_t st;
 static uint32_t st_dirty, st_changed;
 
+#define BLE_KEY 0x454C4248u                     /* "HBLE": BLE-MIDI's record (ble_rec), never a module's key */
+/* In flash: the record 0.9 and before have, as they have it (the first ST_RECS_OLD module records, its own length and
+ * CRC: going back to one of them keeps it), then the further records with a CRC of theirs, in the same sector. */
+#define ST_OLD ((uint32_t)__builtin_offsetof(st_t, rec) + ST_RECS_OLD * (uint32_t)sizeof(st_rec_t))
+#define ST_EXT_MAGIC 0x58425248u                /* "HRBX" */
 static void store_load(void)
 {
-    uint32_t h[3];
+    uint32_t h[3], x[2];
     memset(&st, 0, sizeof st);
-    if (flash_ok && !st_read(SETTINGS_AT, h, sizeof h) && h[0] == ST_MAGIC &&
-        (h[1] == sizeof st || h[1] == sizeof st - (ST_RECS - ST_RECS_OLD) * sizeof(st_rec_t)) &&
-        !st_read(SETTINGS_AT, &st, h[1]) &&
-        crc_upd(0, (const uint8_t *)&st + 12, h[1] - 12u) == st.crc)
-        return;                                 /* (the shorter one: the further records empty) */
+    if (flash_ok && !st_read(SETTINGS_AT, h, sizeof h) && h[0] == ST_MAGIC && h[1] == ST_OLD &&
+        !st_read(SETTINGS_AT, &st, ST_OLD) && crc_upd(0, (const uint8_t *)&st + 12, ST_OLD - 12u) == st.crc) {
+        if (st_read(SETTINGS_AT + ST_OLD, x, sizeof x) || x[0] != ST_EXT_MAGIC ||
+            st_read(SETTINGS_AT + ST_OLD + 8u, &st.rec[ST_RECS_OLD], sizeof st - ST_OLD) ||
+            crc_upd(0, (const uint8_t *)&st.rec[ST_RECS_OLD], sizeof st - ST_OLD) != x[1])
+            memset(&st.rec[ST_RECS_OLD], 0, sizeof st - ST_OLD);   /* (0.9's, or none) */
+        return;
+    }
     memset(&st, 0, sizeof st);
 }
 static void store_flush(void)
 {
-    uint32_t took;
+    uint32_t took, i, x[2];
+    for (i = ST_RECS_OLD; i < ST_RECS; i++)     /* the radio's (its trims: maybe the only copy) where 0.9 reads it too */
+        if (st.rec[i].key == BLE_KEY) {
+            static st_rec_t t;
+            t = st.rec[i]; st.rec[i] = st.rec[ST_RECS_OLD - 1u]; st.rec[ST_RECS_OLD - 1u] = t;
+        }
     st.magic = ST_MAGIC;
-    st.len = sizeof st;
-    st.crc = crc_upd(0, (const uint8_t *)&st + 12, sizeof st - 12u);
+    st.len = ST_OLD;
+    st.crc = crc_upd(0, (const uint8_t *)&st + 12, ST_OLD - 12u);
+    x[0] = ST_EXT_MAGIC;
+    x[1] = crc_upd(0, (const uint8_t *)&st.rec[ST_RECS_OLD], sizeof st - ST_OLD);
     st_dirty = 0;
     if (!flash_ok || fl_erase4k(SETTINGS_AT, &took))
         return;
-    if (!fl_write(SETTINGS_AT + 12u, (const uint8_t *)&st + 12, sizeof st - 12u))
+    if (!fl_write(SETTINGS_AT + ST_OLD + 8u, (const uint8_t *)&st.rec[ST_RECS_OLD], sizeof st - ST_OLD) &&
+        !fl_write(SETTINGS_AT + ST_OLD, (const uint8_t *)x, sizeof x) &&
+        !fl_write(SETTINGS_AT + 12u, (const uint8_t *)&st + 12, ST_OLD - 12u))
         fl_write(SETTINGS_AT, (const uint8_t *)&st, 12u);   /* the header last: a cut save stays invalid */
     hb_log("settings saved");
 }
@@ -580,7 +606,6 @@ static void knobs_cc(const hb_module_t *m, uint32_t ch, uint32_t local)
     }
 }
 
-#define BLE_KEY 0x454C4248u                     /* "HBLE": BLE-MIDI's record (ble_rec), never a module's key */
 #define HFX_KEY 0x58464248u                     /* "HBFX": the effects' record (hfx_rec_t), never a module's */
 static int rec_load(uint32_t k, void *p, uint32_t n)
 {
@@ -2067,9 +2092,17 @@ static uint32_t d_commit(uint32_t *key)
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     isz = f->code_size + f->data_size + f->rt_size;
     total = io + isz;
-    if (total > rx.size || isz < 4u || f->desc + HB_DESC_MIN > f->code_size || (f->desc & 3u))
+    if (total > rx.size || isz < 4u || (f->desc & 3u) ||
+        f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : HB_DESC_MIN) > f->code_size)
         return D_BAD_HEAD;
-    if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
+    if (f->flags & HB_F_FX) {                   /* an effect: its own limits, and a place in their list */
+        uint32_t k = name_key(f->name);
+        for (i = 0; i < n_fx && fxm[i].key != k; i++) ;
+        if (!fx_fits(f))
+            return D_TOO_BIG;
+        if (i == FX_SLOTS)
+            return D_NO_SPACE;
+    } else if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
         return D_TOO_BIG;
     img = RX_BUF + io;
     if (crc_upd(crc_upd(crc_upd(0, RX_BUF, (uint32_t)((uint8_t *)&f->crc - RX_BUF)), (const uint8_t *)rel,
@@ -2453,6 +2486,7 @@ static uint32_t deploy_frame(void)
                 back = rx.prev_key;
                 hfx.sel = key;
                 fx_held = fx_shed = 0;
+                if (hb_nv.crash.module == FX_ACTIVE) hb_nv.crash.module = 0;   /* (as fx_pick: the fault before is answered) */
                 hfx_keep();
             }
             rx_end(st_);
