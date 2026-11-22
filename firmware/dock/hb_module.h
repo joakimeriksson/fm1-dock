@@ -159,6 +159,13 @@ typedef struct hb_host {
 enum { HB_BOARD_FM1 = 0, HB_BOARD_SMK37 = 1 };
 /* the host has field f of hb_host_t (an older one ends before it) */
 #define HB_HOST_HAS(h, f) ((h)->size >= (uint32_t)(__builtin_offsetof(hb_host_t, f) + sizeof (h)->f))
+/* the note a panel module's key 0 plays now, told to the host (an older one has no use for it): from draw(), every
+ * pass, so an SMK-37's outer keys follow the module's own OCT buttons at once */
+static inline void hb_key0(const hb_host_t *h, int32_t note)
+{
+    if (HB_HOST_HAS(h, key_base) && note > 0 && note < 128)
+        h->key_base((uint32_t)note);
+}
 #define HB_BANK_MAX 8176u
 #define HB_BANK_IDX_MAX 255u
 

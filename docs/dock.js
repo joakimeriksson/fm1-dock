@@ -225,9 +225,9 @@ export class Dock {
     return out;
   }
 
-  async log() {
+  async log(since = 0) {                        // its last 2 KiB, or from the byte count since on
     const h = await this.hello();
-    let from = Math.max(0, h.logW - 2048);
+    let from = Math.max(since, h.logW - 2048, 0);
     const bytes = [];
     while (from < h.logW) {
       const d = await this.ask(CMD.LOG, Uint8Array.from(u32(from)));
@@ -260,9 +260,17 @@ export class Dock {
     }
     if (run) return run();
     progress(1, "writing the flash…");
-    d = await this.ask(CMD.COMMIT, new Uint8Array(0), { timeout: 30000, tries: 1 });
+    const logAt = (await this.hello()).logW;
+    try {
+      d = await this.ask(CMD.COMMIT, new Uint8Array(0), { timeout: this.commitWait || 30000, tries: 1 });
+    } catch (e) {                               // (its answer was lost: the unit's log says what came of it)
+      if (!(await this.log(logAt)).text.includes("deploy: done")) throw e;
+      return { at: 0, info, restarting: false };
+    }
     if (d[0]) throw new Error(`${info.name}: ${status(d)} (at COMMIT)`);
-    return { at: rd32(d, 4), info };
+    // restarting: it was written where code ran since power-on, and the unit restarts to run it (dock.c ran_map):
+    // the caller waits before it asks the device anything
+    return { at: rd32(d, 4), info, restarting: d[2] === 1 };
   }
 
   // ---- the modules' banks (their user presets; dock.c "the banks from the computer", tools/hbdeploy.py)

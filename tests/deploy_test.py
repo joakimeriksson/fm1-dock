@@ -18,6 +18,7 @@ the Nth erase / program).
 The test module (tests/modules/slow) is built here with tools/hbmod.py (JIELI_TOOLCHAIN)."""
 import argparse
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -220,6 +221,37 @@ def main():
               and peak(out) > 1000, f"a module 1.5 blocks slow is stopped {stop[0] - t if stop else '-'} ms after it got slow; "
               "the sine plays the next key")
 
+        # written where code ran since power-on (dock.c ran_map): the unit restarts to run it. Three times in a row,
+        # each well within the boot guard's 30 s: a start every time, never the USB rescue
+        f8 = wd / "f8.bin"
+        keys, t = [], 1000
+        for v in (1, 2, 3, 4):
+            e, tc = hbdeploy.din_script(variant("RANHERE", v), t)
+            t = int(tc) + 4500                  # (the write, the restart, the start)
+            keys += e + ([f"{t}:m{hbdeploy.frame(hbdeploy.DELETE, 9, hbdeploy.name24('RANHERE')).hex()}"] if v < 4 else [])
+            t += 1500
+        out, log = live("shot", t + 600, keys + [f"{t}:{NOTE}"], f8)
+        got = [x[:2] for x in table(f8.read_bytes())]   # (the log keeps 2 KiB: the last starts only)
+        check("ran_restart", got == [("RANHERE", 4)] and "code ran from that flash: restarting" in log
+              and re.search(r"started 0*[1-9a-f][0-9a-f]*\n\s*\d+ RANHERE", log.split(" boot, reset")[-1]) and peak(out) > 1000,
+              f"a module written where code ran, three times within 30 s: a restart each, and the fourth build is in flash {got} "
+              "and plays (the boot guard's USB rescue would have taken no third)")
+
+        # an effect deleted and deployed again to the flash it ran from: a restart too; the module before it plays after
+        fxd = SRC / "build" / "modules" / "fxdelay.dock"
+        if fxd.exists():
+            f9 = wd / "f9.bin"
+            e1, t1 = hbdeploy.din_script(variant("UNDERFX", 1), 1000)
+            e2, t2 = hbdeploy.din_script(fxd.read_bytes(), int(t1) + 4500)
+            t = int(t2) + 4500
+            e3, t3 = hbdeploy.din_script(fxd.read_bytes(), t + 1500)
+            out, log = live("shot", int(t3) + 6500, e1 + e2 + [f"{t}:m{hbdeploy.frame(hbdeploy.DELETE, 9, hbdeploy.name24('DELAY')).hex()}"] + e3 +
+                            [f"{int(t3) + 5500}:{NOTE}"], f9)
+            last = log.split(" boot, reset")[-1]
+            check("ran_effect", "code ran from that flash: restarting" in log and "effect on" in last
+                  and re.search(r"started 0*[1-9a-f][0-9a-f]*\n\s*\d+ UNDERFX", last) and peak(out) > 1000,
+                  "an effect deployed where its code ran: a restart, then it is on and the module before it plays")
+
         # a module's bank: CS-1's user presets, there after a reboot
         img = (SRC / "build" / "fm1-dock.bin").read_bytes()
         names = []
@@ -276,7 +308,7 @@ def main():
             f7.write_bytes(fl)
             out, log2 = live("shot", 900, [], f7)
             check("settings_old", f"started {idx:08x}" in log and saved and (mg, ln) == (0x53425248, 2016) and crc == zlib.crc32(got[12:2016])
-                  and same >= 7 and kept.get(0x454C4248) == want8[0x454C4248] and "started 00000000" in log2 and f"started {idx:08x}" not in log2,
+                  and same == 8 and kept.get(0x454C4248) == want8[0x454C4248] and "started 00000000" in log2 and f"started {idx:08x}" not in log2,
                   f"0.9's settings are read (CS-1 starts); saved again: a sector 0.9 reads ({ln} B), {same} of its 8 records in it as they were, "
                   "the radio's too; with a wrong CRC: the sine")
     finally:

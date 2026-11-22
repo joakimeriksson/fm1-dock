@@ -222,6 +222,120 @@ def main():
         bends = [m.hex() for m in usb if m[0] == 0xE0]
         check("bend", "e07f7f" in bends and bends[-1:] == ["e00040"], f"the pitch wheel: full up, then the centre ({len(bends)} bends)")
 
+        print("the outer keys beside the middle ones")
+        # LOCAL OFF (OPTIONS): the outer keys send MIDI and the sine is silent, as with a middle key
+        loc = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 3}", "2900:scale", "2950:scale^", "3200:patch", "3250:patch^"]   # (a click is lost to the list's opening)
+        for name, key in (("outer", "k0"), ("middle", "k12")):
+            fl = flash.with_name(f"loc{key}.bin")
+            fl.write_bytes(base)
+            o, _, usb = live(4600, loc + [f"3900:{key}@100"], fl, usb=[])
+            on = [n for n in notes(usb) if n.startswith("90")]
+            check(f"local off {name}", peak(o) < 50 and len(on) == 1, f"LOCAL OFF: {key} sends {on} and the sine stays silent (peak {peak(o)})")
+        # a synth's own OCTAVE buttons (it tells its octave: hb_key0): the outer C3 follows at once, no middle key
+        # played first, to the synth's own limit; then a middle C5 beside it, two octaves above
+        for name, n in (("CS-1", 2), ("OBERVAVE", 4)):
+            pk = ["900:patch", "1000:patch^", "1400:e1:-40", f"2300:e1:{n}", "2600:scale", "2700:scale^"]
+            got = {}
+            for steps in (0, -1, -2, -3, 1, 2):
+                fl = flash.with_name(f"oct{n}{steps}.bin")
+                fl.write_bytes(base)
+                t, ks = 6000, []                # (OberVave starts late: its banks)
+                for _ in range(abs(steps)):
+                    b = "octave+" if steps > 0 else "octave-"
+                    ks += [f"{t}:{b}", f"{t + 80}:{b}^"]
+                    t += 250
+                _, log, usb = live(t + 1500, pk + ks + [f"{t + 200}:k0@100", f"{t + 350}:k0^", f"{t + 700}:k24@100", f"{t + 850}:k24^"], fl, usb=[])
+                got[steps] = [int(x[2:4], 16) for x in notes(usb) if x[0] == "9" and x[4:] != "00"]
+            want = {k: [48 + 12 * max(k, -2), 72 + 12 * max(k, -2)] for k in got}
+            check(f"octave {name}", f"started {n - 1:08x}" in log and got == want, f"C3 and C5 by OCTAVE steps: {got}")
+        # LOCAL OFF under CS-1, whose OCTAVE buttons are its own: what the keys send follows them, middle and outer
+        got = {}
+        for steps in (0, 1):
+            fl = flash.with_name(f"lo{steps}.bin")
+            fl.write_bytes(base)
+            live(5500, loc, fl)                 # (LOCAL OFF from the sine's list, kept)
+            pk = ["900:patch", "1000:patch^", "1400:e1:-40", "2300:e1:2", "2600:scale", "2700:scale^"]
+            _, log, usb = live(5600, pk + (["3600:octave-", "3700:octave-^"] if steps else []) +
+                               ["4200:k24@100", "4350:k24^", "4700:k0@100", "4850:k0^"], fl, usb=[])
+            got[steps] = [int(x[2:4], 16) for x in notes(usb) if x[0] == "9" and x[4:] != "00"]
+        check("local off octave", "started 00000001" in log and got == {0: [72, 48], 1: [60, 36]},
+              f"LOCAL OFF in CS-1: C5 and C3 send {got[0]}; after its OCTAVE-: {got[1]}")
+        # MIDI CH 2: the outer keys send on it too, as the middle ones
+        fl = flash.with_name("ch.bin")
+        fl.write_bytes(base)
+        ch = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 2}", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^", "3300:patch", "3350:patch^"]
+        _, _, usb = live(4700, ch + ["3900:k0@100", "4050:k0^", "4300:k12@100", "4450:k12^"], fl, usb=[])
+        on = [n[:4] for n in notes(usb) if n.startswith("9")]
+        check("channel", on == ["9130", "913c"], f"MIDI CH 2: C3 and a middle key both on channel 2 ({on})")
+
+        # a synth sends its own keys on its own channel (CS-1: 1), whatever MIDI CH is: the outer keys with them
+        live(5500, ch, fl)
+        _, log, usb = live(5600, ["900:patch", "1000:patch^", "1400:e1:-40", "2300:e1:2", "2600:scale", "2700:scale^", "4000:k24@100", "4150:k24^",
+                                  "4500:k0@100", "4650:k0^"], fl, usb=[])
+        on = [n[:4] for n in notes(usb) if n.startswith("9")]
+        check("channel CS-1", "started 00000001" in log and on == ["9048", "9030"], f"MIDI CH 2 in CS-1: a middle key and C3 on one channel ({on})")
+        # an outer key held while MIDI CH changes ends on the channel it began on
+        fl2 = flash.with_name("ch2.bin")
+        fl2.write_bytes(base)
+        _, _, usb = live(5600, ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 2}", "2500:k0@100", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^",
+                                "3900:k0^", "4300:patch", "4350:patch^"], fl2, usb=[])
+        ns = [n[:4] for n in notes(usb)]
+        check("channel held", ns == ["9030", "8030"], f"C3 held while MIDI CH goes to 2: {ns}")
+
+        print("the pads (OPTIONS, PADS)")
+        def pads(name, clicks, ev, ms=6200):
+            """PADS `clicks` on from NOTES (K2... SCALE), then the events; -> the notes out, and the sine's peak"""
+            fl = flash.with_name(f"pad{name}.bin")
+            fl.write_bytes(base)
+            o = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 8}"]
+            for i in range(clicks):
+                o += [f"{2900 + 120 * i}:scale", f"{2950 + 120 * i}:scale^"]
+            o += ["3900:patch", "3950:patch^"]
+            out_, _, usb = live(ms, o + ev, fl, usb=[])
+            return [n for n in notes(usb)], peak(out_)
+        hit = lambda a, t, t2: [f"{t}:a{a}:700", f"{t2}:a{a}:0"]
+        on = lambda ns: [(n[1], int(n[2:4], 16)) for n in ns if n[0] == "9" and n[4:] != "00"]
+        off = lambda ns: [(n[1], int(n[2:4], 16)) for n in ns if n[0] == "8"]
+        ns, _ = pads("notes", 0, hit(8, 4300, 4600))
+        check("pads notes", on(ns) == [("9", 36)] and off(ns) == [("9", 36)], f"NOTES, as before: the bottom left pad: {ns}")
+        ns, pk = pads("off", 1, hit(8, 4300, 6100))
+        check("pads off", ns == [] and pk < 50, f"OFF: nothing sent, nothing sounds ({ns}, peak {pk})")
+        ns, _ = pads("c", 2, hit(8, 4300, 4600) + hit(13, 5000, 5300) + hit(4, 5600, 5900))
+        check("pads chords", on(ns) == [("0", x) for x in (48, 52, 55, 57, 60, 64, 55, 59, 62, 65)] and sorted(off(ns)) == sorted(on(ns)),
+              f"CHORDS C: C (48 52 55), the 6th Am (57 60 64), the top row's 5th G7 (55 59 62 65): {[x for _, x in on(ns)]}, all let go")
+        ns, _ = pads("d", 4, hit(8, 4300, 4600))
+        check("pads key", on(ns) == [("0", 50), ("0", 54), ("0", 57)], f"CHORDS D: D F# A ({[x for _, x in on(ns)]})")
+        # two pads that share notes (C: 48 52 55; Em: 52 55 59): every note-on has its note-off, the shared ones sound until
+        # the second pad is let go
+        ns, _ = pads("share", 2, ["4300:a8:700", "4700:a10:700", "5100:a8:0", "5600:a10:0"])
+        seq = [(n[0], int(n[2:4], 16)) for n in ns]
+        up1 = seq.index(("8", 48))
+        check("pads shared", all(seq.count(("9", x)) == seq.count(("8", x)) for x in (48, 52, 55, 59)) and seq.count(("9", 52)) == 2
+              and seq[up1:].count(("8", 52)) == 1 and seq[-1][0] == "8" and {x for _, x in seq[up1 + 1:]} == {52, 55, 59},
+              f"C then Em, C let go first: {' '.join(a + ':' + str(b) for a, b in seq)}")
+        # a chord held while MIDI CH changes ends on the channel it began on; with LOCAL OFF it sounds nothing here
+        fl = flash.with_name("padch.bin")
+        fl.write_bytes(base)
+        opt = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 8}", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^", "3900:patch", "3950:patch^"]
+        live(5200, opt, fl)
+        kept = fl.read_bytes()
+        _, _, usb = live(5600, ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 2}", "2400:a8:700", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^",
+                                "3900:a8:0", "4300:patch", "4350:patch^"], fl, usb=[])
+        ns = [n[:4] for n in notes(usb)]
+        check("pads held", sorted(ns) == sorted(["9030", "9034", "9037", "8030", "8034", "8037"]), f"a chord held while MIDI CH goes to 2: {ns}")
+        fl.write_bytes(kept)
+        live(5500, loc, fl)
+        o, _, usb = live(3000, ["1500:a8:700"], fl, usb=[])
+        check("pads local off", len([n for n in notes(usb) if n[0] == "9"]) == 3 and peak(o) < 50, f"LOCAL OFF: the chord goes out, the sine is silent (peak {peak(o)})")
+        # in a synth with its own octave the chords follow it
+        fl = flash.with_name("padoct.bin")
+        fl.write_bytes(base)
+        live(5200, ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 8}", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^", "3900:patch", "3950:patch^"], fl)
+        _, log, usb = live(5600, ["900:patch", "1000:patch^", "1400:e1:-40", "2300:e1:2", "2600:scale", "2700:scale^", "3600:octave-", "3700:octave-^",
+                                  "4300:a8:700", "4700:a8:0"], fl, usb=[])
+        check("pads octave", "started 00000001" in log and on(notes(usb)) == [("0", 36), ("0", 40), ("0", 43)],
+              f"kept over a restart; CS-1 an octave down: the C chord an octave down ({on(notes(usb))})")
+
         print("CS-1's velocity")
         pick = ["900:patch", "1000:patch^", "1400:e1:2", "1900:scale", "2000:scale^"]
         soft = peak(live(2900, pick + ["2400:k12@15"], flash)[0])

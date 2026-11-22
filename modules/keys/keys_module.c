@@ -9,7 +9,8 @@
  *   - the velocity: the hammer (its contact time, so the brightness) and the level, in all three;
  *   - the voices: up to NVOICE with the second core (half of them on it), NV_1 on core 0 alone; a key struck again
  *     strikes its string (or tine) again, as it still rings;
- *   - the piano's soundboard: three wide resonances after its voices, on the part.
+ *   - the piano's soundboard: what the bridge's motion radiates (a shelf: more of what moves fast, from ~200 Hz to
+ *     ~2 kHz) and three wide resonances, after its voices, on the part.
  * The keys, MIDI and edits come in from the main loop and are played at the start of the next render, in order. */
 #include "hb_module.h"
 #include "keys_dsp.h"
@@ -31,7 +32,9 @@ typedef struct {
     float x[4], gain;
 } preset_t;
 /* CLAV x: second pickup (+1 in phase, -1 out of phase), resonance, envelope depth (octaves), band-pass;
- * E.PIANO x: bell, hammer hardness, bark, the tone bar's beat (Hz); PIANO x: detune (cents), stiffness */
+ * E.PIANO x: bell, hammer hardness, bark, the tone bar's beat (Hz); PIANO x: detune (cents), stiffness.
+ * PIANO's knobs: TONE what the string's high partials lose, DECAY the bridge's weight (a heavy one takes less),
+ * HARDNESS the felt's; GRAND's values are the model's own, the other two move from them */
 static const preset_t PRESETS[] = {
     {"CLAV BRIGHT", FAM_CLAV, {92, 64, 30, 96}, {-0.5f, 0.05f, 1.0f, 0.0f}, 1.4f},
     {"CLAV MELLOW", FAM_CLAV, {54, 64, 92, 96}, {0.0f, 0.10f, 0.6f, 0.0f}, 1.75f},
@@ -232,6 +235,7 @@ static km_svf_t sb[3];
 static const float SB_F[3] = {95.0f, 240.0f, 720.0f}, SB_Q[3] = {1.6f, 1.8f, 1.4f}, SB_G[3] = {0.9f, 0.7f, 0.45f};
 static km_dc_t dc;
 static float sb_lvl;                            /* the piano bus's recent level: the soundboard runs while it rings */
+static float sh_x, sh_y;                        /* the radiation shelf: a zero at 0.97 (210 Hz), a pole at 0.75 (2 kHz) */
 
 static void part_block(int32_t *out, uint32_t n)
 {
@@ -278,7 +282,11 @@ static void part_block(int32_t *out, uint32_t n)
         }
         if (pk > 1e-5f || sb_lvl > 1e-5f) {
             for (i = 0; i < n; i++) {
-                float x = bus0[1][i], y = x, lp, bp;
+                float x = bus0[1][i], y, lp, bp;
+                y = x - 0.97f * sh_x + 0.75f * sh_y;
+                sh_x = x;
+                sh_y = y;
+                x = y;
                 for (k = 0; k < 3u; k++) {
                     km_svf_lp_bp(&sb[k], x, &lp, &bp);
                     y += SB_G[k] * bp;

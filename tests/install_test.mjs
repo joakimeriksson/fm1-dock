@@ -7,7 +7,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { checkPackage, packageDamage, logicalImage, productOf, installOn, entryFor, addModule, playTune, tuneSteps,
   inspectDevice, removeModule, packageEnd, backupPresets, restorePresets, deletePresets } from "../docs/install/fm1install.js";
 import { pack7, unpack7, Updater, sameKeyboard } from "../docs/install/fm1ota.js";
-import { frame, parse, moduleInfo, crc32, CMD, hbkPack, hbkUnpack } from "../docs/dock.js";
+import { Dock, frame, parse, moduleInfo, crc32, CMD, hbkPack, hbkUnpack } from "../docs/dock.js";
 
 let failed = 0;
 const ok = (c, what) => { console.log(`${c ? "ok  " : "FAIL"} ${what}`); if (!c) failed++; };
@@ -395,6 +395,24 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
   ok(seen.dock.hello.fx === 1 && fx && fx.kind === "effect" && fx.index === 0x80 && seen.dock.modules.length === 3,
     "inspectDevice: an added effect is in the list, as an effect, after the synths");
   ok(await removeModule(dev.access, "DELAY", yes) === "done" && dev.deleted === "DELAY" && !dev.effects.length, "removeModule: an effect is removed as a synth is");
+}
+
+// ------------------------------------------------------------------ COMMIT's answer lost ---
+{
+  const b = new Uint8Array(100), w = (o, v) => [0, 8, 16, 24].forEach((s, i) => { b[o + i] = (v >>> s) & 255; });
+  w(0, 0x52425248); w(4, 2); [..."LOSTMOD"].forEach((c, i) => { b[12 + i] = c.charCodeAt(0); }); w(36, 1); w(40, 900); w(44, 100);
+  for (const there of [true, false]) {
+    const dev = new FakeDock({ modules: ["SINE", "LOSTMOD"] });   // (an older copy of it there)
+    dev.logText += "800 deploy: done\n";            // (and that one's deploy in the log)
+    const rx = dev.rx.bind(dev);
+    dev.rx = (f) => { const r = parse(Uint8Array.from(f)); if (r && r.cmd === CMD.COMMIT) { dev.logText += there ? "900 deploy: done\n" : "900 deploy failed 00000004\n"; } else rx(f); };
+    const dock = new Dock(dev.input, dev.output);
+    dock.commitWait = 50;
+    const r = await dock.deploy(b).catch((e) => e);
+    ok(there ? r.info && r.info.name === "LOSTMOD" : r instanceof Error, there ? "deploy: COMMIT's answer lost, the log says done: done"
+      : "deploy: no answer and the log says failed: an error, though an older copy is there");
+    dock.close();
+  }
 }
 
 // ------------------------------------------------------------------ the presets (the banks) ---

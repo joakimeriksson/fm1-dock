@@ -509,6 +509,12 @@ def keys_cases():
               peak(s, 3.4, 3.6) < peak(s, 1.7, 2.3) // 20 and " 0 overruns" in log,
               f"KEYS plays {case[5:].upper()} on a key and damps it; worst {worst} % of a block")
 
+    # a low key rings on: its first wave is longer on its way round the string than a block is, and the part took
+    # the silence at the bridge meanwhile for a voice that had died away (a key under G2 was cut off after its hammer)
+    s, _ = run("keys_low", pick("KEYS") + ",1300:mc007,1800:m902464,3300:m802400", 4000)
+    check("keys_low", peak(s, 2.05, 2.95) > 300 and peak(s, 3.65, 3.8) < 50,
+          f"GRAND's C2 rings while it is held (peak {peak(s, 2.05, 2.95)} from 0.4 s after the hammer) and is damped")
+
     # the velocity: a hard key louder (and so brighter) than a soft one, in each family
     for fam, prog in (("clav", 0), ("ep", 4), ("piano", 7)):
         k = pick("KEYS") + f",1300:mc0{prog:02x}"
