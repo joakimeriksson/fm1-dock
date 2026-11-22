@@ -30,7 +30,7 @@ import hbmod  # noqa: E402
 PROGRAMS = {
     "FM6": [1, 2, 7, 10, 15, 0],                # TINE EP, GLASS BELL, ORGAN, BRASS SECT, STRINGS (F16), the first
     "FMINI-1": [0, 1, 2, 71, 3],                # ... PIPE ORGAN
-    "KEYS": [0, 1, 2],                          # clavinet, electric piano, piano
+    "KEYS": [0, 4, 5, 6, 7],                    # a clavinet, the electric pianos, a piano (PRESETS: 0..3, 4..6, 7..9)
     "PROPHET": [0, 1, 2, 3, 4],
     "S1VAVE": [0, 3, 4, 6, 11, 12],              # POLY SAW, PWM PAD, BRASS, CHORD STAB, STRINGS, SYNTH KEYS
 }

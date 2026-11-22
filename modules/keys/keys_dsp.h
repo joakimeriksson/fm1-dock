@@ -271,8 +271,11 @@ typedef struct {
 /* the modes: ratio to f0, level, t60 against the fundamental's; the tine's own above the tone bar's harmonics
  * (a cantilever's 1 : 6.27 : 17.55 : 34.39) */
 static const float EP_RATIO[KD_NM] = {1.0f, 1.0f, 2.0f, 3.0f, 6.267f, 9.42f, 17.55f, 34.39f};
-static const float EP_LEVEL[KD_NM] = {1.0f, 0.10f, 0.05f, 0.02f, 0.30f, 0.06f, 0.14f, 0.05f};
+static const float EP_LEVEL[KD_NM] = {1.0f, 0.10f, 0.05f, 0.02f, 0.20f, 0.03f, 0.07f, 0.025f};
 static const float EP_T60[KD_NM] = {1.0f, 0.7f, 0.35f, 0.25f, 0.15f, 0.08f, 0.025f, 0.012f};
+/* the tine's own modes fit no interval: a chime at the strike, not a tone under the note. At most this long (s), however
+ * long the note is (0.15 of a low note's t60 was over a second, and chords sounded out of tune: #103) */
+static const float EP_CHIME[KD_NM] = {0.0f, 0.0f, 0.0f, 0.0f, 0.60f, 0.20f, 0.08f, 0.05f};
 
 static void kd_ep_set_r(kd_ep_t *e, int damped)
 {
@@ -302,12 +305,12 @@ static void kd_ep_on(kd_ep_t *e, float f0, float vn, const kd_par_t *p, int fres
     for (m = 0; m < KD_NM; m++) {
         float f = f0 * EP_RATIO[m], w, a, r, h;
         if (m == 1) f += p->x[3];               /* the tone bar, a little off the tine */
-        else if (m == 2 || m == 3) f *= km_stretch(m, 0.002f);   /* (the bar's harmonics a little stretched) */
         if (f > 0.42f * KD_SR)
             break;
         w = 2.0f * KM_PI * f / KD_SR;
         e->cos2[m] = 2.0f * kd_cos(w);
         e->t60[m] = t1 * EP_T60[m];
+        if (m >= 4 && e->t60[m] > EP_CHIME[m]) e->t60[m] = EP_CHIME[m];
         h = f / fc;
         a = EP_LEVEL[m] * (m >= 4 ? 0.3f + 1.7f * p->x[0] : 1.0f) * amp / (1.0f + h * h);
         r = kd_exp2(-9.965784f / (e->t60[m] * KD_SR));
