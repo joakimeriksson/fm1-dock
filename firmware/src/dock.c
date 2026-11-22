@@ -2555,8 +2555,8 @@ static uint32_t smk_modval(int32_t v)          /* the mod wheel's reading (up re
  * octave up, the top row the same with their sevenths, on the keys' channel and in their octave (a C major's first is
  * C3 E3 G3 where the keyboard's F3 is its key 0). What a pad struck is kept, so it lets go of that whatever has been
  * changed since; a note two held pads share sounds until both are up. */
-static struct { uint8_t n, st, ch, note[4]; } smk_pad[16];   /* ch: the channel its chord went out on */
-static uint8_t smk_pad_cnt[128], smk_pads_shown = 255;
+static struct { uint8_t n, st, note[4]; } smk_pad[16];
+static uint8_t smk_pad_cnt[128], smk_pad_ch[128], smk_pads_shown = 255;   /* how many pads hold a note; its last note-on's channel */
 static void smk_pad_idle(uint32_t p)            /* a pad at rest: dark, or in CHORDS dim (a key's first chords brighter) */
 {
     uint32_t c = opt_pads() > 1u, first = !(p & 7u) || (p & 7u) == 7u;
@@ -2570,7 +2570,7 @@ static void smk_pad_up(const hb_module_t *m, uint32_t p)
         if (smk_pad[p].st == 0x99u)
             smk_send(m, 0x89u, d, 0);
         else if (smk_pad_cnt[d] && --smk_pad_cnt[d] == 0)
-            smk_send_ch(m, 0x80u, d, 0, smk_pad[p].ch);
+            smk_send_ch(m, 0x80u, d, 0, smk_pad_ch[d]);
     }
     smk_pad[p].n = 0;
     smk_pad_idle(p);
@@ -2590,7 +2590,6 @@ static void smk_pad_hit(const hb_module_t *m, uint32_t p, uint32_t vel, uint32_t
         return;
     }
     smk_pad[p].st = 0x90u;
-    smk_pad[p].ch = smk_ch;
     for (i = 0; i < n; i++) {                   /* the chord's thirds up the scale */
         uint32_t s7 = deg + 2u * i, d = 48u + (mode - 2u) + base - KEY0 + SCALE[s7 % 7u] + 12u * (s7 / 7u);
         if (d > 127u)
@@ -2598,7 +2597,8 @@ static void smk_pad_hit(const hb_module_t *m, uint32_t p, uint32_t vel, uint32_t
         smk_pad[p].note[smk_pad[p].n++] = (uint8_t)d;
         if (smk_pad_cnt[d]++)                   /* (another pad's too: ended first, struck again; two note-ons and one
                                                  * note-off would leave a synth that counts them a voice: FM-106) */
-            smk_send(m, 0x80u, d, 0);
+            smk_send_ch(m, 0x80u, d, 0, smk_pad_ch[d]);
+        smk_pad_ch[d] = smk_ch;
         smk_send(m, 0x90u, d, vel);
     }
 }
