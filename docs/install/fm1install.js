@@ -271,7 +271,11 @@ export async function addModule(midi, mod, ask, progress) {
     if (!there && mod.blob.length > hello.largest)    /* (an update takes the old one's place) */
       throw fail("space", `${mod.info.name} needs ${Math.ceil(mod.blob.length / 1024)} KB, fm1-dock has ${Math.floor(hello.largest / 1024)} KB free.`);
     if (!await ask(`${there ? "Update" : "Add"} ${mod.info.name} ${there ? "in" : "to"} the fm1-dock on the FM-1?`)) return null;
-    await dock.deploy(mod.blob, progress);
+    const r = await dock.deploy(mod.blob, progress);
+    if (r.restarting) {                         // (its USB goes away for a moment: not asked before it is back)
+      progress(1, "the device restarts to run it…");
+      await sleep(4000);
+    }
     return mod.info.name;
   } finally { dock.close(); }
 }

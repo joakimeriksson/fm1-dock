@@ -7,7 +7,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { checkPackage, packageDamage, logicalImage, productOf, installOn, entryFor, addModule, playTune, tuneSteps,
   inspectDevice, removeModule, packageEnd, backupPresets, restorePresets, deletePresets } from "../docs/install/fm1install.js";
 import { pack7, unpack7, Updater, sameKeyboard } from "../docs/install/fm1ota.js";
-import { frame, parse, moduleInfo, crc32, CMD, hbkPack, hbkUnpack } from "../docs/dock.js";
+import { Dock, frame, parse, moduleInfo, crc32, CMD, hbkPack, hbkUnpack } from "../docs/dock.js";
 
 let failed = 0;
 const ok = (c, what) => { console.log(`${c ? "ok  " : "FAIL"} ${what}`); if (!c) failed++; };
@@ -378,6 +378,23 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
   const blob = new Uint8Array(100);
   const e = await reject(addModule({ inputs: { forEach() {} }, outputs: { forEach() {} } }, { blob, info: { abi: 2, name: "X" } }, yes, () => {}));
   ok(e && e.code === "nodock", "no FM-1 running fm1-dock: nodock");
+}
+
+// ------------------------------------------------------------------ COMMIT's answer lost ---
+{
+  const b = new Uint8Array(100), w = (o, v) => [0, 8, 16, 24].forEach((s, i) => { b[o + i] = (v >>> s) & 255; });
+  w(0, 0x52425248); w(4, 2); [..."LOSTMOD"].forEach((c, i) => { b[12 + i] = c.charCodeAt(0); }); w(36, 1); w(40, 900); w(44, 100);
+  for (const there of [true, false]) {
+    const dev = new FakeDock({ modules: ["SINE"] });
+    const rx = dev.rx.bind(dev);
+    dev.rx = (f) => { const r = parse(Uint8Array.from(f)); if (r && r.cmd === CMD.COMMIT) { if (there) dev.mods.push("LOSTMOD"); } else rx(f); };
+    const dock = new Dock(dev.input, dev.output);
+    dock.commitWait = 50;
+    const r = await dock.deploy(b).catch((e) => e);
+    ok(there ? r.info && r.info.name === "LOSTMOD" : r instanceof Error, there ? "deploy: COMMIT's answer lost, the module is there: done"
+      : "deploy: no answer and no module: an error, as before");
+    dock.close();
+  }
 }
 
 // ------------------------------------------------------------------ the presets (the banks) ---

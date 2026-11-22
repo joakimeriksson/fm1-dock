@@ -254,6 +254,27 @@ static hb_entry_t mods[HB_SLOTS + 1];
 static uint32_t n_mods, cur;
 static const hb_module_t *volatile hb_active;  /* what the audio ISR renders (0: silence) */
 static volatile uint32_t hb_blocks, hb_over, hb_slow;   /* blocks; overruns in a row; stopped for them */
+/* Code written where code ran: the chip keeps what it fetched from flash (its instruction cache), and the flash
+ * driver's flushinv drops the data cache's lines only: after a write there the old code and the new run mixed,
+ * until a reset (seen on an FM-1, #87: tests/cache_hw_test.py; iflush, by line or by word, changed nothing:
+ * probes/iflush.c). So the host notes the flash sectors a module's code has run from since power-on (ran_map),
+ * and a deploy that writes into one of them does not start what it wrote: the unit restarts, and starts it then. */
+static uint8_t ran_map[32];                     /* a bit a 4 KiB sector of the 1 MiB */
+static uint32_t restart_at;                     /* a restart asked for (fm1_ms | 1 then), 0: none */
+static void ran_mark(uint32_t off, uint32_t n)
+{
+    uint32_t s;
+    for (s = off >> 12; s <= (off + n - 1u) >> 12 && s < 256u; s++)
+        ran_map[s >> 3] |= (uint8_t)(1u << (s & 7u));
+}
+static int ran_any(uint32_t off, uint32_t n)
+{
+    uint32_t s;
+    for (s = off >> 12; s <= (off + n - 1u) >> 12 && s < 256u; s++)
+        if (ran_map[s >> 3] >> (s & 7u) & 1u)
+            return 1;
+    return 0;
+}
 
 static uint32_t name_key(const char *s)
 {
@@ -1127,6 +1148,7 @@ static int start_module(uint32_t i)
         return -1;
     if (f) {
         const uint8_t *img = (const uint8_t *)f->base;
+        ran_mark(FL_OF((uint32_t)f), (uint32_t)(img - (const uint8_t *)f) + f->code_size + f->data_size + f->rt_size);
         memcpy((void *)HB_MOD_RAM, img + f->code_size, f->data_size);
         memset((uint8_t *)HB_MOD_RAM + f->data_size, 0, f->bss_size);
         memcpy((void *)HB_MOD_RT, img + f->code_size + f->data_size, f->rt_size);
@@ -1871,6 +1893,8 @@ static uint32_t d_commit(uint32_t *key)
     if (old == HB_SLOTS)
         e[n++] = sl;
     hb_log_u32("deploy: written at", sl.at);
+    if (ran_any(at, need))
+        restart_at = fm1_ms | 1u;               /* (code ran from there since power-on: not started before a restart) */
     return dt_write(e, n);
 }
 
@@ -2179,6 +2203,17 @@ static uint32_t deploy_frame(void)
             uint32_t back = st_ == D_OK ? key : rx.prev_key;
             if (st_ == D_OK) hb_log("deploy: done");
             rx_end(st_);
+            if (st_ == D_OK && restart_at) {    /* written where code ran: started after a restart, not now (ran_map) */
+                hb_log("deploy: code ran from that flash: restarting");
+                st.sel_key = key;
+                store_flush();
+                rx_draw("RESTARTING", C_WHITE);
+                restart_at = fm1_ms | 1u;       /* (counted from the answer, not from the flash write before it) */
+                r[2] = 1;                       /* (the computer waits for the unit to come back) */
+                rn = 8;
+                break;                          /* (the screen stays as it is until then) */
+            }
+            restart_at = 0;                     /* (a commit that failed after its write: nothing new to start) */
             d_restart(back);
             wr32(r + 4, mods[cur].file ? (uint32_t)mods[cur].file : 0);
             r[1] = (uint8_t)cur;
@@ -2384,6 +2419,11 @@ static uint32_t deploy_frame(void)
     default:
         if (!r[0]) r[0] = D_BAD_MSG;
         break;
+    }
+    if (usb_src && cmd == D_COMMIT) {           /* (the flash writes kept USB waiting: if it has to come back, first) */
+        uint32_t t0 = fm1_ms;
+        while (!*(volatile uint8_t *)&usb.config && fm1_ms - t0 < 1000u)
+            fm1_wdt_feed();
     }
     if (usb_src)
         d_reply(cmd, seq, r, rn);
@@ -2767,6 +2807,13 @@ static void app_main(void)
             }
         }
 
+        if (restart_at && fm1_ms - restart_at > (so_w == so_r ? 400u : 2000u)) {   /* (the COMMIT's answer is out) */
+            fm1_audio_stop();
+            bootguard_clear(&bootguard);        /* (asked for: not a start that failed, however soon after one) */
+            usb_detach();                       /* (the computer sees it go, as before an update) */
+            fm1_delay_ms(30);
+            fm1_reboot();
+        }
         if (deploy_tick()) {                    /* a deploy: the module may have changed */
             picker = eqp = 0;
             full = 1;

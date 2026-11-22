@@ -257,9 +257,17 @@ export class Dock {
     }
     if (run) return run();
     progress(1, "writing the flash…");
-    d = await this.ask(CMD.COMMIT, new Uint8Array(0), { timeout: 30000, tries: 1 });
+    try {
+      d = await this.ask(CMD.COMMIT, new Uint8Array(0), { timeout: this.commitWait || 20000, tries: 1 });
+    } catch (e) {                               // (its answer was lost: is the module there?)
+      const m = (await this.modules()).find((x) => x.name === info.name);
+      if (!m || m.version !== info.version || m.size !== info.code + info.data || m.state !== "ok") throw e;
+      return { at: m.at, info, restarting: false };
+    }
     if (d[0]) throw new Error(`${info.name}: ${status(d)} (at COMMIT)`);
-    return { at: rd32(d, 4), info };
+    // restarting: it was written where code ran since power-on, and the unit restarts to run it (dock.c ran_map):
+    // the caller waits before it asks the device anything
+    return { at: rd32(d, 4), info, restarting: d[2] === 1 };
   }
 
   // ---- the modules' banks (their user presets; dock.c "the banks from the computer", tools/hbdeploy.py)
