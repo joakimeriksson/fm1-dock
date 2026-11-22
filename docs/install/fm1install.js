@@ -13,7 +13,8 @@
 //   <div data-fm1-tunes></div>                         C64 tunes to FM-1 SID on the FM-1 (tuneButtons)
 // installButton and addButton take opts.ask (text -> Promise<bool>; confirm() when not given) and opts.onDone; while an
 // install runs, its element has data-busy="1". The catalog on fm1-dock's page uses inspectDevice, addModule and
-// removeModule with its own buttons, and backupPresets, restorePresets and deletePresets for its Presets.
+// removeModule with its own buttons, backupPresets, restorePresets and deletePresets for its Presets, and
+// importFile for a synth's own files.
 //   <script type="module">
 //     import { installButton } from "/fm1-dock/install/fm1install.js";
 //     for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install);
@@ -454,7 +455,53 @@ export async function playTune(midi, bytes, song, progress = () => {}) {
   } finally { dock.close(); }
 }
 
+// ---- a synth's own file (the catalog's "imports": DX7 voices into FM6, Prophet-5/10 programs into PROPHET): in MODULE
+// frames, as tools/dock.py send. The synth reads it, plays its first sound and keeps it in its banks.
+
+const IMPORT_ERR = { 1: "it did not understand the request", 2: "there is no sound of its kind in the file", 3: "the file is too big for it",
+  4: "the file arrived damaged: try again",
+  5: "it has no room for more: send a whole bank, which replaces what is there" };
+const IMPORT_MAX = 65536;                       // (more than any synth's buffer)
+// the module `name`'s dock file takes the file (switched to it first when another synth plays); ask(text) confirms, since
+// what was imported before may be replaced. -> "kept", "notkept" (it plays, but is gone at power-off), or null: cancelled
+export async function importFile(midi, name, bytes, ask, progress = () => {}, warn = "") {
+  if (bytes.length > IMPORT_MAX) throw fail("import", "the file is too big for it.");
+  if (!bytes.length) throw fail("import", "the file is empty.");
+  if (bytes[0] !== 0xf0) throw fail("import", "that is not a SysEx file (.syx).");
+  const found = await findDock(midi);
+  if (!found) throw fail("nodock", "");
+  const { dock, hello } = found;
+  try {
+    const m = (await dock.modules()).find((x) => x.name === name);
+    if (!m) throw fail("notadded", name);
+    if (!await ask(`Send this file to ${name} on the device? ${warn}`.trim())) return null;
+    if (hello.cur !== m.index) {
+      const st = await dock.command(CMD.SELECT, name);
+      if (st !== "done") throw fail("import", `fm1-dock did not switch to ${name}: ${st}.`);
+      await sleep(2000);                        // (it starts)
+      if ((await dock.hello()).cur !== m.index) throw fail("import", `${name} did not start on the device.`);
+    }
+    const logAt = (await dock.hello()).logW;
+    const steps = tuneSteps(bytes);
+    for (let i = 0; i < steps.length; i++) {
+      const end = i === steps.length - 1;       // the end: read and written to flash; asked once (again: the voices twice)
+      let d;
+      try { d = await dock.ask(CMD.MODULE, steps[i], end ? { timeout: 10000, tries: 1 } : { timeout: 1500, tries: 3 }); } catch (e) {
+        throw end ? fail("import", `${name} got the file, but did not answer: look on the device before you send it again.`) : e;
+      }
+      if (end && d[0] === 11 && d[1] === 6) return "notkept";
+      if (d[0] === 11) throw fail("import", `${name} did not take it: ${IMPORT_ERR[d[1]] || `its error ${d[1]}`}.`);
+      if (d[0] === 9) throw fail("import", `${name} is not playing, or this version of it takes no files.`);
+      if (d[0]) throw fail("import", `${name} did not take it (status ${d[0]}).`);
+      progress((i + 1) / steps.length);
+    }
+    // (FM6 and PROPHET before version 3 answer "done" whether it was kept or not: their log line tells)
+    return /not kept|no flash bank/i.test((await dock.log(logAt)).text) ? "notkept" : "kept";
+  } finally { dock.close(); }
+}
+
 const SAY = {
+  import: "Not imported: ",
   nomidi: "This browser has no Web MIDI, so it cannot reach the FM-1: open the page in Chrome or Edge on a computer, or Chrome on Android (not on an iPhone or iPad: no browser there has it).",
   denied: "MIDI (SysEx) was not allowed. Allow MIDI in the site settings (the icon at the left of the address bar), reload the page and press again.",
   notfound: "FM-1 not found. Plug it in with a USB data cable (a charge-only cable powers it but carries no data), switch it on, close other programs and tabs that use MIDI, and press again.",
@@ -488,7 +535,7 @@ const SAY = {
   write: "Writing: do not unplug the FM-1", reboot: "Restarting",
 };
 
-const DETAIL = ["badpkg", "badreq", "abi", "space", "select", "refused", "hvsc", "notadded", "addons", "badhbk", "nosynth", "bank"];
+const DETAIL = ["badpkg", "badreq", "abi", "space", "select", "refused", "hvsc", "notadded", "addons", "badhbk", "nosynth", "bank", "import"];
 // an error of the functions above in words for the page
 export function explain(e) {
   if (!SAY[e.code]) return `Error: ${e.message}`;

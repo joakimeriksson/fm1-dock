@@ -913,10 +913,13 @@ static int data(const uint8_t *p, uint32_t n)
     if (p[0] != HB_FILE_END)
         return 1;
     for (i = 0; i + 6u < fsize; i++)            /* a bank anywhere in it: it replaces the voices sent before */
-        if (fbuf[i] == 0xF0u && fbuf[i + 1u] == 0x43u && !(fbuf[i + 2u] & 0xF0u) && fbuf[i + 3u] == 9u)
-            bank = 1;
+        if (fbuf[i] == 0xF0u && fbuf[i + 1u] == 0x43u && !(fbuf[i + 2u] & 0xF0u) && fbuf[i + 3u] == 9u && fbuf[i + 4u] == 0x20u &&
+            fbuf[i + 5u] == 0u && fsize - i >= 4104u && fbuf[i + 4103u] == 0xF7u && sx_ok(fbuf + i + 6, 4096) == fbuf[i + 4102u])
+            bank = 1;                           /* (a whole one, its sum right: a damaged bank replaces nothing) */
     if (bank)
         imp.count = first = 0;
+    if (imp.count >= IMP_MAX)
+        return 5;                               /* single voices, and no room for more */
     for (i = 0; i < fsize && imp.count < IMP_MAX; i++) {   /* each F0 43 .. F7 frame that is a voice or a bank */
         const uint8_t *b = fbuf + i;
         if (b[0] != 0xF0u)
