@@ -869,13 +869,14 @@ static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (h
 }
 #endif
 static uint32_t h_rand(void) { return rng(); }
+static volatile uint8_t in_render;              /* the module's render runs (the audio interrupt) */
 #if BOARD_SMK37
-static void key0_learn(uint32_t st_, uint32_t d1, uint32_t d2);
+static void mod_ch_learn(uint32_t st_, uint32_t d1, uint32_t d2);
 #endif
 static void h_midi_send(uint32_t st_, uint32_t d1, uint32_t d2)
 {
 #if BOARD_SMK37
-    key0_learn(st_, d1, d2);
+    mod_ch_learn(st_, d1, d2);
 #endif
     midi_send(st_, d1, d2);
 }
@@ -1051,30 +1052,25 @@ static uint32_t h_bank_free(void)              /* banks a save could still take:
 
 /* the second core (cpu1.c), for the module's render only: a job is never out while the main loop runs
  * (flash writes, a module switch) */
-static volatile uint8_t in_render;
 static uint8_t cpu1_said;                       /* the second core's state as last logged */
 static int h_c1_run(void (*fn)(uint32_t), uint32_t arg) { return in_render && cpu1_run(fn, arg); }
 static int h_c1_wait(void) { return in_render ? cpu1_wait() : 0; }
 static uint32_t mod_key0;                       /* the note a panel module's key 0 plays (key_base), 0: the host's */
-static uint8_t mod_key0_told;                   /* the module tells it itself (key_base): nothing to learn */
-static void h_key_base(uint32_t n) { mod_key0 = n < 128u ? n : 0u; mod_key0_told = 1; }
+static void h_key_base(uint32_t n) { mod_key0 = n < 128u ? n : 0u; }
 #if BOARD_SMK37
-/* A panel module has its own octave. One that tells it (key_base, hb_key0) has the outer keys, the host's, follow at
- * once; for one that does not (an add-on built before) they played on from the host's octave, an octave or more from
- * the middle ones (#77, #88). So it is learned: the note a
- * module sends for a middle key it was just given (alone, within 100 ms), when that is the key's own by whole octaves
- * (a chord, a scale, an arpeggio or a transposition is not taken). Until the first such note: the host's. */
-static uint32_t learn_k, learn_ms;              /* the key given + 1 (0: none, or more than one), and when */
-static void key0_key(uint32_t k) { learn_k = learn_k && fm1_ms - learn_ms < 100u ? 0u : k + 1u; learn_ms = fm1_ms; }
-static void key0_learn(uint32_t st_, uint32_t d1, uint32_t d2)
+/* A panel module sends its keys' notes itself, on a channel of its own (MIDI CH is the host's keys'): the outer keys
+ * go out on that one too. It is the channel of the note the module sends for a middle key it was just given, which it
+ * must be exactly (mod_key0: told, hb_key0); channel 1 until then. Not from the audio interrupt: a sequencer's. */
+static uint32_t given_k, given_ms;              /* the key given + 1 (0: none), and when */
+static uint8_t mod_ch;
+static void key_given(uint32_t k) { given_k = k + 1u; given_ms = fm1_ms; }
+static void mod_ch_learn(uint32_t st_, uint32_t d1, uint32_t d2)
 {
-    int32_t d;
-    if ((st_ & 0xF0u) != 0x90u || !d2 || !learn_k || mod_key0_told)
-        return;
-    d = (int32_t)d1 - (int32_t)(learn_k - 1u) - (int32_t)KEY0;
-    if (fm1_ms - learn_ms < 100u && d % 12 == 0 && d >= -48 && d <= 48)
-        mod_key0 = (uint32_t)((int32_t)KEY0 + d);
-    learn_k = 0;
+    if ((st_ & 0xF0u) == 0x90u && d2 && given_k && mod_key0 && !in_render && fm1_ms - given_ms < 100u &&
+        d1 == mod_key0 + given_k - 1u) {
+        mod_ch = (uint8_t)(st_ & 15u);
+        given_k = 0;
+    }
 }
 #endif
 
@@ -1164,7 +1160,10 @@ static int start_module(uint32_t i)
     hb_over = 0;
     sense_defaults();                           /* (what the module before set is gone) */
     mod_key0 = 0;
-    mod_key0_told = 0;
+#if BOARD_SMK37
+    mod_ch = 0;
+    given_k = 0;
+#endif
     hb_nv.active = i + 1u;                      /* a crash in init counts as the module's */
     hb_nv.stats.module = i;
     hb_nv.stats.worst = hb_nv.stats.overruns = 0;
@@ -2464,18 +2463,16 @@ static void play_note(uint32_t ch, uint32_t key, uint32_t vel)
  * port's do (its smk_wheel.h, not taught): the pitch wheel's first reading is its centre, which follows a slow
  * drift while it rests, and its ends widen to what it reaches; the mod wheel's bottom and top likewise. */
 #define SMK_PAD_NOTE(p) ((p) < 8u ? 44u + (p) : 36u + (p) - 8u)
-static uint8_t smk_outer[SMK_NKEY], smk_fad[4], smk_mod, smk_live;
+static uint8_t smk_outer[SMK_NKEY], smk_outer_ch[SMK_NKEY], smk_fad[4], smk_mod, smk_live;
 static int32_t smk_bend;
 static struct { int32_t pc, plo, phi; uint32_t drift_ms; } smk_pw;
 static struct { int32_t lo, hi; } smk_mw;
 
-static uint8_t smk_local = 1, smk_ch;           /* LOCAL, and the channel the keys send on (MIDI CH), this pass */
-static void smk_send(const hb_module_t *m, uint32_t st_, uint32_t d1, uint32_t d2)
-{
-    uint32_t pad = (st_ & 15u) == 9u;           /* (the pads keep channel 10) */
-    if (!smk_local && !((st_ & 0xF0u) == 0x80u)) {
-        /* LOCAL OFF: MIDI only, as the middle keys (#53, #61, #88); a note-off still goes to the module: what sounded
-         * when LOCAL was switched off ends */
+static uint8_t smk_local = 1, smk_ch;           /* LOCAL, and the channel the keys send on, this pass */
+static void smk_send_ch(const hb_module_t *m, uint32_t st_, uint32_t d1, uint32_t d2, uint32_t ch)
+{                                               /* to the module on channel 1 (a pad's: 10), out on ch */
+    if (!smk_local) {
+        /* LOCAL OFF: MIDI only, as the middle keys (#53, #61, #88) */
     } else if (m && m->midi) {
         m->midi(st_, d1, d2);
     } else if ((st_ & 0xF0u) == 0x90u || (st_ & 0xF0u) == 0x80u) {
@@ -2483,7 +2480,20 @@ static void smk_send(const hb_module_t *m, uint32_t st_, uint32_t d1, uint32_t d
     } else if ((st_ & 0xF0u) == 0xB0u && m && m->cc) {
         m->cc(st_ & 15u, d1, d2);
     }
-    midi_send(pad ? st_ : st_ | smk_ch, d1, d2);
+    midi_send((st_ & 15u) == 9u ? st_ : st_ | ch, d1, d2);   /* (the pads keep channel 10) */
+}
+static void smk_send(const hb_module_t *m, uint32_t st_, uint32_t d1, uint32_t d2) { smk_send_ch(m, st_, d1, d2, smk_ch); }
+static void smk_outer_up(const hb_module_t *m, uint32_t code)   /* what the key started, where it started it */
+{
+    if (smk_outer[code])
+        smk_send_ch(m, 0x80u, smk_outer[code], 0, smk_outer_ch[code]);
+    smk_outer[code] = 0;
+}
+static void smk_let_go(const hb_module_t *m)    /* before LOCAL or MIDI CH changes: what is held ends as it began */
+{
+    uint32_t i;
+    for (i = 0; i < SMK_NKEY; i++)
+        smk_outer_up(m, i);
 }
 static int32_t smk_pitch(int32_t p, uint32_t now)   /* the pitch wheel's reading -> the bend, -8192..8191 */
 {
@@ -2538,11 +2548,12 @@ static void smk_extras(const hb_module_t *m, uint32_t base)
                 uint32_t note = base + code - SMK_KEY_F3;
                 if (note > 127u)                /* (past MIDI's notes, either way: no note, not another one) */
                     continue;
+                smk_outer_up(m, code);          /* (struck again without a let-go) */
                 smk_outer[code] = (uint8_t)note;
+                smk_outer_ch[code] = smk_ch;
                 smk_send(m, 0x90u, note, vel);
-            } else if (smk_outer[code]) {
-                smk_send(m, 0x80u, smk_outer[code], 0);
-                smk_outer[code] = 0;
+            } else {
+                smk_outer_up(m, code);
             }
         }
     }
@@ -2695,9 +2706,8 @@ static void app_main(void)
 #if BOARD_SMK37
         smk_sense_keys(down, up);               /* (as the FM-1's sensed keys, with the velocity) */
         smk_local = (uint8_t)local;
-        smk_ch = (uint8_t)och;
-        smk_extras(m, kpanel && mod_key0 ? mod_key0 : base);   /* (the outer keys go on from the middle ones' octave:
-                                                                * the module's, or with LOCAL OFF the host's) */
+        smk_ch = (uint8_t)(kpanel ? mod_ch : och);   /* (as the middle keys: the module's own, or MIDI CH) */
+        smk_extras(m, kpanel && mod_key0 ? mod_key0 : base);   /* (the outer keys go on from the middle ones') */
 #endif
         sensed = h_sense_keys();
         for (k = 0; k < 27u; k++) {
@@ -2708,7 +2718,7 @@ static void app_main(void)
             }
             if (kpanel) {                       /* the module plays its keys */
 #if BOARD_SMK37
-                if (down >> k & 1u) key0_key(k);
+                if (down >> k & 1u) key_given(k);
 #endif
                 if (down >> k & 1u) m->ui(HB_EV_KEY_DOWN | k, 0);
                 if (up >> k & 1u) m->ui(HB_EV_KEY_UP | k, 0);
@@ -2735,7 +2745,7 @@ static void app_main(void)
                 press_sent[k] = 0;
                 if (kpanel) {
 #if BOARD_SMK37
-                    key0_key(k);
+                    key_given(k);
 #endif
                     m->ui(HB_EV_KEY_DOWN | k, (int32_t)v);
                 } else {
@@ -2895,6 +2905,10 @@ static void app_main(void)
                         }
                 if (o == O_LOCAL || o == O_CH)
                     sheld = 0;
+#if BOARD_SMK37
+                if (o == O_LOCAL || o == O_CH)
+                    smk_let_go(m);              /* (the outer keys too) */
+#endif
                 if (o == O_CC7) {
                     st.spare[1] ^= OPT_CC7;     /* CC7 VOLUME ON / OFF (OFF: the level as the knob alone again) */
                     cc7_set(127u);

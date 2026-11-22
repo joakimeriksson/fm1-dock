@@ -74,7 +74,7 @@ SMK-37, OPTIONS, and how to start each synth.
 | **SEQ PLAY · SEQ REC** | PLAY · REC | |
 | **OCTAVE- · OCTAVE+** | OCT- · OCT+ | at power-on: OCTAVE- the USB rescue, OCTAVE+ the safe start (the sine only) |
 | **16 pads** | | notes 36 .. 51 on channel 10 (the bottom row 36 .. 43, the top row 44 .. 51, left to right), with their velocity; a hit lights the pad |
-| **4 faders** | | CC 70 .. 73 on channel 1 |
+| **4 faders** | | CC 70 .. 73 on the keys' channel |
 | **Mod wheel** | | CC 1 |
 | **Pitch wheel** | | the pitch bend |
 | **KNOB BANK · FADER BANK · < · >** | | to a module that asks for them (`HB_F_XBTN`), with their LEDs: Scintilla's (below) |

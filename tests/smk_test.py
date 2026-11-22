@@ -268,6 +268,20 @@ def main():
         on = [n[:4] for n in notes(usb) if n.startswith("9")]
         check("channel", on == ["9130", "913c"], f"MIDI CH 2: C3 and a middle key both on channel 2 ({on})")
 
+        # a synth sends its own keys on its own channel (CS-1: 1), whatever MIDI CH is: the outer keys with them
+        live(5500, ch, fl)
+        _, log, usb = live(5600, ["900:patch", "1000:patch^", "1400:e1:-40", "2300:e1:2", "2600:scale", "2700:scale^", "4000:k24@100", "4150:k24^",
+                                  "4500:k0@100", "4650:k0^"], fl, usb=[])
+        on = [n[:4] for n in notes(usb) if n.startswith("9")]
+        check("channel CS-1", "started 00000001" in log and on == ["9048", "9030"], f"MIDI CH 2 in CS-1: a middle key and C3 on one channel ({on})")
+        # an outer key held while MIDI CH changes ends on the channel it began on
+        fl2 = flash.with_name("ch2.bin")
+        fl2.write_bytes(base)
+        _, _, usb = live(5600, ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 2}", "2500:k0@100", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^",
+                                "3900:k0^", "4300:patch", "4350:patch^"], fl2, usb=[])
+        ns = [n[:4] for n in notes(usb)]
+        check("channel held", ns == ["9030", "8030"], f"C3 held while MIDI CH goes to 2: {ns}")
+
         print("CS-1's velocity")
         pick = ["900:patch", "1000:patch^", "1400:e1:2", "1900:scale", "2000:scale^"]
         soft = peak(live(2900, pick + ["2400:k12@15"], flash)[0])
