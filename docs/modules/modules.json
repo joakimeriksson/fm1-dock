@@ -382,6 +382,26 @@
   "accent": "#2c7fff",
   "alt": "ATEK303's screen: the preset COSMIC TRAX playing, cutoff, resonance, env mod and decay, the 16 steps under them"
  },
+ "flat20": {
+  "file": "flat20.dock",
+  "version": "0.3.2",
+  "source": "modules/flat20: thenewwazoo/FLAT-20 0c96ea5 (FLAT-20 0.3.2; modules/flat20/take.py), fm1-dock",
+  "by": "Brandon Matthews (thenewwazoo)",
+  "songs": "",
+  "title": "FLAT-20",
+  "module": "FLAT-20",
+  "author_url": "https://github.com/thenewwazoo",
+  "original": "https://github.com/thenewwazoo/FLAT-20",
+  "links": [{ "label": "source", "url": "https://github.com/thenewwazoo/FLAT-20" }, { "label": "on the Firmware Hub", "url": "https://thefirmwarehub.com/#fw-flat20" }],
+  "license": "GPL-3.0",
+  "voices": "1 (mono)",
+  "description": "A Korg MS-20 modelled part by part from the service manual: two VCOs, the KORG35 high- and low-pass filters, the modulation generator, two envelopes, the external signal processor and a patch panel with eight cables. 26 presets.",
+  "tags": ["synth", "mono", "analog", "patch panel"],
+  "kind": "analog",
+  "screenshot": "media/screen_flat20.png",
+  "accent": "#E69F00",
+  "alt": "FLAT-20's screen: the modulation generator and envelope generator 1 with their knobs, and the graphs of the MG and EG 1"
+ },
  "keys": {
   "file": "keys.dock",
   "version": "2",
