@@ -20,7 +20,7 @@
 //   </script>
 import { Updater, sameKeyboard } from "./fm1ota.js";
 import { pairPorts, looksOurs } from "./ports.js";
-import { Dock, CMD, moduleInfo, hbkPack, hbkUnpack } from "../dock.js";
+import { Dock, CMD, moduleInfo, hbkPack, hbkUnpack, isAdded } from "../dock.js";
 
 const SITE = new URL("../", import.meta.url);           // fm1-dock's site: fw/ is there
 const BLOCKS = 20, BLK = 0x30, KEEP = 0x2F;
@@ -222,7 +222,7 @@ export async function addonsInTheWay(midi, pkg) {
   if (!found) return [];
   const end = packageEnd(pkg.image);
   try {
-    return (await found.dock.modules()).filter((m) => m.kind === "deployed" && m.at)
+    return (await found.dock.modules()).filter((m) => isAdded(m) && m.at)
       .filter((m) => { const off = m.at - 0x02000000 + 0x4000; return off >= 0x4000 && off < end; }).map((m) => m.name);
   } finally { found.dock.close(); }
 }
@@ -267,6 +267,7 @@ export async function addModule(midi, mod, ask, progress) {
   const { dock, hello } = found;
   try {
     if (hello.abi !== mod.info.abi) throw fail("abi", `fm1-dock speaks ABI ${hello.abi}, the module ${mod.info.abi}`);
+    if (mod.info.fx && !hello.fx) throw fail("nofx", "");
     const there = (await dock.modules()).some((m) => m.name === mod.info.name);
     if (!there && mod.blob.length > hello.largest)    /* (an update takes the old one's place) */
       throw fail("space", `${mod.info.name} needs ${Math.ceil(mod.blob.length / 1024)} KB, fm1-dock has ${Math.floor(hello.largest / 1024)} KB free.`);
@@ -284,7 +285,7 @@ export async function removeModule(midi, name, ask) {
   const { dock } = found;
   try {
     const m = (await dock.modules()).find((x) => x.name === name);
-    if (!m || m.kind !== "deployed") throw fail("notadded", name);
+    if (!m || !isAdded(m)) throw fail("notadded", name);
     if (!await ask(`Remove ${name} from the fm1-dock on the FM-1? Its flash is freed; its presets in the banks stay.`)) return null;
     return await dock.command(CMD.DELETE, name);
   } finally { dock.close(); }
@@ -467,6 +468,7 @@ const SAY = {
   badreq: "The FM-1 asked for something outside the package; nothing more was sent. ",
   addonsota: "The FM-1 is in update mode, and synths you added sit where this package goes: nothing was written. Finish the install with the package you started it with (it keeps them), then remove those synths before you install this one.",
   addons: "This package's synths need the room where some of your added synths are: nothing was written. Remove them first (Remove in the meter below; add them again afterwards if they fit), or pick a package with fewer built-in synths. ",
+  nofx: "This fm1-dock cannot take effects yet: they come with fm1-dock 0.10. Install the latest fm1-dock first.",
   nobanks: "This fm1-dock cannot back up presets yet: that comes with fm1-dock 0.10. Install the latest fm1-dock first.",
   nopresets: "No saved presets found on the device.",
   badhbk: "That file could not be used: ",

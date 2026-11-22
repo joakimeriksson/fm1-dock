@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The page's console: fm1-dock on an FM-1 over WebMIDI (dock.js), and the flash map.
-import { Dock, CMD, moduleInfo, probeArg, Syms, hex32, sleep } from "./dock.js";
+import { Dock, CMD, moduleInfo, probeArg, Syms, hex32, sleep, isAdded } from "./dock.js";
 import { pairPorts } from "./install/ports.js";
 
 const $ = (id) => document.getElementById(id);
@@ -122,12 +122,12 @@ function showModules(mods, h) {
     if (m.index !== h.cur) {
       const b = document.createElement("button");
       b.className = "btn small";
-      b.textContent = "Play";
-      b.title = `SELECT: switch the FM-1 to ${m.name}`;
+      b.textContent = m.kind.startsWith("effect") ? "Use" : "Play";
+      b.title = m.kind.startsWith("effect") ? `SELECT: ${m.name} as the effect under the synth` : `SELECT: switch the FM-1 to ${m.name}`;
       b.onclick = () => act(() => hb.command(CMD.SELECT, m.name), `select ${m.name}`);
       cell.append(b);
     }
-    if (m.kind === "deployed") {
+    if (isAdded(m)) {
       const b = document.createElement("button");
       b.className = "btn small danger";
       b.textContent = "Delete";

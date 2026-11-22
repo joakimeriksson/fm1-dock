@@ -254,6 +254,16 @@ static hb_entry_t mods[HB_SLOTS + 1];
 static uint32_t n_mods, cur;
 static const hb_module_t *volatile hb_active;  /* what the audio ISR renders (0: silence) */
 static volatile uint32_t hb_blocks, hb_over, hb_slow;   /* blocks; overruns in a row; stopped for them */
+/* the effects in the dock (hb_module.h "Effects": files flagged HB_F_FX): not in the list of synths; OPTIONS,
+ * EFFECT picks one, and the audio interrupt runs it (fx_act) on what the module rendered */
+#define FX_SLOTS 8u
+#define FX_ACTIVE 0x4658u                       /* hb_nv.active while an effect's code runs: a fault there is its own */
+typedef struct { const hb_file_t *file; const hb_fx_t *desc; uint32_t key; uint8_t kind; } fx_entry_t;
+static fx_entry_t fxm[FX_SLOTS];
+static uint32_t n_fx, fx_cur;                   /* fx_cur: the one running (n_fx: none) */
+static const hb_fx_t *volatile fx_act;
+static volatile uint8_t fx_shed;                /* the blocks ran late with it: dropped until it is picked again */
+static uint8_t fx_held;                         /* not run this boot (a safe start, or it crashed) */
 
 static uint32_t name_key(const char *s)
 {
@@ -273,15 +283,22 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     img = f->code_size + f->data_size + f->rt_size;
     if (f->base != sl->at + io || f->code_size > sl->size || img > sl->size - io ||
-        f->desc + HB_DESC_MIN > f->code_size || (f->desc & 3u))
+        f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : HB_DESC_MIN) > f->code_size || (f->desc & 3u))
         return M_BAD_HEAD;
-    if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
+    if (f->flags & HB_F_FX) {                   /* an effect: its own RAM, no code in RAM */
+        if (f->data_size + f->bss_size > HB_FX_RAM_SIZE || f->rt_size)
+            return M_TOO_BIG;
+    } else if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
         return M_TOO_BIG;
     c = crc_upd(0, (const uint8_t *)f, head);
     c = crc_upd(c, (const uint8_t *)(f + 1), 4u * f->n_relocs);
     c = crc_upd(c, (const uint8_t *)f->base, img);
     if (c != f->crc)
         return M_BAD_CRC;
+    if (f->flags & HB_F_FX) {
+        const hb_fx_t *x = (const hb_fx_t *)(f->base + f->desc);
+        return x->abi == HB_FX_ABI && x->n_params <= HB_FX_PARAMS && x->init && x->set && x->run ? M_OK : M_BAD_HEAD;
+    }
     if (((const hb_module_t *)(f->base + f->desc))->abi != HB_ABI)
         return M_BAD_HEAD;
     if ((((const hb_module_t *)(f->base + f->desc))->flags & HB_F_DATA) && f->desc + sizeof(hb_module_t) > f->code_size)
@@ -296,6 +313,20 @@ static void add_slot(const hb_slot_t *sl, uint32_t kind, uint32_t lo, uint32_t h
     const hb_file_t *f = (const hb_file_t *)sl->at;
     uint32_t i, at = n_mods;
     e.state = (uint8_t)check_module(sl, lo, hi);
+    if (e.state == M_OK && (f->flags & HB_F_FX)) {   /* an effect: a deployed one in place of the image's of its name */
+        uint32_t k = name_key(f->name);
+        for (i = 0; i < n_fx && fxm[i].key != k; i++) ;
+        if (i == FX_SLOTS)
+            return;
+        fxm[i].file = f;
+        fxm[i].desc = (const hb_fx_t *)(f->base + f->desc);
+        fxm[i].key = k;
+        fxm[i].kind = (uint8_t)kind;
+        if (i == n_fx) n_fx++;
+        hb_log_u32("effect ok", kind << 16 | i);
+        hb_log(f->name);
+        return;
+    }
     e.kind = (uint8_t)kind;
     e.file = f;
     e.desc = e.state == M_OK ? (const hb_module_t *)(f->base + f->desc) : 0;
@@ -344,6 +375,7 @@ static void scan_slots(void)
     str_cpy(mods[0].name, hb_builtin_sine.name, sizeof mods[0].name);
     mods[0].key = name_key("(built in)");       /* its own settings, apart from a slot of the same name */
     n_mods = 1;
+    n_fx = 0;
     dt_load();
     {   /* entries the table should no longer have: a boot firmware's (the boot slot, removed), and an add-on in the
          * image's room that the image now covers (an install by another loader wrote there: it is gone) */
@@ -372,7 +404,8 @@ static void scan_slots(void)
 
 /* ---- settings: the host's record and one per module, in one sector; flushed when nothing plays */
 #define ST_MAGIC 0x53425248u                    /* "HRBS" */
-#define ST_RECS 8u
+#define ST_RECS 16u
+#define ST_RECS_OLD 8u                          /* (until 0.9: a record that long is read, its eight records kept) */
 typedef struct { uint32_t key, len; uint8_t d[240]; } st_rec_t;
 typedef struct {
     uint32_t magic, len, crc;                   /* crc over what follows the header */
@@ -398,10 +431,11 @@ static void store_load(void)
 {
     uint32_t h[3];
     memset(&st, 0, sizeof st);
-    if (flash_ok && !st_read(SETTINGS_AT, h, sizeof h) && h[0] == ST_MAGIC && h[1] == sizeof st &&
-        !st_read(SETTINGS_AT, &st, sizeof st) &&
-        crc_upd(0, (const uint8_t *)&st + 12, sizeof st - 12u) == st.crc)
-        return;
+    if (flash_ok && !st_read(SETTINGS_AT, h, sizeof h) && h[0] == ST_MAGIC &&
+        (h[1] == sizeof st || h[1] == sizeof st - (ST_RECS - ST_RECS_OLD) * sizeof(st_rec_t)) &&
+        !st_read(SETTINGS_AT, &st, h[1]) &&
+        crc_upd(0, (const uint8_t *)&st + 12, h[1] - 12u) == st.crc)
+        return;                                 /* (the shorter one: the further records empty) */
     memset(&st, 0, sizeof st);
 }
 static void store_flush(void)
@@ -547,6 +581,7 @@ static void knobs_cc(const hb_module_t *m, uint32_t ch, uint32_t local)
 }
 
 #define BLE_KEY 0x454C4248u                     /* "HBLE": BLE-MIDI's record (ble_rec), never a module's key */
+#define HFX_KEY 0x58464248u                     /* "HBFX": the effects' record (hfx_rec_t), never a module's */
 static int rec_load(uint32_t k, void *p, uint32_t n)
 {
     uint32_t i;
@@ -566,7 +601,7 @@ static void rec_save(uint32_t k, const void *p, uint32_t n)
         if (st.rec[i].key == k) { pick = i; break; }
     if (pick == ST_RECS)                        /* a free record, else the first that is not a module's here */
         for (i = 0; i < ST_RECS && pick == ST_RECS; i++) {
-            uint32_t m, used = st.rec[i].key == BLE_KEY;
+            uint32_t m, used = st.rec[i].key == BLE_KEY || st.rec[i].key == HFX_KEY;
             for (m = 0; m < n_mods; m++)
                 used |= st.rec[i].key == mods[m].key;
             if (!st.rec[i].key || !used) pick = i;
@@ -1081,6 +1116,15 @@ static void app_audio(int32_t *out, uint32_t n)
         in_render = 0;
         if (cpu1_busy())
             (void)cpu1_wait();                  /* a job the module left out: over before the main loop runs */
+        {
+            const hb_fx_t *x = fx_act;          /* the effect picked, before the EQ: its time the module's too */
+            if (x) {
+                uint32_t a = hb_nv.active;
+                hb_nv.active = FX_ACTIVE;       /* (a fault in it is its own, not the module's) */
+                x->run(out, n);
+                hb_nv.active = a;
+            }
+        }
         eq_audio(out, n);                       /* the master EQ (eq.c): its time counts as the module's */
         dt = fm1_ticks() - t0;
         hb_nv.c1.magic = C1_MAGIC;
@@ -1091,7 +1135,12 @@ static void app_audio(int32_t *out, uint32_t n)
         if (dt > hb_nv.stats.worst) hb_nv.stats.worst = dt;
         if (dt <= BLOCK_TICKS)
             hb_over = 0;
-        else if (hb_nv.stats.overruns++, ++hb_over >= 64u) {
+        else if (fx_act && hb_over >= 8u) {     /* late with an effect on: the effect goes first, the module plays on */
+            hb_nv.stats.overruns++;
+            fx_act = 0;
+            fx_shed = 1;                        /* (the main loop says so) */
+            hb_over = 0;
+        } else if (hb_nv.stats.overruns++, ++hb_over >= 64u) {
             hb_active = 0;                      /* slower than real time 64 blocks in a row: stopped, the main loop runs again */
             hb_slow = 1;
         }
@@ -1150,6 +1199,98 @@ static int start_module(uint32_t i)
     return 0;
 }
 
+/* ---- the effect: the one picked among those in the dock (hfx.sel, by its name's key) runs under whatever module
+ * plays. Its RAM is its own (HB_FX_RAM), so a module's start does not touch it. Each effect's values are kept in
+ * the host's EFFECT record, by the effect's key; an effect new to it starts at its params' own. */
+#define HFX_MAGIC 0x31584648u                   /* "HFX1" */
+typedef struct {
+    uint32_t magic, sel;                        /* sel: the effect picked, 0: none */
+    struct { uint32_t key; int16_t v[HB_FX_PARAMS]; } e[FX_SLOTS];
+} hfx_rec_t;
+static hfx_rec_t hfx;
+static void hfx_keep(void) { hfx.magic = HFX_MAGIC; rec_save(HFX_KEY, &hfx, sizeof hfx); }
+static int16_t *fx_vals(uint32_t i)             /* effect i's values, within its params' ranges */
+{
+    const hb_fx_t *x = fxm[i].desc;
+    uint32_t j, k, pick = FX_SLOTS;
+    for (j = 0; j < FX_SLOTS; j++)
+        if (hfx.e[j].key == fxm[i].key) { pick = j; break; }
+    for (j = 0; j < FX_SLOTS && pick == FX_SLOTS; j++) {   /* a free place, else one of an effect that is not here */
+        for (k = 0; k < n_fx && fxm[k].key != hfx.e[j].key; k++) ;
+        if (!hfx.e[j].key || k == n_fx) {
+            pick = j;
+            hfx.e[j].key = fxm[i].key;
+            for (k = 0; k < HB_FX_PARAMS; k++)
+                hfx.e[j].v[k] = k < x->n_params ? x->params[k].def : 0;
+        }
+    }
+    if (pick == FX_SLOTS) pick = 0;             /* (as many effects as places: never) */
+    for (k = 0; k < x->n_params; k++) {
+        int16_t *v = &hfx.e[pick].v[k];
+        if (*v < x->params[k].min) *v = x->params[k].min;
+        if (*v > x->params[k].max) *v = x->params[k].max;
+    }
+    return hfx.e[pick].v;
+}
+static void fx_stop(void)
+{
+    uint32_t b = hb_blocks, t0 = fm1_ms;
+    if (!fx_act)
+        return;
+    fx_act = 0;                                 /* the ISR passes it by from the next block */
+    while (hb_blocks == b && fm1_ms - t0 < 50u) /* the block that may be running ends */
+        fm1_wdt_feed();
+}
+static void fx_set_val(uint32_t k, int32_t v)   /* (in the main loop: a fault in the effect's set() is its own) */
+{
+    uint32_t a = hb_nv.active;
+    hb_nv.active = FX_ACTIVE;
+    fxm[fx_cur].desc->set(k, v);
+    hb_nv.active = a;
+}
+static void fx_start(void)                      /* the effect picked, if it is here and may run */
+{
+    uint32_t i, k, a;
+    fx_stop();
+    fx_cur = n_fx;
+    if (!hfx.sel || fx_held || fx_shed)
+        return;
+    for (i = 0; i < n_fx && fxm[i].key != hfx.sel; i++) ;
+    if (i == n_fx)
+        return;
+    {
+        const hb_file_t *f = fxm[i].file;
+        const hb_fx_t *x = fxm[i].desc;
+        const int16_t *v = fx_vals(i);
+        int rc;
+        memcpy((void *)HB_FX_RAM, (const uint8_t *)f->base + f->code_size, f->data_size);
+        memset((uint8_t *)HB_FX_RAM + f->data_size, 0, f->bss_size);
+        a = hb_nv.active;
+        hb_nv.active = FX_ACTIVE;
+        rc = x->init();
+        hb_nv.active = a;
+        if (rc) {
+            hb_log("effect: init failed");
+            return;
+        }
+        fx_cur = i;
+        for (k = 0; k < x->n_params; k++)
+            fx_set_val(k, v[k]);
+        hb_log("effect on");
+        hb_log(f->name);
+        fx_act = x;
+    }
+}
+static void fx_pick(uint32_t key)               /* another effect (0: none), by the player: kept, and run again */
+{
+    hfx.sel = key;
+    fx_held = fx_shed = 0;
+    if (hb_nv.crash.module == FX_ACTIVE)
+        hb_nv.crash.module = 0;                 /* (the fault before is answered: picked again, it runs at the next start too) */
+    fx_start();
+    hfx_keep();
+}
+
 /* ---- faults: the record, a strike for the module, and the boot guard left alone */
 static void hb_fault(const fm1_crash_t *c)
 {
@@ -1174,6 +1315,11 @@ static void hb_fault(const fm1_crash_t *c)
         hb_probe.pc = c->pc;
         hb_log("in the probe");
         bootguard_clear(&bootguard);
+    }
+    if (hb_nv.active == FX_ACTIVE) {            /* an effect's: it is held at the next start (crash.module says) */
+        hb_log("in the effect");
+        bootguard_clear(&bootguard);
+        hb_nv.active = 0;
     }
     if (hb_nv.active && hb_nv.active <= HB_SLOTS + 1u) {
         if (hb_nv.strikes[hb_nv.active - 1u] < 255u) hb_nv.strikes[hb_nv.active - 1u]++;
@@ -1310,17 +1456,28 @@ static void draw_top(int32_t oct)
     cv_blit(0, 0);
 }
 
+static uint32_t fx_sel_i(void)                  /* the effect picked, its place among those here; n_fx: none, or gone */
+{
+    uint32_t i;
+    for (i = 0; i < n_fx && (!hfx.sel || fxm[i].key != hfx.sel); i++) ;
+    return i;
+}
+static const char *fx_state(void)               /* what OPTIONS says of it */
+{
+    uint32_t i = fx_sel_i();
+    return !n_fx ? "NONE" : i == n_fx ? "OFF" : fx_held ? "HELD" : fx_shed ? "TOO SLOW" : fxm[i].file->name;
+}
 /* the list, then OPTIONS (past the last module): the host's, ABOUT, then BLUETOOTH (the last line, as it was) */
-enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_AT, O_THRU };
+enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_AT, O_FX, O_THRU };
 #if BOARD_SMK37
-#define N_OPTS_HOST 8u                          /* (no DIN jack: no MIDI THRU, ABOUT in its place) */
+#define N_OPTS_HOST 9u                          /* (no DIN jack: no MIDI THRU, ABOUT in its place) */
 #else
-#define N_OPTS_HOST 9u
+#define N_OPTS_HOST 10u
 #endif
 #define O_ABOUT (N_OPTS_HOST - 1u)              /* the host's last: its page (draw_about) */
 #define N_OPTS (N_OPTS_HOST + hx_built)
-#define OPT_H 16u                               /* (ten lines above the footer) */
-#define OPT_Y(i) (50u + (i) * OPT_H)
+#define OPT_H 15u                               /* (eleven lines above the footer) */
+#define OPT_Y(i) (44u + (i) * OPT_H)
 static const char *const BLE_ST[] = {"OFF", "NO CAL", "HELD", "ON", "LINKED", "READY"};
 static char *put_u(char *p, uint32_t v)         /* v in decimal; the end */
 {
@@ -1331,8 +1488,8 @@ static char *put_u(char *p, uint32_t v)         /* v in decimal; the end */
 }
 static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
 {
-    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "AFTERTOUCH", "MIDI THRU"};
-    char v[8] = "OFF";
+    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "AFTERTOUCH", "EFFECT", "MIDI THRU"};
+    char v[12] = "OFF";
     uint32_t lit = 0, opt = st.spare[1];
     uint16_t col;
     cv_begin(240, OPT_H, on_it ? RGB(40, 30, 60) : C_BLACK);
@@ -1367,9 +1524,16 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
         uint32_t i = 0;
         do v[i] = t[i]; while (t[i++]);
         break; }
+    case O_FX: {                                /* OFF >, its name >, HELD, TOO SLOW (SEL: its page) */
+        const char *t = fx_state();
+        uint32_t i = 0;
+        lit = fx_cur < n_fx;
+        while (i < 8u && t[i]) { v[i] = t[i]; i++; }
+        memcpy(v + i, " >", 3);
+        break; }
     default: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
     }
-    col = o == O_EQ && eq_failed ? C_BAD : lit ? C_ACC : C_OFF;
+    col = (o == O_EQ && eq_failed) || (o == O_FX && fx_shed) ? C_BAD : lit ? C_ACC : C_OFF;
     cv_text(12, 2, &FONT_S, o == O_ABOUT ? "ABOUT" : NAME[o], on_it ? C_ACC : C_WHITE);
     cv_text(150, 2, &FONT_S, v, col);
     cv_blit(0, y);
@@ -1448,6 +1612,99 @@ static uint32_t eq_page_input(uint32_t *row, const int32_t *en, uint32_t b)   /*
     }
     if (moved)
         draw_eq_page(*row);
+    return 0;
+}
+
+/* the effect's page (OPTIONS, EFFECT): which effect, then its values, as its params say. SELECT / PRESETS pick a
+ * line, ALGORITHM changes it (KNOB1..4: a value each); SEL on the first: the next effect of those in the dock (and
+ * OFF), or the same again when it was held or dropped; SEL on a value: back to where it starts. HOME: OPTIONS. */
+static void draw_fx_page(uint32_t row)
+{
+    const hb_fx_t *x = fx_cur < n_fx ? fxm[fx_cur].desc : 0;
+    uint32_t r, n = x ? x->n_params : 0;
+    lcd_fill(0, HB_TOP, 240, 240 - HB_TOP, C_BLACK);
+    draw_text_box(0, 30, 240, &FONT_S, "EFFECT", C_OFF, 1);
+    for (r = 0; r < 1u + n; r++) {
+        char d[16], *p = d;
+        const char *v = d, *name = "EFFECT";
+        cv_begin(240, 28, r == row ? RGB(40, 30, 60) : C_BLACK);
+        if (r == 0) {
+            v = fx_state();
+        } else {
+            const hb_fx_param_t *q = &x->params[r - 1u];
+            int32_t val = fx_vals(fx_cur)[r - 1u];
+            uint32_t i = 0, a = hb_nv.active;
+            name = q->name;
+            hb_nv.active = FX_ACTIVE;           /* (the effect's own words for the line, if it has them) */
+            if (x->label && x->label(r - 1u)) name = x->label(r - 1u);
+            d[0] = 0;
+            if (x->show) { x->show(r - 1u, val, d); d[11] = 0; }
+            hb_nv.active = a;
+            if (!d[0]) {
+                if (val < 0) { *p++ = '-'; val = -val; }
+                p = put_u(p, (uint32_t)val);
+                if (q->unit && q->unit[0]) {
+                    *p++ = ' ';
+                    while (i < 4u && q->unit[i]) *p++ = q->unit[i++];
+                }
+                *p = 0;
+            }
+        }
+        cv_text(12, 6, &FONT_S, name, r == row ? C_ACC : C_WHITE);
+        cv_text(134, 6, &FONT_S, v, r == 0 && fx_shed ? C_BAD : x ? C_ACC : C_OFF);
+        cv_blit(0, 52u + r * 30u);
+    }
+    if (!n_fx)
+        draw_text_box(0, 100, 240, &FONT_S, "ADD AN EFFECT ON THE PAGE", C_OFF, 1);
+#if BOARD_SMK37
+    draw_text_box(0, 212, 240, &FONT_S, row ? "SCALE: RESET    PATCH: BACK" : "SCALE: NEXT    PATCH: BACK", C_OFF, 1);
+#else
+    draw_text_box(0, 212, 240, &FONT_S, row ? "SEL: RESET    HOME: BACK" : "SEL: NEXT    HOME: BACK", C_OFF, 1);
+#endif
+}
+static void fx_turn(uint32_t k, int32_t d, uint32_t reset)   /* value k of the effect running: d detents, or back to its start */
+{
+    const hb_fx_param_t *q = &fxm[fx_cur].desc->params[k];
+    int16_t *v = &fx_vals(fx_cur)[k];
+    int32_t n = reset ? q->def : *v + d * (q->step > 0 ? q->step : 1);
+    n = n < q->min ? q->min : n > q->max ? q->max : n;
+    if (n == *v)
+        return;
+    *v = (int16_t)n;
+    fx_set_val(k, n);
+    hfx_keep();
+}
+static uint32_t fx_page_input(uint32_t *row, const int32_t *en, uint32_t b)   /* 1: back to OPTIONS */
+{
+    int32_t mv = en[ENC_SELECT] + en[ENC_PRESETS], t = en[ENC_ALGORITHM];
+    uint32_t k, n = fx_cur < n_fx ? fxm[fx_cur].desc->n_params : 0, sel = (b & (1u << BTN_SEL | 1u << BTN_PLAY)) != 0, any = mv != 0;
+    if (b & (1u << BTN_HOME))
+        return 1;
+    if (mv) {
+        int32_t r = (int32_t)*row + mv;
+        *row = r < 0 ? 0 : r > (int32_t)n ? n : (uint32_t)r;
+    }
+    for (k = 0; k < n; k++)                     /* KNOB1..4: a value each */
+        if (en[ENC_KNOB1 + k]) {
+            fx_turn(k, en[ENC_KNOB1 + k], 0);
+            *row = k + 1u;
+            any = 1;
+        }
+    if (*row == 0 && n_fx && (t || sel)) {
+        if (sel && !t && (fx_held || fx_shed) && fx_sel_i() < n_fx) {
+            fx_pick(hfx.sel);                   /* held or dropped: the same again */
+        } else {                                /* the next of OFF and those here (a knob: either way) */
+            int32_t i = (int32_t)fx_sel_i(), pos = i == (int32_t)n_fx ? 0 : i + 1, all = (int32_t)n_fx + 1;
+            pos = (((pos + (t ? t : 1)) % all) + all) % all;
+            fx_pick(pos ? fxm[pos - 1].key : 0);
+        }
+        any = 1;
+    } else if (*row && *row <= n && (t || sel)) {
+        fx_turn(*row - 1u, t, sel && !t);
+        any = 1;
+    }
+    if (any)
+        draw_fx_page(*row);
     return 0;
 }
 
@@ -1879,8 +2136,10 @@ static void d_restart(uint32_t key)
 {
     uint32_t k;
     stop_module();
+    fx_stop();                                  /* (its file may have moved, or gone) */
     memset(hb_nv.strikes, 0, sizeof hb_nv.strikes);   /* (by place in the list, which may have moved) */
     scan_slots();
+    fx_start();
     k = find_key(key);
     if (start_module(k))
         start_module(0);
@@ -2105,6 +2364,7 @@ static uint32_t deploy_frame(void)
         uint32_t big, all;
         dp_place(~0u, &big, &all);
         r[1] = 1; r[2] = HB_ABI; r[3] = (uint8_t)n_mods; r[4] = (uint8_t)cur; r[5] = (uint8_t)rx.on;
+        r[6] = HB_FX_ABI;                       /* effects taken (hb_module.h "Effects"; 0 before them) */
         wr32(r + 8, big); wr32(r + 12, all); wr32(r + 16, RX_MAX);
         wr32(r + 20, hb_nv.crash.magic == CRASH_MAGIC ? hb_nv.crash.pc : 0); wr32(r + 24, hb_nv.crash.module);
         wr32(r + 28, hb_nv.stats.worst); wr32(r + 32, hb_nv.stats.overruns); wr32(r + 36, hb_nv.log_w);
@@ -2133,6 +2393,16 @@ static uint32_t deploy_frame(void)
             memcpy(r + 16, mods[i].name, 24);
             d_reply(cmd, seq, r, 40);
         }
+        for (i = 0; i < n_fx; i++) {            /* the effects: place 0x80 up, kind 4 (added) or 5 (in the image) */
+            memset(r, 0, sizeof r);
+            r[1] = (uint8_t)(0x80u | i); r[2] = M_OK; r[3] = fxm[i].kind == K_DEPLOYED ? 4u : 5u;
+            wr32(r + 4, fxm[i].file->version);
+            wr32(r + 8, fxm[i].file->code_size + fxm[i].file->data_size);
+            wr32(r + 12, (uint32_t)fxm[i].file);
+            memcpy(r + 16, fxm[i].file->name, 24);
+            d_reply(cmd, seq, r, 40);
+        }
+        memset(r, 0, sizeof r);
         r[0] = D_OK; r[1] = 0xFFu;              /* the end */
         rn = 2;
         break;
@@ -2178,6 +2448,13 @@ static uint32_t deploy_frame(void)
         if (rx.on) {
             uint32_t back = st_ == D_OK ? key : rx.prev_key;
             if (st_ == D_OK) hb_log("deploy: done");
+            if (st_ == D_OK && (((const hb_file_t *)RX_BUF)->flags & HB_F_FX)) {   /* an effect: it is picked, and
+                                                                                    * the module before plays on */
+                back = rx.prev_key;
+                hfx.sel = key;
+                fx_held = fx_shed = 0;
+                hfx_keep();
+            }
             rx_end(st_);
             d_restart(back);
             wr32(r + 4, mods[cur].file ? (uint32_t)mods[cur].file : 0);
@@ -2255,8 +2532,16 @@ static uint32_t deploy_frame(void)
     case D_SELECT:
         if (rx.on) { r[0] = D_IDLE; break; }
         k = cmd == D_SAFE ? 0 : find_key(name_key(name));
-        if (cmd == D_SELECT && !k) {
-            r[0] = D_NOT_FOUND;
+        if (cmd == D_SELECT && !k) {            /* not a synth: an effect of that name is picked (the module plays on) */
+            for (i = 0; i < n_fx && fxm[i].key != name_key(name); i++) ;
+            if (i < n_fx) {
+                fx_pick(fxm[i].key);
+                r[1] = (uint8_t)(0x80u | i);
+                rn = 2;
+                ch = 1;
+            } else {
+                r[0] = D_NOT_FOUND;
+            }
             break;
         }
         if (mods[k].state == M_STRUCK || mods[k].state == M_SLOW) {
@@ -2537,7 +2822,8 @@ static void app_main(void)
     uint32_t prev = 0, k, full = 1, picker = 0, sel = 0, t_top = 0, held_any = 0, t_notes = 0, safe = 0;
     uint32_t home_t0 = 0, home_alone = 0, home_eaten = 0;   /* HOME held alone 1.5 s: the picker (HB_F_PANEL) */
     uint32_t ble_drawn = HX_S_MISSING + 1u, cc7_drawn = 127u;   /* (the OPTIONS lines as drawn) */
-    uint32_t eqp = 0, eq_row = 0, eq_said = 0;  /* a page open (1 the EQ's, 2 ABOUT), its line; the EQ's failure logged */
+    uint32_t eqp = 0, eq_row = 0, eq_said = 0;  /* a page open (1 the EQ's, 2 ABOUT, 3 the effect's), its line; the EQ's failure logged */
+    uint32_t fx_said = 0;                       /* the effect dropped, logged */
     uint32_t sheld = 0, t_press = 0;            /* the sensed keys held (bit k); the pressure's last round */
     int32_t oct_drawn = 99;
     uint8_t held[27] = {0}, press_sent[27] = {0};
@@ -2545,13 +2831,20 @@ static void app_main(void)
 
     hb_pc_limits(PC_RAM_HI);                    /* (the deployed modules' code may run: see there) */
     nv_init();
-    if (hb_nv.active && (fm1_boot.p3_rst & 4u)) {   /* the watchdog, with a module running */
+    if (hb_nv.active == FX_ACTIVE && (fm1_boot.p3_rst & 4u)) {   /* the watchdog, in an effect: held this start */
+        hb_log("watchdog in the effect");
+        fx_held = 1;
+        if (bootguard.failed)
+            bootguard.failed--;
+    } else if (hb_nv.active && (fm1_boot.p3_rst & 4u)) {   /* the watchdog, with a module running */
         if (hb_nv.active <= HB_SLOTS + 1u && hb_nv.strikes[hb_nv.active - 1u] < 255u)
             hb_nv.strikes[hb_nv.active - 1u]++;
         hb_log_u32("watchdog in module", hb_nv.active - 1u);
         if (hb_nv.active > 1u && bootguard.failed)
             bootguard.failed--;                 /* a slot module hung, not the host's boot: as hb_fault */
     }
+    if (hb_nv.crash.magic == CRASH_MAGIC && hb_nv.crash.module == FX_ACTIVE)
+        fx_held = 1;                            /* (it faulted: off until it is picked again) */
     if (hb_probe.magic == PR_MAGIC && hb_probe.state == PR_RUNNING) {   /* reset in a probe: the watchdog or its own */
         hb_probe.state = PR_HUNG;
         hb_log_u32("reset in the probe", fm1_boot.p3_rst);
@@ -2604,6 +2897,13 @@ static void app_main(void)
         hb_log("EQ saved ON, held this boot");
     else
         eq_apply();
+    if (rec_load(HFX_KEY, &hfx, sizeof hfx) || hfx.magic != HFX_MAGIC)
+        memset(&hfx, 0, sizeof hfx);
+    if (hfx.sel && (bootguard.failed || safe))
+        fx_held = 1;                            /* (the effect as the EQ: not after a failed or safe start) */
+    if (hfx.sel && fx_held)
+        hb_log("EFFECT held this boot");
+    fx_start();
     lcd_fill(0, 0, 240, 240, C_BLACK);
     if (safe)
         hb_log("safe boot (OCT+): the sine only, the radio not started");
@@ -2634,6 +2934,13 @@ static void app_main(void)
                 hb_log_u32(cpu1_state == CPU1_MISREAD ? "cpu1: misread around a job, 1 core; timeouts"
                            : "cpu1: a job ran late, 1 core; timeouts", cpu1_timeouts);
             cpu1_said = cpu1_state;
+        }
+        if (fx_shed && !fx_said) {              /* (the audio interrupt dropped it: said once) */
+            fx_said = 1;
+            fx_cur = n_fx;
+            hb_log("EFFECT off: the blocks ran late with it");
+        } else if (!fx_shed) {
+            fx_said = 0;
         }
         if (eq_failed && !eq_said) {
             eq_said = 1;
@@ -2806,7 +3113,8 @@ static void app_main(void)
             for (e = 1; e < 6u; e++)
                 turn += en[e];                  /* (the module's knobs: MIDI CH's value, else nothing meanwhile) */
             if (eqp) {                          /* the page takes them all */
-                if (eqp == 2u ? about_input(&eq_row, en, b) : eq_page_input(&eq_row, en, b)) {
+                if (eqp == 2u ? about_input(&eq_row, en, b) : eqp == 3u ? fx_page_input(&eq_row, en, b)
+                    : eq_page_input(&eq_row, en, b)) {
                     eqp = 0;
                     draw_picker(sel);
                 }
@@ -2828,6 +3136,10 @@ static void app_main(void)
                 eqp = 1;                        /* the EQ's page */
                 eq_row = 0;
                 draw_eq_page(0);
+            } else if (sel == n_mods + O_FX && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {
+                eqp = 3;                        /* the effect's page */
+                eq_row = 0;
+                draw_fx_page(0);
             } else if (sel == n_mods + O_ABOUT && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {
                 eqp = 2;                        /* ABOUT */
                 eq_row = 0;

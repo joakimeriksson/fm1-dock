@@ -38,6 +38,7 @@ import flashlib  # noqa: E402
 FWSC = SRC / "build" / "fm1-dock.fwsc"
 SINE = SRC / "build" / "modules" / "sine.dock"
 DT = (0x93000, 0x94000)
+SETTINGS = 0x95000                              # dock.c SETTINGS_AT
 NOTE = 21                                       # C4's key (14 + 7)
 failures = []
 
@@ -250,6 +251,22 @@ def main():
             kept = bytes(f6.read_bytes()[0xEA000:0xFC000]) == bytes(fl[0xEA000:0xFC000])
             check("bank_full", "bank not saved: no bank free" in log and "bank saved" not in log and kept,
                   "with no bank free CS-1's save is refused and logged (the screen: NOT SAVED), the banks as they were")
+
+            # the settings as 0.9 kept them (eight records, 2016 bytes): read as they are, CS-1 starts again; a
+            # record made up is not (the sine)
+            f7 = wd / "f7.bin"
+            live("shot", 600, [], f7)
+            fl = bytearray(f7.read_bytes())
+            body = struct.pack("<IiIII", zlib.crc32(b"CS-1"), 0, 0, 0, 0) + bytes(8 * 248)
+            old = struct.pack("<III", 0x53425248, 12 + len(body), zlib.crc32(body)) + body
+            fl[SETTINGS:SETTINGS + 0x1000] = old + b"\xff" * (0x1000 - len(old))
+            f7.write_bytes(fl)
+            out, log = live("shot", 900, [], f7)
+            fl[SETTINGS + 8] ^= 1                # (its CRC wrong)
+            f7.write_bytes(fl)
+            out, log2 = live("shot", 900, [], f7)
+            check("settings_old", f"started {idx:08x}" in log and "started 00000000" in log2 and f"started {idx:08x}" not in log2,
+                  "0.9's settings (eight records) are read as they are: CS-1 starts; with a wrong CRC: the sine")
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")

@@ -203,7 +203,8 @@ ok(sameKeyboard("ota-SMK-37 Elite", "SMK-37 Pro") && !sameKeyboard("FM-1", "SMK-
 class FakeDock {
   // info: INFO's answer: null none (fm1-dock 0.8 and before: silent here), "bad" a bad-message reply (as dock.c's
   // default), else the record (dock.c info_fill)
-  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0, largest = 400000, info = null, at = {}, banks = null } = {}) {
+  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0, largest = 400000, info = null, at = {}, banks = null, fx = 0, effects = [] } = {}) {
+    this.fx = fx; this.effects = effects;      // fx: the effects' ABI in HELLO (0: an fm1-dock before them); effects: those added
     // banks: null an fm1-dock before the bank commands (bad message), else its 9 slots: { name, idx, data } or null
     this.banks = banks && Array.from({ length: 9 }, (_, i) => banks[i] || null);
     this.largest = largest; this.info = info; this.at = at;   // at: a module's XIP address in LIST (0: none)
@@ -222,7 +223,7 @@ class FakeDock {
     if (!r) return;                             // (not fm1-dock's frame: the updater's handshake, unanswered here)
     const d = r.d;
     const u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
-    if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, this.cur, 0, 0, 0, ...u32(this.largest), ...u32(500000), ...u32(300000), ...new Array(16).fill(0), ...u32(this.logText.length), ...new Array(4).fill(0)]);
+    if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, this.cur, 0, this.fx, 0, ...u32(this.largest), ...u32(500000), ...u32(300000), ...new Array(16).fill(0), ...u32(this.logText.length), ...new Array(4).fill(0)]);
     else if (r.cmd === CMD.INFO && this.info === "bad") this.reply(r.cmd, r.seq, [10]);
     else if (r.cmd === CMD.INFO && this.info) {
       const b = new Array(88).fill(0), str = (o, s) => [...new TextEncoder().encode(s)].forEach((c, k) => { b[o + k] = c; });
@@ -232,6 +233,7 @@ class FakeDock {
       this.reply(r.cmd, r.seq, b);
     } else if (r.cmd === CMD.LIST) {
       this.mods.forEach((n, i) => this.reply(r.cmd, r.seq, [0, i, 0, 2, ...u32(1), ...u32(1000), ...u32(this.at[n] || 0), ...new TextEncoder().encode(n.padEnd(24, "\0"))]));
+      this.effects.forEach((n, i) => this.reply(r.cmd, r.seq, [0, 0x80 | i, 0, 4, ...u32(1), ...u32(800), ...u32(0x02092000), ...new TextEncoder().encode(n.padEnd(24, "\0"))]));
       this.reply(r.cmd, r.seq, [0, 0xff]);
     } else if (r.cmd === CMD.BEGIN) {
       const len = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24);
@@ -291,8 +293,9 @@ class FakeDock {
       const chunk = [...new TextEncoder().encode(this.logText.slice(from, from + 180))];
       this.reply(r.cmd, r.seq, [0, 0, 0, 0, ...u32(w), ...u32(from), ...chunk]);
     } else if (r.cmd === CMD.DELETE) {
-      const name = new TextDecoder().decode(d.subarray(0, 24)).split("\0")[0], i = this.mods.indexOf(name);
-      if (i >= 0) { this.mods = this.mods.filter((m) => m !== name); this.deleted = name; }
+      const name = new TextDecoder().decode(d.subarray(0, 24)).split("\0")[0];
+      const i = this.mods.includes(name) || this.effects.includes(name) ? 0 : -1;
+      if (i >= 0) { this.mods = this.mods.filter((m) => m !== name); this.effects = this.effects.filter((m) => m !== name); this.deleted = name; }
       this.reply(r.cmd, r.seq, [i >= 0 ? 0 : 9]);
     } else if (r.cmd === CMD.COMMIT) {
       const good = crc32(this.got) === this.crc;
@@ -378,6 +381,20 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
   const blob = new Uint8Array(100);
   const e = await reject(addModule({ inputs: { forEach() {} }, outputs: { forEach() {} } }, { blob, info: { abi: 2, name: "X" } }, yes, () => {}));
   ok(e && e.code === "nodock", "no FM-1 running fm1-dock: nodock");
+}
+
+// ------------------------------------------------------------------ effects (add-ons of another kind) ---
+{
+  const blob = new Uint8Array(900);
+  const fxmod = { blob, info: { abi: 2, name: "CHORUS", fx: true } };
+  const e = await reject(addModule(new FakeDock({ modules: ["SINE", "CS-1"] }).access, fxmod, yes, () => {}));
+  ok(e && e.code === "nofx", "an effect to an fm1-dock before effects: refused (nofx), nothing sent");
+  const dev = new FakeDock({ modules: ["SINE", "CS-1"], fx: 1, effects: ["DELAY"] });
+  const seen = await inspectDevice(dev.access);
+  const fx = seen.dock.modules.find((m) => m.name === "DELAY");
+  ok(seen.dock.hello.fx === 1 && fx && fx.kind === "effect" && fx.index === 0x80 && seen.dock.modules.length === 3,
+    "inspectDevice: an added effect is in the list, as an effect, after the synths");
+  ok(await removeModule(dev.access, "DELAY", yes) === "done" && dev.deleted === "DELAY" && !dev.effects.length, "removeModule: an effect is removed as a synth is");
 }
 
 // ------------------------------------------------------------------ the presets (the banks) ---

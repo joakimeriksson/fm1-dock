@@ -19,7 +19,7 @@
 //   else file (the .dock next to modules.json), version, source, songs; pending: why the file is not here yet.
 import { catalog, installButton, tuneButtons, inspectDevice, addModule, removeModule, loadModule, explain,
   backupPresets, restorePresets, deletePresets } from "./install/fm1install.js";
-import { moduleInfo } from "./dock.js";
+import { moduleInfo, isAdded } from "./dock.js";
 import { tryIndex, emulatorUrl, tryOutNews } from "./tryit.js";
 
 const DEMO = new URLSearchParams(location.search).get("demo");
@@ -35,7 +35,7 @@ const SIGNED_FROM = [0, 7];                     // releases built and attested o
 const PAGE = 4096;                               // a module takes whole 4 KiB flash sectors
 const LARGE = 150 * 1024, LARGE_TAG = "large";   // an add-on that needs about half of an FM-1's deploy area on its own
 const KINDS = [["any", "Every kind"], ["analog", "Analog"], ["digital", "Digital & chip"], ["ambient", "Ambient & texture"],
-  ["keys", "Keys & acoustic"]];
+  ["keys", "Keys & acoustic"], ["effect", "Effects"]];
 const VIDEO = [   // the tunes in the video, as FM-1 SID played them there
   { title: "Arkanoid", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Arkanoid.sid" },
   { title: "Wizball", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Wizball.sid", song: 7 },
@@ -230,7 +230,7 @@ function renderDevice() {
   else if (d.version && rel) state = vcmp(d.version, rel.version) >= 0 ? `<span class="pill ok">up to date</span>`
     : `<span class="pill acc">${esc(rel.version)} is out</span>`;
   else if (!d.version) ver += ` <span class="dim small">(its version is no longer in the log)</span>`;
-  const mods = d.modules.map((m) => `<span class="${m.kind === "deployed" ? "added" : ""}${m.index === d.hello.cur ? " cur" : ""}"
+  const mods = d.modules.map((m) => `<span class="${isAdded(m) ? "added" : ""}${m.index === d.hello.cur ? " cur" : ""}"
     title="${esc(m.kind)}${m.at ? ` v${m.version}, ${kib(m.size)}` : ""}${m.index === d.hello.cur ? ", playing" : ""}">${esc(m.name)}</span>`).join("");
   pill.textContent = `${name} · fm1-dock`; pill.className = "pill ok";
   info.innerHTML = `${gone}<table class="dev-table">
@@ -274,7 +274,7 @@ function renderMeter() {
   } else {
     total = roomOf(d); free = d.hello.free; largest = d.hello.largest;
     const sizeOf = (x) => { const c = S.mods.find((m) => m.module === x.name && m.size); return sectors(c ? c.size : x.size); };
-    segs = d.modules.filter((x) => x.kind === "deployed").map((x) => ({ name: x.name, n: sizeOf(x) }));
+    segs = d.modules.filter(isAdded).map((x) => ({ name: x.name, n: sizeOf(x) }));
     const used = Math.max(0, total - free), sum = segs.reduce((a, s) => a + s.n, 0);
     if (sum > used && sum) segs.forEach((s) => { s.n = s.n * used / sum; });
     else if (used - sum > 8 * 1024) segs.push({ name: "other", n: used - sum, other: true });
@@ -515,7 +515,7 @@ function actions(m) {
     out.push(row, node("p", "note", "Coming soon to the catalog; until then, tools/dock.py deploy with its .dock."));
   } else {
     const busy = S.busy === m.id, other = S.busy && !busy;
-    if (here && here.kind === "deployed") {
+    if (here && isAdded(here)) {
       row.append(node("span", "state ok", "✓ Installed"), button(busy ? "Removing…" : "Remove", "danger", () => remove(m), !!S.busy));
       if (canTry) row.append(tryBtn());
     } else if (here) {

@@ -25,7 +25,7 @@ BANKS, BANK_READ, BANK_WRITE, BANK_ERASE = 0x24, 0x25, 0x26, 0x27   # the module
 STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed", "data missing",
           "not started", "not found", "bad message", "refused"]
 STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"]
-KIND = ["built in", "image", "deployed", "boot"]
+KIND = ["built in", "image", "deployed", "boot", "effect", "effect (image)"]   # (4, 5: effects, their places 0x80 up)
 CHUNK = 256
 BYTE_MS = 10 * 1000 / 31250                     # a MIDI byte on the DIN jack: 0.32 ms
 HRBR_MAGIC = 0x52425248                         # "HRBR"
@@ -204,7 +204,7 @@ def hello(p):
     d = p.ask(HELLO)
     proto, abi, n, cur, rx = d[1], d[2], d[3], d[4], d[5]
     big, total, max_file, crash_pc, crash_mod, worst, over, log_w, block = struct.unpack_from("<9I", d, 8)
-    h = dict(proto=proto, abi=abi, n=n, cur=cur, receiving=rx, largest=big, free=total, max_file=max_file,
+    h = dict(proto=proto, abi=abi, n=n, cur=cur, receiving=rx, fx=d[6], largest=big, free=total, max_file=max_file,
              crash_pc=crash_pc, crash_module=crash_mod, worst=worst, overruns=over, log_w=log_w, block=block)
     if len(d) >= 60:                            # the second core (firmware/src/cpu1.c): its state, a job's time
         h.update(cpu1=CPU1[d[44]] if d[44] < len(CPU1) else d[44], cpu1_timeouts=d[45],
@@ -240,7 +240,7 @@ def modules(p):
         if d[1] == 0xFF:
             break
         version, size, at = struct.unpack_from("<III", d, 4)
-        out.append(dict(index=d[1], state=STATE[d[2]] if d[2] < len(STATE) else d[2], kind=KIND[d[3]] if d[3] < 4 else d[3],
+        out.append(dict(index=d[1], state=STATE[d[2]] if d[2] < len(STATE) else d[2], kind=KIND[d[3]] if d[3] < len(KIND) else d[3],
                         version=version, size=size, at=at, name=d[16:40].split(b"\0")[0].decode("latin-1")))
     return out
 
@@ -252,6 +252,8 @@ def deploy(p, blob, say=print):
         if h["abi"] != struct.unpack_from("<I", blob, 4)[0]:
             raise SystemExit(f"the FM-1's fm1-dock speaks ABI {h['abi']}, {name} was built for "
                              f"{struct.unpack_from('<I', blob, 4)[0]}: update one of them")
+        if struct.unpack_from("<I", blob, 8)[0] & 0x800 and not h.get("fx"):
+            raise SystemExit(f"{name} is an effect: this fm1-dock takes none yet (0.10 and later)")
         if len(blob) > h["max_file"]:
             raise SystemExit(f"{name}: {len(blob)} B, fm1-dock takes up to {h['max_file']} B")
         say(f"{name} v{version}, {len(blob)} B; the FM-1 has {h['free'] // 1024} KiB free "
