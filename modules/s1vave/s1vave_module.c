@@ -27,6 +27,7 @@ static void draw(uint32_t full)
         obv_leds_resend();
     }
     app_loop();
+    hb_key0(H, (int32_t)KEY0 + 12 * set.oct);   /* (the SMK-37's outer keys go on from this octave) */
 }
 
 static int init(const hb_host_t *h)

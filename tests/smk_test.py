@@ -222,6 +222,52 @@ def main():
         bends = [m.hex() for m in usb if m[0] == 0xE0]
         check("bend", "e07f7f" in bends and bends[-1:] == ["e00040"], f"the pitch wheel: full up, then the centre ({len(bends)} bends)")
 
+        print("the outer keys beside the middle ones")
+        # LOCAL OFF (OPTIONS): the outer keys send MIDI and the sine is silent, as with a middle key
+        loc = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 3}", "2900:scale", "2950:scale^", "3200:patch", "3250:patch^"]   # (a click is lost to the list's opening)
+        for name, key in (("outer", "k0"), ("middle", "k12")):
+            fl = flash.with_name(f"loc{key}.bin")
+            fl.write_bytes(base)
+            o, _, usb = live(4600, loc + [f"3900:{key}@100"], fl, usb=[])
+            on = [n for n in notes(usb) if n.startswith("90")]
+            check(f"local off {name}", peak(o) < 50 and len(on) == 1, f"LOCAL OFF: {key} sends {on} and the sine stays silent (peak {peak(o)})")
+        # a synth's own OCTAVE buttons (it tells its octave: hb_key0): the outer C3 follows at once, no middle key
+        # played first, to the synth's own limit; then a middle C5 beside it, two octaves above
+        for name, n in (("CS-1", 2), ("OBERVAVE", 4)):
+            pk = ["900:patch", "1000:patch^", "1400:e1:-40", f"2300:e1:{n}", "2600:scale", "2700:scale^"]
+            got = {}
+            for steps in (0, -1, -2, -3, 1, 2):
+                fl = flash.with_name(f"oct{n}{steps}.bin")
+                fl.write_bytes(base)
+                t, ks = 6000, []                # (OberVave starts late: its banks)
+                for _ in range(abs(steps)):
+                    b = "octave+" if steps > 0 else "octave-"
+                    ks += [f"{t}:{b}", f"{t + 80}:{b}^"]
+                    t += 250
+                _, log, usb = live(t + 1500, pk + ks + [f"{t + 200}:k0@100", f"{t + 350}:k0^", f"{t + 700}:k24@100", f"{t + 850}:k24^"], fl, usb=[])
+                got[steps] = [int(x[2:4], 16) for x in notes(usb) if x[0] == "9" and x[4:] != "00"]
+            want = {k: [48 + 12 * max(k, -2), 72 + 12 * max(k, -2)] for k in got}
+            check(f"octave {name}", f"started {n - 1:08x}" in log and got == want, f"C3 and C5 by OCTAVE steps: {got}")
+        # LOCAL OFF under CS-1, whose OCTAVE buttons are its own: what the keys send follows them, middle and outer
+        got = {}
+        for steps in (0, 1):
+            fl = flash.with_name(f"lo{steps}.bin")
+            fl.write_bytes(base)
+            live(5500, loc, fl)                 # (LOCAL OFF from the sine's list, kept)
+            pk = ["900:patch", "1000:patch^", "1400:e1:-40", "2300:e1:2", "2600:scale", "2700:scale^"]
+            _, log, usb = live(5600, pk + (["3600:octave-", "3700:octave-^"] if steps else []) +
+                               ["4200:k24@100", "4350:k24^", "4700:k0@100", "4850:k0^"], fl, usb=[])
+            got[steps] = [int(x[2:4], 16) for x in notes(usb) if x[0] == "9" and x[4:] != "00"]
+        check("local off octave", "started 00000001" in log and got == {0: [72, 48], 1: [60, 36]},
+              f"LOCAL OFF in CS-1: C5 and C3 send {got[0]}; after its OCTAVE-: {got[1]}")
+        # MIDI CH 2: the outer keys send on it too, as the middle ones
+        fl = flash.with_name("ch.bin")
+        fl.write_bytes(base)
+        ch = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 2}", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^", "3300:patch", "3350:patch^"]
+        _, _, usb = live(4700, ch + ["3900:k0@100", "4050:k0^", "4300:k12@100", "4450:k12^"], fl, usb=[])
+        on = [n[:4] for n in notes(usb) if n.startswith("9")]
+        check("channel", on == ["9130", "913c"], f"MIDI CH 2: C3 and a middle key both on channel 2 ({on})")
+
         print("CS-1's velocity")
         pick = ["900:patch", "1000:patch^", "1400:e1:2", "1900:scale", "2000:scale^"]
         soft = peak(live(2900, pick + ["2400:k12@15"], flash)[0])
