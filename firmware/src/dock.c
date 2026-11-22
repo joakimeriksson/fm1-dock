@@ -260,7 +260,7 @@ static volatile uint32_t hb_blocks, hb_over, hb_slow;   /* blocks; overruns in a
  * probes/iflush.c). So the host notes the flash sectors a module's code has run from since power-on (ran_map),
  * and a deploy that writes into one of them does not start what it wrote: the unit restarts, and starts it then. */
 static uint8_t ran_map[32];                     /* a bit a 4 KiB sector of the 1 MiB */
-static uint32_t restart_at;                     /* a restart asked for (fm1_ms | 1 then), 0: none */
+static uint32_t restart_on, restart_at;         /* a restart asked for, and when (fm1_ms) */
 static void ran_mark(uint32_t off, uint32_t n)
 {
     uint32_t s;
@@ -1894,7 +1894,7 @@ static uint32_t d_commit(uint32_t *key)
         e[n++] = sl;
     hb_log_u32("deploy: written at", sl.at);
     if (ran_any(at, need))
-        restart_at = fm1_ms | 1u;               /* (code ran from there since power-on: not started before a restart) */
+        restart_on = 1;                         /* (code ran from there since power-on: not started before a restart) */
     return dt_write(e, n);
 }
 
@@ -2203,17 +2203,18 @@ static uint32_t deploy_frame(void)
             uint32_t back = st_ == D_OK ? key : rx.prev_key;
             if (st_ == D_OK) hb_log("deploy: done");
             rx_end(st_);
-            if (st_ == D_OK && restart_at) {    /* written where code ran: started after a restart, not now (ran_map) */
+            if (st_ == D_OK && restart_on) {    /* written where code ran: started after a restart, not now (ran_map) */
                 hb_log("deploy: code ran from that flash: restarting");
                 st.sel_key = key;
                 store_flush();
                 rx_draw("RESTARTING", C_WHITE);
-                restart_at = fm1_ms | 1u;       /* (counted from the answer, not from the flash write before it) */
+                restart_at = fm1_ms;
+                memset(hb_nv.strikes, 0, sizeof hb_nv.strikes);   /* (by place in the list, which may have moved: as d_restart) */
                 r[2] = 1;                       /* (the computer waits for the unit to come back) */
                 rn = 8;
                 break;                          /* (the screen stays as it is until then) */
             }
-            restart_at = 0;                     /* (a commit that failed after its write: nothing new to start) */
+            restart_on = 0;                     /* (a commit that failed after its write: nothing new to start) */
             d_restart(back);
             wr32(r + 4, mods[cur].file ? (uint32_t)mods[cur].file : 0);
             r[1] = (uint8_t)cur;
@@ -2807,12 +2808,16 @@ static void app_main(void)
             }
         }
 
-        if (restart_at && fm1_ms - restart_at > (so_w == so_r ? 400u : 2000u)) {   /* (the COMMIT's answer is out) */
-            fm1_audio_stop();
-            bootguard_clear(&bootguard);        /* (asked for: not a start that failed, however soon after one) */
-            usb_detach();                       /* (the computer sees it go, as before an update) */
-            fm1_delay_ms(30);
-            fm1_reboot();
+        if (restart_on) {                       /* (no frame, button or note meanwhile: the list is of before) */
+            fm1_wdt_feed();
+            if (fm1_ms - restart_at > (so_w == so_r ? 400u : 2000u)) {   /* (the COMMIT's answer is out) */
+                fm1_audio_stop();
+                bootguard_clear(&bootguard);    /* (asked for: not a start that failed, however soon after one) */
+                usb_detach();                   /* (the computer sees it go, as before an update) */
+                fm1_delay_ms(30);
+                fm1_reboot();
+            }
+            continue;
         }
         if (deploy_tick()) {                    /* a deploy: the module may have changed */
             picker = eqp = 0;

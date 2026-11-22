@@ -385,14 +385,15 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
   const b = new Uint8Array(100), w = (o, v) => [0, 8, 16, 24].forEach((s, i) => { b[o + i] = (v >>> s) & 255; });
   w(0, 0x52425248); w(4, 2); [..."LOSTMOD"].forEach((c, i) => { b[12 + i] = c.charCodeAt(0); }); w(36, 1); w(40, 900); w(44, 100);
   for (const there of [true, false]) {
-    const dev = new FakeDock({ modules: ["SINE"] });
+    const dev = new FakeDock({ modules: ["SINE", "LOSTMOD"] });   // (an older copy of it there)
+    dev.logText += "800 deploy: done\n";            // (and that one's deploy in the log)
     const rx = dev.rx.bind(dev);
-    dev.rx = (f) => { const r = parse(Uint8Array.from(f)); if (r && r.cmd === CMD.COMMIT) { if (there) dev.mods.push("LOSTMOD"); } else rx(f); };
+    dev.rx = (f) => { const r = parse(Uint8Array.from(f)); if (r && r.cmd === CMD.COMMIT) { dev.logText += there ? "900 deploy: done\n" : "900 deploy failed 00000004\n"; } else rx(f); };
     const dock = new Dock(dev.input, dev.output);
     dock.commitWait = 50;
     const r = await dock.deploy(b).catch((e) => e);
-    ok(there ? r.info && r.info.name === "LOSTMOD" : r instanceof Error, there ? "deploy: COMMIT's answer lost, the module is there: done"
-      : "deploy: no answer and no module: an error, as before");
+    ok(there ? r.info && r.info.name === "LOSTMOD" : r instanceof Error, there ? "deploy: COMMIT's answer lost, the log says done: done"
+      : "deploy: no answer and the log says failed: an error, though an older copy is there");
     dock.close();
   }
 }

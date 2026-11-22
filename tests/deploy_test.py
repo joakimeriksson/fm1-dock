@@ -18,6 +18,7 @@ the Nth erase / program).
 The test module (tests/modules/slow) is built here with tools/hbmod.py (JIELI_TOOLCHAIN)."""
 import argparse
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -228,10 +229,10 @@ def main():
             t = int(tc) + 4500                  # (the write, the restart, the start)
             keys += e + ([f"{t}:m{hbdeploy.frame(hbdeploy.DELETE, 9, hbdeploy.name24('RANHERE')).hex()}"] if v < 4 else [])
             t += 1500
-        out, log = live("shot", t, keys, f8)
+        out, log = live("shot", t + 600, keys + [f"{t}:{NOTE}"], f8)
         got = [x[:2] for x in table(f8.read_bytes())]   # (the log keeps 2 KiB: the last starts only)
         check("ran_restart", got == [("RANHERE", 4)] and "code ran from that flash: restarting" in log
-              and "RANHERE" in log.split(" boot, reset")[-1],
+              and re.search(r"started 0*[1-9a-f][0-9a-f]*\n\s*\d+ RANHERE", log.split(" boot, reset")[-1]) and peak(out) > 1000,
               f"a module written where code ran, three times within 30 s: a restart each, and the fourth build is in flash {got} "
               "and plays (the boot guard's USB rescue would have taken no third)")
 

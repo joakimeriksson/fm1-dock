@@ -222,9 +222,9 @@ export class Dock {
     return out;
   }
 
-  async log() {
+  async log(since = 0) {                        // its last 2 KiB, or from the byte count since on
     const h = await this.hello();
-    let from = Math.max(0, h.logW - 2048);
+    let from = Math.max(since, h.logW - 2048, 0);
     const bytes = [];
     while (from < h.logW) {
       const d = await this.ask(CMD.LOG, Uint8Array.from(u32(from)));
@@ -257,12 +257,12 @@ export class Dock {
     }
     if (run) return run();
     progress(1, "writing the flash…");
+    const logAt = (await this.hello()).logW;
     try {
-      d = await this.ask(CMD.COMMIT, new Uint8Array(0), { timeout: this.commitWait || 20000, tries: 1 });
-    } catch (e) {                               // (its answer was lost: is the module there?)
-      const m = (await this.modules()).find((x) => x.name === info.name);
-      if (!m || m.version !== info.version || m.size !== info.code + info.data || m.state !== "ok") throw e;
-      return { at: m.at, info, restarting: false };
+      d = await this.ask(CMD.COMMIT, new Uint8Array(0), { timeout: this.commitWait || 30000, tries: 1 });
+    } catch (e) {                               // (its answer was lost: the unit's log says what came of it)
+      if (!(await this.log(logAt)).text.includes("deploy: done")) throw e;
+      return { at: 0, info, restarting: false };
     }
     if (d[0]) throw new Error(`${info.name}: ${status(d)} (at COMMIT)`);
     // restarting: it was written where code ran since power-on, and the unit restarts to run it (dock.c ran_map):

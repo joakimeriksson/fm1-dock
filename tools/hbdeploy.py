@@ -149,6 +149,11 @@ class Port:
         """the unit restarted (its USB went away): its ports found again and HELLO answered, or SystemExit"""
         import rtmidi
         want = self.want
+        for port in (self.out, self.inp):       # (Windows: only one program, and one handle, has a port)
+            try:
+                port.close_port()
+            except Exception:
+                pass
         end = time.monotonic() + timeout
         time.sleep(1.0)
         while time.monotonic() < end:
@@ -160,7 +165,7 @@ class Port:
                 self.out, self.inp = out, inp
                 self.ask(HELLO, timeout=0.5, tries=2)
                 return
-            except SystemExit:
+            except (SystemExit, Exception):     # (not there yet, or not openable yet)
                 time.sleep(0.5)
         raise SystemExit("the FM-1 did not come back after its restart")
 
@@ -278,6 +283,8 @@ def deploy(p, blob, say=print):
     t0 = time.monotonic()
     frames = deploy_frames(blob)
     for i, (cmd, payload) in enumerate(frames):
+        if cmd == COMMIT and not p.blind:
+            log_at = hello(p)["log_w"]
         if p.blind:
             p.send(cmd, payload)
             if cmd == BEGIN:
@@ -286,13 +293,12 @@ def deploy(p, blob, say=print):
                 say(f"  {min(len(blob), (i - 1) * CHUNK + CHUNK) * 100 // len(blob):3d} %")
             continue
         try:
-            d = p.ask(cmd, payload, timeout=20.0 if cmd == COMMIT else 2.0, tries=1 if cmd == COMMIT else 4)
+            d = p.ask(cmd, payload, timeout=30.0 if cmd == COMMIT else 2.0, tries=1 if cmd == COMMIT else 4)
         except SystemExit:
             if cmd != COMMIT:
                 raise
-            p.wait_back()                       # (its answer was lost: is the module there?)
-            code, data = struct.unpack_from("<II", blob, 40)
-            if not any((m["name"], m["version"], m["size"], m["state"]) == (name, version, code + data, "ok") for m in modules(p)):
+            p.wait_back()                       # (its answer was lost: the unit's log says what came of it)
+            if "deploy: done" not in log_text(p, log_at)[0]:
                 raise
             say(f"{name}: in flash, its answer was lost ({time.monotonic() - t0:.1f} s)")
             return
@@ -314,9 +320,10 @@ def deploy(p, blob, say=print):
         say(f"{name}: sent (blind: check the FM-1's screen)")
 
 
-def log_text(p):
+def log_text(p, since=0):
+    """the log (its last 2 KiB, or from the byte count since on) and HELLO"""
     h = hello(p)
-    w, frm, out = h["log_w"], max(0, h["log_w"] - 2048), bytearray()
+    w, frm, out = h["log_w"], max(since, h["log_w"] - 2048, 0), bytearray()
     while frm < w:
         d = p.ask(LOG, struct.pack("<I", frm))
         _, at = struct.unpack_from("<II", d, 4)
