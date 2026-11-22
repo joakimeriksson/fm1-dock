@@ -13,9 +13,12 @@
 //   over 150 KiB: about half of an FM-1's 296 KiB on its own), kind (analog, digital, ambient, keys or utility: the
 //   catalog's second row of filters), untested: true until the module has been played on a real FM-1 (a label on its
 //   card), screenshot (media/...png), alt, accent (a colour from its screen, for the card's frame);
+//   save: how a player saves a sound in it, in the FM-1's button names (or that it cannot, and what it keeps): the
+//   Presets box lists it for the synths on the device, the guide for all (read from the synth's source);
 //   packaged: true for one in fm1-dock's package (no file, no button; size_kib for the card);
 //   else file (the .dock next to modules.json), version, source, songs; pending: why the file is not here yet.
-import { catalog, installButton, tuneButtons, inspectDevice, addModule, removeModule, loadModule, explain } from "./install/fm1install.js";
+import { catalog, installButton, tuneButtons, inspectDevice, addModule, removeModule, loadModule, explain,
+  backupPresets, restorePresets, deletePresets } from "./install/fm1install.js";
 import { moduleInfo } from "./dock.js";
 import { tryIndex, emulatorUrl, tryOutNews } from "./tryit.js";
 
@@ -299,6 +302,99 @@ function renderMeter() {
     <ul class="legend">${legend.join("")}</ul>` + (said ? `<p class="say meter-say ${said.cls || ""}">${esc(said.text)}</p>` : "");
 }
 
+// ------------------------------------------------------------------ the presets ---
+// What the synths saved (their banks on the device), under the meter: a backup of all of it into a file, one synth's
+// into a file for another unit, a file back onto the device, and a synth's presets deleted. The bytes are the
+// synths' own; fm1-dock and this page only carry them (install/fm1install.js backupPresets).
+
+function renderPresets() {
+  const el = $("#presets"), d = dock();
+  const said = S.presetMsg ? `<p class="say meter-say ${S.presetMsg.cls || ""}">${esc(S.presetMsg.text)}</p>` : "";
+  if (!d) {
+    el.innerHTML = `<div class="meter-h"><h3>Your presets</h3><span class="figs">Connect your device to back up, move or restore
+      what you saved in the synths (fm1-dock 0.10 and later)</span></div>` + said;
+    return;
+  }
+  if (!d.banks) {
+    el.innerHTML = `<div class="meter-h"><h3>Your presets</h3><span class="figs">Backing up and restoring presets comes with
+      fm1-dock 0.10; this ${esc(devName())} runs ${esc(d.version || "an older one")}</span></div>` + said;
+    return;
+  }
+  const by = new Map();
+  let orphans = 0;
+  for (const b of d.banks.banks) {
+    if (!b.name) { orphans++; continue; }
+    const e = by.get(b.name) || { n: 0, size: 0 };
+    e.n++; e.size += b.size;
+    by.set(b.name, e);
+  }
+  const off = S.busy ? " disabled" : "";
+  const rows = [...by].map(([name, e]) => `<li><i></i>${esc(name)} <b>${kib(e.size)}</b> in ${e.n} bank${e.n > 1 ? "s" : ""}
+    <button type="button" class="btn small meter-rm" data-export="${esc(name)}"${off} aria-label="Export ${esc(name)}'s presets">Export</button>
+    <button type="button" class="btn small danger meter-rm" data-wipe="${esc(name)}"${off} aria-label="Delete ${esc(name)}'s presets">Delete</button></li>`);
+  if (orphans) rows.push(`<li><i class="other"></i>${orphans} bank${orphans > 1 ? "s" : ""} of synths no longer on the device
+    <button type="button" class="btn small danger meter-rm" data-wipe=""${off}>Delete</button></li>`);
+  if (!rows.length) rows.push(`<li>Nothing saved yet. A synth's presets show up here once you save in it on the device.</li>`);
+  const used = d.banks.banks.length;
+  // how each synth on the device saves (the catalog's "save": the steps on the device, or what it keeps instead)
+  const how = d.modules.map((x) => [x.name, (S.mods.find((m) => m.module === x.name) || {}).save]).filter(([, t]) => t)
+    .map(([name, t]) => `<li><b>${esc(name)}</b>: ${esc(t)}</li>`);
+  const howto = how.length ? `<details class="presets-how"${by.size ? "" : " open"}><summary>How to save in each synth on this ${esc(devName())}</summary>
+      <ul>${how.join("")}</ul>${S.dev && S.dev.board === "smk37" ? `<p class="dim">The names are the FM-1's. On the SMK-37: SAVE is BT, PRESETS is K4,
+      SELECT is K2, ALGORITHM is K3, GLO is GLOBE, HOME is PATCH.</p>` : ""}</details>` : "";
+  el.innerHTML = `<div class="meter-h"><h3>Presets on your ${esc(devName())}</h3><span class="figs"><b>${used}</b> of ${d.banks.slots}
+      banks used</span></div>
+    <div class="presets-act">
+      <button type="button" class="btn small" id="pr-backup"${off || (by.size ? "" : " disabled")}>${S.busy === "presets" ? "Working…" : "Back up all to a file"}</button>
+      <label class="btn small${S.busy ? " disabled" : ""}">Restore from a file…<input type="file" id="pr-file" accept=".hbk" hidden${off}></label>
+      <span class="dim">A <code>.hbk</code> file holds the presets of one synth or of all. Restoring replaces those synths' presets on the device.</span>
+    </div>
+    <ul class="legend">${rows.join("")}</ul>${howto}` + said;
+}
+
+function saveFile(bytes, name) {
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" })), download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+}
+
+// one of the presets' actions, with the device asked again after it; fn -> the line to say, or null when cancelled
+async function presets(fn) {
+  if (S.busy) return;
+  S.busy = "presets";
+  S.presetMsg = null;
+  renderCatalog();
+  renderDevice();
+  try {
+    const text = await fn(await midiAccess());
+    S.presetMsg = text === null ? { text: "Cancelled: nothing was changed." } : { text, cls: "ok" };
+  } catch (e) {
+    S.presetMsg = { text: ACCESS[e.code] || explain(e), cls: "bad" };
+    console.error(e);
+  }
+  S.busy = null;
+  await connect({ log: !(dock() && dock().version) });
+}
+
+const list = (a) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a.at(-1)}` : a[0] || "");
+const backup = (name) => presets(async (midi) => {
+  const r = await backupPresets(midi, name);
+  const file = name ? `${name.replace(/[^\w.-]+/g, "_")}-presets.hbk` : `fm1-dock-presets-${new Date().toISOString().slice(0, 10)}.hbk`;
+  saveFile(r.bytes, file);
+  return `Saved ${file}: the presets of ${list(r.names)}.` + (r.left ? ` Not in it: ${r.left} bank${r.left > 1 ? "s" : ""} of synths that are no longer on the device.` : "");
+});
+const restore = (bytes) => presets(async (midi) => {
+  const r = await restorePresets(midi, bytes, (q) => ask(q, "Replace"));
+  if (!r) return null;
+  return `Restored the presets of ${list(r.names)}.` + (r.missing.length ? ` Left out, not on the device (add the synth, then restore again): ${list(r.missing)}.` : "");
+});
+const wipe = (name) => presets(async (midi) => {
+  const n = await deletePresets(midi, name || null, (q) => ask(q, "Delete"));
+  return n === null ? null : name ? `Deleted ${name}'s presets.` : `Deleted ${n} bank${n > 1 ? "s" : ""}.`;
+});
+
 // the catalog's module of a deployed one, by its name on the device; one the catalog does not know gets a stand-in
 function meterMod(name) {
   const x = dock() && dock().modules.find((y) => y.name === name);
@@ -467,6 +563,7 @@ function renderCatalog() {
   if (!list.length) grid.innerHTML = `<p class="empty">No module matches. <button type="button" class="btn small" id="clear">Show all</button></p>`;
   $("#count").textContent = `${list.length} of ${S.mods.length} modules`;
   renderMeter();
+  renderPresets();
 }
 
 async function add(m) {
@@ -575,6 +672,17 @@ $("#meter").addEventListener("click", (e) => {      // Remove beside each add-on
   const m = meterMod(b.dataset.remove);
   S.meterId = m.id;
   remove(m);
+});
+$("#presets").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || S.busy) return;
+  if (b.id === "pr-backup") backup(null);
+  else if (b.dataset.export !== undefined) backup(b.dataset.export);
+  else if (b.dataset.wipe !== undefined) wipe(b.dataset.wipe);
+});
+$("#presets").addEventListener("change", async (e) => {
+  if (e.target.id !== "pr-file" || !e.target.files[0]) return;
+  restore(new Uint8Array(await e.target.files[0].arrayBuffer()));
 });
 $("#hero-connect").addEventListener("click", () => {
   $("#install").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });

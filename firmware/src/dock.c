@@ -904,13 +904,21 @@ static int in_mod_ram(const void *p, uint32_t n)   /* (the flash driver reads it
  * from the module's; a bank is owned when its key is a module's here or one derived from it */
 #define BANK_IDX_TAG 0x5B000000u
 static uint32_t bank_key(uint32_t idx) { return idx ? (mods[cur].key ^ (BANK_IDX_TAG | (idx & 0xFFFFu))) : mods[cur].key; }
-static int bank_owned(uint32_t k)
+static uint32_t bank_owner(uint32_t k, uint32_t *idx)   /* the module here a bank's key is of (*idx: which of its banks);
+                                                          * n_mods: no module's here */
 {
     uint32_t m;
     for (m = 0; m < n_mods; m++)
-        if (k == mods[m].key || ((k ^ mods[m].key) & 0xFFFF0000u) == BANK_IDX_TAG)
-            return 1;
-    return 0;
+        if (k == mods[m].key || ((k ^ mods[m].key) & 0xFFFF0000u) == BANK_IDX_TAG) {
+            *idx = k ^ mods[m].key ? (k ^ mods[m].key) & 0xFFFFu : 0;
+            break;
+        }
+    return m;
+}
+static int bank_owned(uint32_t k)
+{
+    uint32_t i;
+    return bank_owner(k, &i) < n_mods;
 }
 static int h_bank_load(void *p, uint32_t n)
 {
@@ -954,13 +962,12 @@ static int bank_check(uint32_t at, const uint32_t h[4])   /* the bank in flash i
     }
     return c == h[3] ? 0 : -5;
 }
-static int bank_save_key(uint32_t key, const void *p, uint32_t n)
+static int bank_put(uint32_t key, const void *p, uint32_t n)   /* (p in RAM, n up to HB_BANK_MAX: the caller's to see) */
 {
     uint32_t h[4] = {BANK_MAGIC, key, n, 0}, g[4], at, b, spare = 0, took;
     int rc;
-    if (!flash_ok || n > HB_BANK_MAX || !in_mod_ram(p, n)) {
-        if (!flash_ok)
-            save_failed(SAVE_FLASH, flash_id);
+    if (!flash_ok) {
+        save_failed(SAVE_FLASH, flash_id);
         return -1;
     }
     at = bank_find(h[1], g);
@@ -989,6 +996,12 @@ static int bank_save_key(uint32_t key, const void *p, uint32_t n)
     }
     hb_log_u32("bank saved", key);
     return 0;
+}
+static int bank_save_key(uint32_t key, const void *p, uint32_t n)   /* a module's save: from its own RAM */
+{
+    if (flash_ok && (n > HB_BANK_MAX || !in_mod_ram(p, n)))
+        return -1;
+    return bank_put(key, p, n);
 }
 static int h_bank_save(const void *p, uint32_t n) { return bank_save_key(bank_key(0), p, n); }
 /* bank idx (1..HB_BANK_IDX_MAX): up to n of its bytes into p, their length (all of them, the CRC
@@ -1532,7 +1545,8 @@ static uint32_t find_key(uint32_t k)
  * pack7 as ota.c's). Over USB each one is answered (cmd | 0x40, the same seq, a status first);
  * over DIN nothing comes back, the sender paces itself (tools/hbdeploy.py). */
 enum { D_HELLO = 0x01, D_LIST = 0x02, D_INFO = 0x03, D_BEGIN = 0x10, D_DATA = 0x11, D_COMMIT = 0x12, D_ABORT = 0x13,
-       D_DELETE = 0x14, D_LOG = 0x20, D_SAFE = 0x21, D_SELECT = 0x22, D_MODULE = 0x23, D_RUN = 0x30, D_RESULT = 0x31 };
+       D_DELETE = 0x14, D_LOG = 0x20, D_SAFE = 0x21, D_SELECT = 0x22, D_MODULE = 0x23, D_BANKS = 0x24, D_BANK_READ = 0x25,
+       D_BANK_WRITE = 0x26, D_BANK_ERASE = 0x27, D_RUN = 0x30, D_RESULT = 0x31 };
 enum { D_OK, D_BAD_CRC, D_BAD_HEAD, D_TOO_BIG, D_NO_SPACE, D_FLASH, D_VERIFY, D_MISSING, D_IDLE, D_NOT_FOUND,
        D_BAD_MSG, D_REFUSED };
 static const char *const D_TXT[] = {"DONE", "BAD CRC", "BAD HEADER", "TOO BIG", "NO SPACE", "FLASH ERROR",
@@ -2045,6 +2059,8 @@ static int hb_sysex(const uint8_t *p, uint32_t n)   /* platform_poll: a USB fram
 }
 
 static uint8_t d_msg[DF_MAX], d_out[DF_MAX];
+static struct { uint32_t on, key, len, crc, have; } bw;   /* a bank on its way in (D_BANK_WRITE): the 256-byte chunks had */
+static uint8_t bw_buf[HB_BANK_MAX];             /* (in RAM whole before the flash is touched: all of it, or nothing) */
 static void d_reply(uint32_t cmd, uint32_t seq, const uint8_t *p, uint32_t n)
 {
     static uint8_t b[264];
@@ -2263,6 +2279,106 @@ static uint32_t deploy_frame(void)
         r[1] = (uint8_t)rc;
         r[2] = (uint8_t)cur;
         rn = 3;
+        break;
+    }
+    /* The banks from the computer (the page's Presets, tools/dock.py banks / bank-get / bank-put): a backup, a
+     * restore, a preset file from another unit. The host carries the bytes and does not read them: every module's
+     * bank is its own format. A bank is the module's whose name its key is made of, so a file lands on the same
+     * synth on any unit. */
+    case D_BANKS: {                             /* one reply per bank in use, then the end: [n banks][free] */
+        uint32_t h[4], at, idx = 0;
+        for (at = BANK_LO; flash_ok && at + BANK_SIZE <= BANK_HI; at += BANK_SIZE) {
+            if (st_read(at, h, 16u) || h[0] != BANK_MAGIC || h[2] > HB_BANK_MAX)
+                continue;
+            memset(r, 0, sizeof r);
+            k = bank_owner(h[1], &idx);
+            r[1] = (uint8_t)((at - BANK_LO) / BANK_SIZE);
+            r[2] = (uint8_t)(k < n_mods ? k : 0xFFu);   /* (0xFF: of no module here; its idx not known) */
+            wr32(r + 4, h[1]); wr32(r + 8, h[2]); wr32(r + 12, h[3]); wr32(r + 16, k < n_mods ? idx : 0);
+            if (k < n_mods) memcpy(r + 20, mods[k].name, 24);
+            d_reply(cmd, seq, r, 44);
+        }
+        memset(r, 0, sizeof r);
+        r[1] = 0xFFu; r[2] = (uint8_t)((BANK_HI - BANK_LO) / BANK_SIZE); r[3] = (uint8_t)h_bank_free();
+        rn = 4;
+        break;
+    }
+    case D_BANK_READ: {                         /* [slot u8][0 0 0][from u32]: [from u32] and up to 240 of its bytes */
+        static uint8_t b[248];
+        uint32_t h[4], at = BANK_LO + (len >= 8u ? d_msg[0] : 0xFFu) * BANK_SIZE, from = len >= 8u ? rd32(d_msg + 4) : 0;
+        if (len < 8u) { r[0] = D_BAD_MSG; break; }
+        if (!flash_ok || at + BANK_SIZE > BANK_HI || st_read(at, h, 16u) || h[0] != BANK_MAGIC || h[2] > HB_BANK_MAX ||
+            from >= h[2]) { r[0] = D_NOT_FOUND; break; }
+        k = h[2] - from < 240u ? h[2] - from : 240u;
+        if (st_read(at + 16u + from, b + 8, k)) { r[0] = D_FLASH; break; }
+        b[0] = D_OK; b[1] = d_msg[0]; b[2] = b[3] = 0;
+        wr32(b + 4, from);
+        if (usb_src) d_reply(cmd, seq, b, 8u + k);
+        return 0;
+    }
+    case D_BANK_WRITE: {                        /* B [0][idx u16][n u32][crc u32][name 24], D [0 0 0][at u32][bytes], E */
+        uint32_t op = len ? d_msg[0] : 0, idx = 0;
+        r[1] = (uint8_t)op;
+        rn = 2;
+        if (op == 'B') {
+            bw.on = 0;
+            if (rx.on) { r[0] = D_IDLE; break; }
+            if (len < 36u || (d_msg[2] | (uint32_t)d_msg[3] << 8) > HB_BANK_IDX_MAX) { r[0] = D_BAD_MSG; break; }
+            bw.len = rd32(d_msg + 4);
+            if (!bw.len || bw.len > HB_BANK_MAX) { r[0] = D_TOO_BIG; break; }
+            for (i = 0; i < 23u; i++) name[i] = (char)d_msg[12u + i];
+            name[23] = 0;
+            idx = d_msg[2] | (uint32_t)d_msg[3] << 8;
+            bw.key = name_key(name) ^ (idx ? BANK_IDX_TAG | idx : 0);
+            if (!find_key(name_key(name))) { r[0] = D_NOT_FOUND; break; }   /* (a bank of no module here would be anyone's to take) */
+            bw.crc = rd32(d_msg + 8);
+            bw.have = 0;
+            bw.on = 1;
+        } else if (op == 'D') {
+            uint32_t at = len >= 8u ? rd32(d_msg + 4) : ~0u, want;
+            wr32(r + 4, at);
+            rn = 8;
+            if (!bw.on) { r[0] = D_IDLE; break; }
+            want = at < bw.len ? (bw.len - at < 256u ? bw.len - at : 256u) : 0;
+            if ((at & 255u) || !want || len - 8u != want) { r[0] = D_BAD_MSG; break; }
+            memcpy(bw_buf + at, d_msg + 8, want);
+            bw.have |= 1u << (at >> 8);
+        } else if (op == 'E') {
+            uint32_t all = (bw.len + 255u) >> 8, own;
+            int rc;
+            if (!bw.on || rx.on) { r[0] = D_IDLE; break; }
+            bw.on = 0;
+            if (bw.have != (all >= 32u ? ~0u : (1u << all) - 1u)) { r[0] = D_MISSING; break; }
+            if (crc_upd(0, bw_buf, bw.len) != bw.crc) { r[0] = D_BAD_CRC; break; }
+            own = cur && bank_owner(bw.key, &idx) == cur;
+            if (own) stop_module();             /* (before: its release may save; after: it loads the new bank) */
+            rc = bank_put(bw.key, bw_buf, bw.len);
+            r[0] = (uint8_t)(!rc ? D_OK : rc == -1 && flash_ok ? D_NO_SPACE : D_FLASH);
+            if (own) {
+                if (start_module(cur)) start_module(0);
+                ch = 1;
+            }
+        } else {
+            r[0] = D_BAD_MSG;
+        }
+        break;
+    }
+    case D_BANK_ERASE: {                        /* [slot u8][0 0 0][key u32]: that bank given back (the key: it is still that one) */
+        uint32_t h[4], at = BANK_LO + (len >= 8u ? d_msg[0] : 0xFFu) * BANK_SIZE, idx = 0, own, took;
+        if (len < 8u) { r[0] = D_BAD_MSG; break; }
+        if (rx.on) { r[0] = D_IDLE; break; }
+        if (!flash_ok || at + BANK_SIZE > BANK_HI || st_read(at, h, 16u) || h[0] != BANK_MAGIC || h[1] != rd32(d_msg + 4)) {
+            r[0] = D_NOT_FOUND;
+            break;
+        }
+        own = cur && bank_owner(h[1], &idx) == cur;
+        if (own) stop_module();
+        if (fl_erase4k(at, &took)) r[0] = D_FLASH;
+        hb_log_u32("bank erased", h[1]);
+        if (own) {
+            if (start_module(cur)) start_module(0);
+            ch = 1;
+        }
         break;
     }
     default:

@@ -234,6 +234,15 @@ main section { max-width: 1180px; margin: 0 auto; padding: 72px 24px 24px; }
 .legend b { color: var(--fg); font-weight: 600; }
 .legend .meter-rm { margin-left: 4px; min-height: 24px; padding: 1px 8px; font-size: 0.76rem; vertical-align: 1px; }
 .meter-say { margin: 8px 0 0; font-size: 0.86rem; }
+.presets-act { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.presets-act .dim { font-size: 0.8rem; color: var(--muted); flex: 1 1 260px; }
+.presets-act label.btn { cursor: pointer; }
+.presets-act label.btn.disabled { opacity: 0.5; pointer-events: none; }
+.presets-how { margin-top: 10px; font-size: 0.84rem; color: var(--fg-2); }
+.presets-how summary { cursor: pointer; font-weight: 600; color: var(--fg); }
+.presets-how ul { margin: 6px 0 0; padding-left: 18px; }
+.presets-how li { margin: 3px 0; }
+.presets-how b { color: var(--fg); }
 
 .mods-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 18px; }
 .mod { --mod: var(--acc); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; display: flex; flex-direction: column;

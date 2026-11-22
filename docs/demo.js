@@ -7,6 +7,7 @@
 //   ?demo, ?demo=fm1   an FM-1 running fm1-dock 0.5, FM-1 SID added
 //   ?demo=fresh        an FM-1 running fm1-dock, nothing added
 //   ?demo=smk          an SMK-37 Pro running fm1-dock, FM-1 SID and AMB-1 added
+//   ?demo=presets      an FM-1 running fm1-dock 0.10 with saved presets: the page's Presets (the bank commands)
 //   ?demo=stock        an FM-1 with M-VAVE's firmware: no fm1-dock
 //   ?demo=none         nothing plugged in
 import { frame, parse, crc32, CMD } from "./dock.js";
@@ -20,6 +21,8 @@ const SCENES = {
   fm1: { model: "FM-1", identity: "FM-1_921", dock: "0.5", added: [["FM-1 SID", 272640]] },
   fresh: { model: "FM-1", identity: "FM-1_921", dock: "0.6", added: [] },
   smk: { model: "SMK-37 Pro", identity: "SMK-37 Pro_921", dock: "0.6", added: [["FM-1 SID", 272640], ["AMB-1", 77764]] },
+  presets: { model: "FM-1", identity: "FM-1_921", dock: "0.10", added: [["FM-106", 110000]],
+    banks: [["CS-1", 0, 4096], ["FM-106", 1, 8176], ["FM-106", 2, 3000], ["B3 ORGAN", 0, 200]] },
   stock: { model: "FM-1", identity: "FM-1_015", dock: null, added: [] },
   none: null,
 };
@@ -72,6 +75,9 @@ class Device {
       if (gap) this.deployed.push({ name, size, at: gap[0] });
     }
     this.cur = 0; this.logText = ""; this.logBase = 0; this.rxd = null; this.queue = []; this.waiting = null;
+    // the banks' 9 slots ({ name, idx, data } or null); null: an fm1-dock before the bank commands
+    this.banks = scene.banks ? Array.from({ length: 9 }, (_, i) => (scene.banks[i] ? { name: scene.banks[i][0], idx: scene.banks[i][1],
+      data: Uint8Array.from({ length: scene.banks[i][2] }, (_, k) => (k * 5 + i) & 255) } : null)) : null;
     this.boot(scene.identity, scene.dock);
   }
 
@@ -233,6 +239,40 @@ class Device {
         break;
       }
       case CMD.MODULE: this.reply(cmd, seq, [mods[this.cur] && mods[this.cur].name === "FM-1 SID" ? 0 : 9]); break;
+      case CMD.BANKS: case CMD.BANK_READ: case CMD.BANK_WRITE: case CMD.BANK_ERASE: {   // (dock.c "the banks from the computer")
+        const B = this.banks, has = (n) => mods.some((m) => m.name === n);
+        const key = (b) => (crc32(Uint8Array.from(name24(b.name).slice(0, b.name.length))) ^ (b.idx ? 0x5B000000 | b.idx : 0)) >>> 0;
+        if (!B) { this.reply(0x3F, seq, [10]); break; }
+        if (cmd === CMD.BANKS) {
+          B.forEach((b, i) => b && this.reply(cmd, seq, [0, i, has(b.name) ? mods.findIndex((m) => m.name === b.name) : 0xFF, 0, ...u32(key(b)),
+            ...u32(b.data.length), ...u32(crc32(b.data)), ...u32(b.idx), ...name24(b.name)], 2 + i));
+          this.reply(cmd, seq, [0, 0xFF, 9, B.filter((b) => !b || !has(b.name)).length], 12);
+        } else if (cmd === CMD.BANK_READ) {
+          const b = B[d[0]], from = rd32(d, 4);
+          this.reply(cmd, seq, b && from < b.data.length ? [0, d[0], 0, 0, ...u32(from), ...b.data.subarray(from, from + 240)] : [9], 3);
+        } else if (cmd === CMD.BANK_ERASE) {
+          const ok = B[d[0]] && key(B[d[0]]) === rd32(d, 4);
+          if (ok) { this.log(`bank erased ${rd32(d, 4).toString(16).padStart(8, "0")}`); B[d[0]] = null; }
+          this.reply(cmd, seq, [ok ? 0 : 9], 60);
+        } else if (d[0] === 0x42) {
+          const name = cstr(d.subarray(12, 36));
+          this.bw = has(name) ? { name, idx: d[2] | d[3] << 8, data: new Uint8Array(rd32(d, 4)), crc: rd32(d, 8) } : null;
+          this.reply(cmd, seq, [this.bw ? 0 : 9, 0x42]);
+        } else if (d[0] === 0x44 && this.bw) {
+          this.bw.data.set(d.subarray(8), rd32(d, 4));
+          this.reply(cmd, seq, [0, 0x44, 0, 0, ...u32(rd32(d, 4))], 4);
+        } else if (d[0] === 0x45 && this.bw) {
+          const b = this.bw;
+          let i = B.findIndex((x) => x && x.name === b.name && x.idx === b.idx);
+          if (i < 0) i = B.findIndex((x) => !x);
+          if (i < 0) i = B.findIndex((x) => !has(x.name));
+          this.bw = null;
+          if (crc32(b.data) !== b.crc) this.reply(cmd, seq, [1, 0x45]);
+          else if (i < 0) this.reply(cmd, seq, [4, 0x45]);
+          else { B[i] = { name: b.name, idx: b.idx, data: b.data }; this.log(`bank saved ${key(b).toString(16).padStart(8, "0")}`); this.reply(cmd, seq, [0, 0x45], 120); }
+        } else this.reply(cmd, seq, [8, d[0]]);
+        break;
+      }
       default: this.reply(0x3F, seq, [10]);
     }
   }

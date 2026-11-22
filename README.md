@@ -263,7 +263,16 @@ uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock   # 
 uv run --with python-rtmidi tools/dock.py modules | logs | select NAME | delete NAME
 uv run --with python-rtmidi tools/dock.py info                                # the build, the board, the flash chip, the room (ABOUT's)
 uv run --with python-rtmidi tools/dock.py send FILE [--arg N]                 # a file into the RAM of the module playing
+uv run --with python-rtmidi tools/dock.py banks                               # the synths' preset banks on the unit
+uv run --with python-rtmidi tools/dock.py bank-get [NAME] [-o FILE.hbk]       # presets into a file: all (a backup), or NAME's
+uv run --with python-rtmidi tools/dock.py bank-put FILE.hbk [NAME]            # a file's presets onto the unit
 ```
+
+**Presets in a file** (from 0.10): what the synths saved lies in nine banks that all of them share. The page's
+**Presets** box (under the room meter) and `tools/dock.py` back all of it up into a `.hbk` file, export one synth's
+presets for another unit, put a file back (in place of those synths' presets on the unit; the synth must be on it),
+and delete a synth's presets to free its banks. The bytes are each synth's own format: fm1-dock and the tools only
+carry them.
 
 Or drop the `.dock` on the [console](https://joakimeriksson.github.io/fm1-dock/#console). A module has 272 KiB of RAM,
 16 KiB of RAM code, a settings record and flash banks for presets; a deploy file is up to 272 KiB. A module that sets

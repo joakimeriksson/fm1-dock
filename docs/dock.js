@@ -5,7 +5,8 @@
 //   replies  cmd | 0x40 (0x7F: refused), the same seq; the payload starts with a status byte
 
 export const CMD = { HELLO: 0x01, LIST: 0x02, INFO: 0x03, BEGIN: 0x10, DATA: 0x11, COMMIT: 0x12, ABORT: 0x13, DELETE: 0x14,
-  LOG: 0x20, SAFE: 0x21, SELECT: 0x22, MODULE: 0x23, RUN: 0x30, RESULT: 0x31 };
+  LOG: 0x20, SAFE: 0x21, SELECT: 0x22, MODULE: 0x23, BANKS: 0x24, BANK_READ: 0x25, BANK_WRITE: 0x26, BANK_ERASE: 0x27,
+  RUN: 0x30, RESULT: 0x31 };
 export const STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed",
   "data missing", "not started", "not found", "bad message", "refused"];
 export const STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"];
@@ -261,6 +262,56 @@ export class Dock {
     return { at: rd32(d, 4), info };
   }
 
+  // ---- the modules' banks (their user presets; dock.c "the banks from the computer", tools/hbdeploy.py)
+
+  // the banks in use: { banks: [{ slot, name (null: of no module on the unit), idx, key, size, crc }], slots, free },
+  // or null from an fm1-dock without the commands (0.9 and before: it answers "bad message", or nothing in time)
+  async banks() {
+    const seq = this.send(CMD.BANKS);
+    const banks = [];
+    let end = null;
+    await this.collect(seq, 600, (r) => {
+      if (r.cmd !== CMD.BANKS) return r.cmd === 0x3f;
+      const d = r.d;
+      if (d[0] !== 0 || d.length < 4) return true;
+      if (d[1] === 0xff) { end = { slots: d[2], free: d[3] }; return true; }
+      banks.push({ slot: d[1], name: d[2] === 0xff ? null : cstr(d, 20, 44), idx: rd32(d, 16), key: rd32(d, 4),
+        size: rd32(d, 8), crc: rd32(d, 12) });
+      return false;
+    });
+    return end ? { banks, ...end } : null;
+  }
+
+  // bank b's bytes (an entry of banks()), checked against its CRC
+  async bankRead(b) {
+    const out = new Uint8Array(b.size);
+    for (let at = 0; at < b.size;) {
+      const d = await this.ask(CMD.BANK_READ, cat([b.slot, 0, 0, 0], u32(at)));
+      if (d[0] !== 0 || d.length <= 8 || rd32(d, 4) !== at) throw new Error(`bank ${b.slot}: ${status(d)}`);
+      out.set(d.subarray(8, 8 + Math.min(d.length - 8, b.size - at)), at);
+      at += d.length - 8;
+    }
+    if (crc32(out) !== b.crc) throw new Error("the presets changed while they were read (the synth saved?): try again");
+    return out;
+  }
+
+  // one bank onto the unit, in place of that bank of the module `name`; the module is started again if it plays.
+  // -> "done", or the status fm1-dock gave ("not found": the module is not on the unit, "no space": no bank free)
+  async bankWrite(name, idx, data) {
+    let d = await this.ask(CMD.BANK_WRITE, cat([0x42, 0, idx & 0xff, idx >> 8], u32(data.length), u32(crc32(data)), name24(name)));
+    if (d[0]) return status(d);
+    for (let at = 0; at < data.length; at += CHUNK) {
+      d = await this.ask(CMD.BANK_WRITE, cat([0x44, 0, 0, 0], u32(at), data.subarray(at, at + CHUNK)));
+      if (d[0]) return status(d);
+    }
+    d = await this.ask(CMD.BANK_WRITE, Uint8Array.of(0x45), { timeout: 5000, tries: 1 });
+    return status(d);
+  }
+
+  async bankErase(b) {
+    return status(await this.ask(CMD.BANK_ERASE, cat([b.slot, 0, 0, 0], u32(b.key)), { timeout: 3000, tries: 1 }));
+  }
+
   async result() {
     let from = 0, head = null;
     const out = [];
@@ -295,6 +346,36 @@ export class Dock {
       return null;                              // crashed or hung: the FM-1 resets; ask RESULT once it is back
     });
   }
+}
+
+// ---- a .hbk: banks in a file (a backup of a unit, or one synth's presets), as tools/hbdeploy.py hbk_pack has it:
+// "HBKF", u16 format 1, u16 count, 8 bytes 0; then per bank the module's name[24], u16 idx, u16 0, u32 the module's
+// version (0: not known), u32 length, u32 CRC-32, the bytes
+export const BANK_MAX = 8176;
+
+export function hbkPack(entries) {              // [{ name, idx, version, data }]
+  const u16 = (v) => [v & 0xff, (v >> 8) & 0xff];
+  const parts = [[0x48, 0x42, 0x4b, 0x46], u16(1), u16(entries.length), new Uint8Array(8)];
+  for (const e of entries)
+    parts.push(name24(e.name), u16(e.idx), u16(0), u32(e.version || 0), u32(e.data.length), u32(crc32(e.data)), e.data);
+  return cat(...parts);
+}
+
+export function hbkUnpack(blob) {               // -> [{ name, idx, version, data }], or throws
+  if (blob.length < 16 || blob[0] !== 0x48 || blob[1] !== 0x42 || blob[2] !== 0x4b || blob[3] !== 0x46)
+    throw new Error("not a preset file of fm1-dock (.hbk)");
+  if ((blob[4] | blob[5] << 8) !== 1) throw new Error("a preset file of a newer format: update this page");
+  const out = [];
+  let at = 16;
+  for (let n = blob[6] | blob[7] << 8; n; n--) {
+    if (at + 40 > blob.length) throw new Error("the preset file is cut short");
+    const size = rd32(blob, at + 32), data = blob.subarray(at + 40, at + 40 + size);
+    if (!size || size > BANK_MAX || data.length !== size || crc32(data) !== rd32(blob, at + 36))
+      throw new Error("the preset file is damaged");
+    out.push({ name: cstr(blob, at, at + 24), idx: blob[at + 24] | blob[at + 25] << 8, version: rd32(blob, at + 28), data });
+    at += 40 + size;
+  }
+  return out;
 }
 
 // a probe's argument: "1,2,0x30" (32-bit words) or "hex:0a0b0c"
