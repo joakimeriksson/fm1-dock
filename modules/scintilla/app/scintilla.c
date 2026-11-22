@@ -547,6 +547,7 @@ static int quiet(void)                          /* nothing sounds, not even a re
  * engine has it (sc_patch_t, so the record's magic says which build's); its name stays the one it came from. */
 #ifdef SC_USER
 #define N_USER 12u
+#define SAVE_ASK_MS 10000u                     /* how long SAVE's question waits for its answer */
 #define USER_MAGIC 0x31554353u                  /* "SCU1" */
 static struct { uint32_t magic, used; sc_patch_t p[N_USER]; } ubank;
 static uint8_t save_arm, save_said;             /* SAVE pressed once: the slot it would take + 1 (0: not asked); as shown */
@@ -994,8 +995,10 @@ static void app_loop(void)
     }
 #ifdef SC_USER
     /* SAVE: the slot asked (the sound's own if it is one of the player's, else the first free), PRESETS turns it,
-     * SAVE again keeps the sound as it plays now; any other button, or 5 s, and it is not kept */
-    if (save_arm && (fm1_ms - save_ms >= 5000u || (b & ~(1u << BTN_SAVE)))) { save_arm = 0; toast[0] = 0; page_drawn = ~0u; }
+     * SAVE again keeps the sound as it plays now; any other button, or 10 s, and it is not kept. SAVE itself counts
+     * first: a late one, or one with another button's edge in the same pass, is the answer, not a new question (on an
+     * SMK-37 a second SAVE only asked again, 2026-11-22) */
+    if (save_arm && !(b & 1u << BTN_SAVE) && (fm1_ms - save_ms >= SAVE_ASK_MS || b)) { save_arm = 0; toast[0] = 0; page_drawn = ~0u; }
     if (b & (1u << BTN_SAVE) && !load_req) {
         uint32_t u;
         if (!save_arm) {
@@ -1136,7 +1139,10 @@ static void app_loop(void)
     XLED(BTN_KNOB_BANK, syn.patch.voice_mode != SC_VM_SINGLE && edit.layer != ED_BOTH);
     XLED(BTN_FADER_BANK, fbank != 0u);
 #ifdef SC_USER
-    fm1_led_key(BTN_SAVE, save_arm != 0);
+    {                                       /* SAVE's LED while it asks: slow blinks, quick ones for the last 3 s */
+        uint32_t t = fm1_ms - save_ms;
+        fm1_led_key(BTN_SAVE, save_arm && !((t < SAVE_ASK_MS - 3000u ? t / 400u : t / 125u) & 1u));
+    }
 #endif
 
     /* redraw only what changed */
