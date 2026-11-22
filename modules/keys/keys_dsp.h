@@ -10,9 +10,16 @@
  *          displacement into a magnetic pickup's curve (a soft clip, off centre: the bark grows with the
  *          amplitude), its change (the coil's voltage) and a tone low-pass; the key let go damps the modes.
  *   PIANO  two strings a few cents apart, each a delay line with a Thiran fraction, up to four first-order all-passes
- *          for the dispersion (their coefficient by the key: B from ~1e-4 in the bass to ~1e-2 at the top) and a
- *          one-pole loss; a hammer (a raised-cosine force, shorter and louder the harder the key) at an eighth of
- *          the string (a comb on the force); the soundboard is the part's, after the voices (keys_module.c).
+ *          for the dispersion (their coefficient found at the note-on so a high partial sits where the key's
+ *          stiffness B puts it) and a one-pole loss. The two meet at the bridge, which moves with their sum and
+ *          takes it from each: what they do together dies in seconds, what they do against each other rings for
+ *          half a minute (a piano's two decays). A felt hammer strikes them a seventh along: a mass on a spring
+ *          that stiffens as it is pressed (F = K u^p, with the felt's hysteresis), run against the string's own
+ *          motion while it touches, so a hard key is brighter by itself and a string still ringing is struck as
+ *          it moves. The string, bridge and hammer values by key are those of C. Otey's waveguide piano
+ *          (large.stanford.edu/courses/2007/ph210/otey2) as S. Takano's pico_piano (MIT) re-implements them; the
+ *          code here is KEYS' own single-loop string. What is heard is the bridge's velocity; the board's
+ *          radiation and its resonances are the part's, after the voices (keys_module.c).
  * Each voice is tuned at its note-on: the delay is what is left of the period after the phase delays of the loop's
  * filters at the fundamental. No libm: exp2, sin, atan and sqrt below. A string's delay line is KD_LEN floats; a
  * note below SR / KD_LEN plays an octave up. */
@@ -361,21 +368,65 @@ static float kd_ep_run(kd_ep_t *e, int gate, float g, float *out, uint32_t n)
 }
 
 /* ---- PIANO */
+static inline float kd_log2(float x)            /* x > 0, ~1e-5 */
+{
+    union { float f; int32_t i; } u;
+    float y, y2;
+    int32_t e;
+    u.f = x;
+    e = ((u.i >> 23) & 255) - 127;
+    u.i = (u.i & 0x007FFFFF) | 0x3F800000;      /* 1 .. 2 */
+    y = (u.f - 1.0f) / (u.f + 1.0f);
+    y2 = y * y;
+    return (float)e + 2.885390f * y * (1.0f + y2 * (0.3333333f + y2 * (0.2f + y2 * 0.1428571f)));
+}
+static inline float kd_pow(float a, float b) { return kd_exp2(b * kd_log2(a)); }
+/* the felt's force: 2^(l2k + p log2(u)), u > 0, with short polynomials (~0.1 %): it is worked out every sample the
+ * hammer touches the string, sixteen hammers at once in a chord */
+static inline float kd_felt(float u, float p, float l2k)
+{
+    union { float f; int32_t i; } v;
+    float m, x, f;
+    int32_t e, i;
+    v.f = u;
+    e = ((v.i >> 23) & 255) - 127;
+    v.i = (v.i & 0x007FFFFF) | 0x3F800000;
+    m = v.f - 1.0f;
+    x = l2k + p * ((float)e + m * (1.4421478f + m * (-0.7020801f + m * (0.3673458f - m * 0.1078226f))));
+    i = (int32_t)x;
+    if (x < (float)i)
+        i--;
+    if (i < -126)
+        return 0.0f;
+    f = x - (float)i;
+    v.i = ((i > 126 ? 126 : i) + 127) << 23;
+    return v.f * (1.0f + f * (0.6935327f + f * (0.2334681f + f * 0.0725858f)));
+}
+
 typedef struct {
     kd_line_t s[2];
     float apa;                                  /* the dispersion's coefficient */
     int nap;
     float ax[2][KD_NAP], ay[2][KD_NAP];
     float b, gb[2], b_off, gb_off[2], y[2];
-    uint32_t hn, hlen, hpos;                    /* the hammer: sample, contact, the strike point's delay */
-    float hamp, hinc;
+    float rho;                                  /* the bridge: what it takes of the strings' sum, a period */
+    uint32_t tap[2];                            /* the hammer's other meeting with the string: the wave back from the bridge */
+    /* the hammer: its velocity (m/s), the felt's compression (m), K u^p / 2Z last time, the force / 2Z now */
+    int hon, hsub;
+    uint32_t hn;
+    float hv, hu, hup, hf, hk, hp, hc2, hc3, hdt;
+    float og;                                   /* the bridge's velocity to the output */
 } kd_piano_t;
+
+#define KP_E 200e9f                             /* steel: Young's modulus (Pa), density (kg / m^3) */
+#define KP_RHO 7850.0f
+#define KP_ZB 4000.0f                           /* the bridge's impedance (kg / s) */
 
 /* x[0] the strings' detune (cents), x[1] stiffness (x the key's B), x[2] -, x[3] - */
 static void kd_piano_on(kd_piano_t *pn, float f0, float vn, float key, const kd_par_t *p, int fresh)
 {
-    int k, i;
-    float t60, tc, fc;
+    int k, i, nphys, kk;
+    float lr, kr, len, r, rl, ten, z, bb, rc, zb, c1, c3, g, a1, bq, w1, wk, want, lo, hi, dsc, n0, m, kf, pp;
     if (fresh) {
         for (k = 0; k < 2; k++) {
             pn->y[k] = 0.0f;
@@ -387,71 +438,139 @@ static void kd_piano_on(kd_piano_t *pn, float f0, float vn, float key, const kd_
         f0 *= 2.0f;
         key += 12.0f;
     }
-    pn->nap = key < 92.0f ? KD_NAP : 2;
-    pn->apa = kd_clamp((-0.93f + 0.0078f * (key - 21.0f)) * (0.6f + 0.8f * p->x[1]), -0.95f, -0.05f);
-    t60 = (2.0f + 16.0f * p->decay * p->decay) * kd_exp2(-(key - 60.0f) * (1.0f / 14.0f));
-    if (t60 < 0.25f) t60 = 0.25f;
-    fc = f0 * kd_exp2(2.5f + 3.5f * p->tone + 1.0f * vn);
-    pn->b = kd_lp_b(fc);
+    /* the string by its key: length, radius, tension, wave impedance, stiffness B; one, two or three strings a key
+     * (the laws of C. Otey's waveguide piano, as S. Takano's pico_piano has them: see the head of this file) */
+    lr = 0.6931472f * kd_log2(f0 / 27.5f);
+    if (lr < 0.0f) lr = 0.0f;
+    kr = kd_clamp(lr * 0.1989924f, 0.0f, 1.0f);
+    len = 0.04f + 1.4f / (1.0f + kd_exp2(1.442695f * (-3.4f + 1.4f * lr)));
+    r = 0.002f * kd_pow(1.0f + 0.6f * lr, -1.4f);
+    rl = KM_PI * r * r * KP_RHO;
+    ten = (2.0f * len * f0) * (2.0f * len * f0) * rl;
+    z = kd_sqrt(ten * rl);
+    rc = r < 0.0006f ? r : 0.0006f;
+    bb = (KM_PI * KM_PI * KM_PI) * KP_E * (rc * rc * rc * rc) / (4.0f * len * len * ten) * (0.5f + p->x[1]);
+    nphys = f0 < 47.6f ? 1 : f0 < 84.8f ? 2 : 3;
+    /* DECAY: the bridge heavier and the string's own loss less, x 1/4 .. x 2.2 around the preset's */
+    dsc = kd_exp2(2.5f * (p->decay - 0.6f));
+    zb = KP_ZB * dsc;
+    pn->rho = 0.5f * (float)nphys * 2.0f * z / ((float)nphys * z + zb);   /* (two strings stand for nphys) */
+    /* the string's loss: 1 - c1 / f0 a period at every frequency, and a one-pole for what the high partials lose
+     * more (c3; TONE) */
+    c1 = 0.25f / dsc;
+    c3 = 5.85f * kd_exp2(3.0f * (0.55f - p->tone));
+    g = 1.0f - c1 / f0;
+    bq = 4.0f * c3 + f0;
+    a1 = (-bq + kd_sqrt(bq * bq - 16.0f * c3 * c3)) / (4.0f * c3);
+    pn->b = -a1;
     pn->b_off = kd_lp_b(f0 * 3.0f);
     if (key >= 88.0f)                           /* (no dampers at the top) */
         pn->b_off = pn->b;
+    /* the dispersion: the all-passes' coefficient that puts partial kk where B says, against the fundamental
+     * (what the loop must be shorter by there, in samples) */
+    n0 = KD_SR / f0;
+    kk = (int)(0.30f * KD_SR / f0);
+    if (kk > 10) kk = 10;
+    pn->nap = key < 92.0f ? KD_NAP : 2;
+    pn->apa = 0.0f;
+    if (kk >= 2) {
+        float fk = (float)kk * f0 * kd_sqrt((1.0f + bb * (float)(kk * kk)) / (1.0f + bb));
+        w1 = 2.0f * KM_PI * f0 / KD_SR;
+        wk = 2.0f * KM_PI * fk / KD_SR;
+        want = n0 - (float)kk * KD_SR / fk;     /* the loop's delay at the fundamental less that at partial kk */
+        lo = -0.97f; hi = 0.0f;
+        for (i = 0; i < 18; i++) {
+            float a = 0.5f * (lo + hi);
+            float d = (float)pn->nap * (kd_pd_ap(a, w1) - kd_pd_ap(a, wk));
+            if (d > want) lo = a; else hi = a;
+        }
+        pn->apa = 0.5f * (lo + hi);
+    } else
+        pn->nap = 0;
     for (k = 0; k < 2; k++) {
         float f = f0 * kd_exp2((k ? 0.5f : -0.5f) * p->x[0] * (1.0f / 1200.0f));
-        float w = 2.0f * KM_PI * f / KD_SR, g, l;
-        g = kd_t60_gain(t60, f) / kd_gain_lp(pn->b, w);
-        pn->gb[k] = (g < 0.99995f ? g : 0.99995f) * (1.0f - pn->b);
-        g = kd_t60_gain(key < 88.0f ? 0.25f : t60, f) / kd_gain_lp(pn->b_off, w);
-        pn->gb_off[k] = (g < 0.99995f ? g : 0.99995f) * (1.0f - pn->b_off);
+        float w = 2.0f * KM_PI * f / KD_SR, l, gg;
+        uint32_t hp;
+        pn->gb[k] = g * (1.0f - pn->b);
+        gg = kd_t60_gain(key < 88.0f ? 0.25f : 30.0f, f) / kd_gain_lp(pn->b_off, w);
+        pn->gb_off[k] = (gg < 0.99995f ? gg : 0.99995f) * (1.0f - pn->b_off);
         l = KD_SR / f - (float)pn->nap * kd_pd_ap(pn->apa, w) - kd_pd_lp(pn->b, w);
         kd_line_tune(&pn->s[k], l, w);
         if (fresh)
             kd_line_clear(&pn->s[k]);
+        hp = (uint32_t)(KD_SR / f * (1.0f / 7.0f) + 0.5f);          /* struck at a seventh: there and back to the near end */
+        pn->tap[k] = pn->s[k].n > hp + 1u ? pn->s[k].n - hp : 1u;
     }
-    /* the hammer: contact 0.25 .. 3.5 ms, shorter for a hard key, a hard felt (KNOB3) and a high one */
-    tc = 0.0035f * (1.0f - 0.65f * vn) * (1.0f - 0.6f * p->pick) * kd_exp2(-(key - 60.0f) * (1.0f / 30.0f));
-    tc = kd_clamp(tc, 0.00025f, 0.004f);
-    pn->hlen = (uint32_t)(tc * KD_SR) + 2u;
-    pn->hinc = KM_PI / (float)pn->hlen;
-    pn->hpos = (uint32_t)(KD_SR / f0 * 0.125f) + 1u;
-    pn->hamp = (0.04f + 0.96f * vn * vn) * 2.0f / (float)pn->hlen * (KD_SR / 4000.0f) * 0.5f;
+    /* the hammer: its mass, the felt's stiffness K and exponent p (harder and steeper up the keyboard; KNOB3), the
+     * felt's hysteresis; the velocity the key gives it */
+    m = 0.06f - 0.058f * kd_pow(kr > 1e-6f ? kr : 1e-6f, 0.1f);
+    /* (at the top a period is a dozen samples and that hammer would lie on the string for three or four of them:
+     * what it leaves then depends on the moment it lets go, not on how hard it came. Lighter there, to two periods) */
+    if (key > 84.0f)
+        m *= kd_exp2(-(key - 84.0f) * (1.0f / 8.0f));
+    pp = 2.0f + kr;
+    kf = 40.0f * kd_pow(0.7e-3f, -pp) * kd_exp2(1.5f + 3.0f * (p->pick - 0.47f));
+    pn->hsub = kr < 0.7f ? 1 : 2;               /* (the felt is stiff at the top: two steps a sample there) */
+    pn->hdt = 1.0f / (KD_SR * (float)pn->hsub);
+    pn->hk = kd_log2(kf / (2.0f * z));          /* (as a power of two: kd_felt) */
+    pn->hp = pp;
+    pn->hc2 = 0.1e-4f * kr / pn->hdt;
+    pn->hc3 = pn->hdt * 2.0f * z / m;
+    pn->hv = 0.25f + 5.5f * vn * vn;
+    pn->hu = pn->hup = pn->hf = 0.0f;
+    pn->hon = 1;
     pn->hn = 0;
+    pn->og = 96.0f;
 }
 
 static float kd_piano_run(kd_piano_t *pn, int gate, float g, float *out, uint32_t n)
 {
-    uint32_t i, hend = pn->hlen + pn->hpos;
+    uint32_t i;
     int k, j, nap = pn->nap;
-    float pk = 0.0f, a = pn->apa, b = gate ? pn->b : pn->b_off;
+    float pk = 0.0f, a = pn->apa, b = gate ? pn->b : pn->b_off, rho = pn->rho, og = g * pn->og;
     for (i = 0; i < n; i++) {
-        float f = 0.0f, o = 0.0f;
-        if (pn->hn < hend) {                    /* the hammer's force, less its reflection off the near end */
-            uint32_t h = pn->hn++;
-            float q;
-            if (h < pn->hlen) {                 /* 1 - cos(2 pi h / len) = 2 sin^2(pi h / len) */
-                q = kd_sin(pn->hinc * (float)h);
-                f = 2.0f * q * q;
-            }
-            if (h >= pn->hpos && h - pn->hpos < pn->hlen) {
-                q = kd_sin(pn->hinc * (float)(h - pn->hpos));
-                f -= 2.0f * q * q;
-            }
-            f *= pn->hamp;
-        }
+        float y[2], vb, o;
         for (k = 0; k < 2; k++) {
             float x = kd_line_read(&pn->s[k]), *ax = pn->ax[k], *ay = pn->ay[k];
             for (j = 0; j < nap; j++) {
-                float y = a * (x - ay[j]) + ax[j];
+                float t = a * (x - ay[j]) + ax[j];
                 ax[j] = x;
-                ay[j] = y;
-                x = y;
+                ay[j] = t;
+                x = t;
             }
             pn->y[k] = (gate ? pn->gb[k] : pn->gb_off[k]) * x + b * pn->y[k];
-            x = pn->y[k] + f;
-            kd_line_write(&pn->s[k], x);
-            o += x;
+            y[k] = pn->y[k];
         }
-        out[i] += g * o;
+        vb = rho * (y[0] + y[1]);               /* the bridge moves with the strings' sum, and takes it from each */
+        y[0] -= vb;
+        y[1] -= vb;
+        if (pn->hon) {
+            /* the string's velocity where the hammer is: the wave from the near end and the one back from the bridge */
+            kd_line_t *s0 = &pn->s[0], *s1 = &pn->s[1];
+            float *d0 = &s0->d[(s0->w - pn->tap[0]) & KD_MASK], *d1 = &s1->d[(s1->w - pn->tap[1]) & KD_MASK];
+            float vin = 0.5f * (y[0] - *d0 + y[1] - *d1), f = pn->hf;
+            for (j = 0; j < pn->hsub; j++) {
+                float up;
+                pn->hu += (pn->hv - vin - f) * pn->hdt;
+                up = pn->hu > 0.0f ? kd_felt(pn->hu, pn->hp, pn->hk) : 0.0f;
+                f = up + pn->hc2 * (up - pn->hup);
+                if (f < 0.0f) f = 0.0f;
+                pn->hv -= f * pn->hc3;
+                pn->hup = up;
+            }
+            pn->hf = f;
+            /* its force into both waves; the felt does not meet the two strings alike, so they start a little
+             * apart: what the bridge cannot take from them is the long tail */
+            y[0] += 1.12f * f; y[1] += 0.88f * f;
+            *d0 -= 1.12f * f; *d1 -= 0.88f * f;
+            /* it has left when it is off the string and going back (off it and still coming, it meets it again) */
+            if ((pn->hu <= 0.0f && pn->hv <= 0.0f) || ++pn->hn > (uint32_t)(0.02f * KD_SR))
+                pn->hon = 0;
+        }
+        kd_line_write(&pn->s[0], y[0]);
+        kd_line_write(&pn->s[1], y[1]);
+        o = og * vb;
+        out[i] += o;
         o = o < 0.0f ? -o : o;
         if (o > pk) pk = o;
     }
