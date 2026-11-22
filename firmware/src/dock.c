@@ -391,6 +391,9 @@ typedef struct {
 #define OPT_CH_MASK (31u << OPT_CH_SHIFT)
 #define OPT_AT_SHIFT 13u                        /* AFTERTOUCH in bits 13..14: AS IS, CHANNEL, MOD WHL, FILTER (at_route) */
 #define OPT_AT_MASK (3u << OPT_AT_SHIFT)
+#define OPT_PADS_SHIFT 15u                      /* (SMK-37) PADS in bits 15..18: NOTES, OFF, CHORDS in C .. B (2..13) */
+#define OPT_PADS_MASK (15u << OPT_PADS_SHIFT)
+#define PADS_N 14u
 static st_t st;
 static uint32_t st_dirty, st_changed;
 
@@ -461,6 +464,9 @@ static uint32_t opt_ch(void)
  * 2 as CC 1 (the mod wheel), 3 as CC 74 (the filter, brilliance on most modules). For the modules that do nothing
  * with pressure: what they have for the wheel or the cutoff follows the keys. The MIDI the keys send out stays poly. */
 static uint32_t opt_at(void) { return (st.spare[1] & OPT_AT_MASK) >> OPT_AT_SHIFT; }
+#if BOARD_SMK37
+static uint32_t opt_pads(void) { uint32_t v = (st.spare[1] & OPT_PADS_MASK) >> OPT_PADS_SHIFT; return v < PADS_N ? v : 0u; }
+#endif
 static uint8_t at_poly[128], at_last;           /* each note's pressure; the value last sent */
 static void at_send(const hb_module_t *m, uint32_t ch, uint32_t v)
 {
@@ -1342,11 +1348,8 @@ static void draw_top(int32_t oct)
 
 /* the list, then OPTIONS (past the last module): the host's, ABOUT, then BLUETOOTH (the last line, as it was) */
 enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_AT, O_THRU };
-#if BOARD_SMK37
-#define N_OPTS_HOST 8u                          /* (no DIN jack: no MIDI THRU, ABOUT in its place) */
-#else
 #define N_OPTS_HOST 9u
-#endif
+#define O_PADS O_THRU                           /* (the SMK-37 has no DIN jack, so no MIDI THRU: PADS in its place) */
 #define O_ABOUT (N_OPTS_HOST - 1u)              /* the host's last: its page (draw_about) */
 #define N_OPTS (N_OPTS_HOST + hx_built)
 #define OPT_H 16u                               /* (ten lines above the footer) */
@@ -1361,8 +1364,13 @@ static char *put_u(char *p, uint32_t v)         /* v in decimal; the end */
 }
 static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
 {
-    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "AFTERTOUCH", "MIDI THRU"};
-    char v[8] = "OFF";
+    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "AFTERTOUCH",
+#if BOARD_SMK37
+                                       "PADS"};
+#else
+                                       "MIDI THRU"};
+#endif
+    char v[12] = "OFF";
     uint32_t lit = 0, opt = st.spare[1];
     uint16_t col;
     cv_begin(240, OPT_H, on_it ? RGB(40, 30, 60) : C_BLACK);
@@ -1397,7 +1405,17 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
         uint32_t i = 0;
         do v[i] = t[i]; while (t[i++]);
         break; }
-    default: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
+#if BOARD_SMK37
+    case O_PADS: {                              /* NOTES, OFF, CHORDS and their key */
+        static const char KEYS[12][3] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+        lit = opt_pads();
+        if (!lit) memcpy(v, "NOTES", 6);
+        else if (lit > 1u) { memcpy(v, "CHORDS ", 7); memcpy(v + 7, KEYS[lit - 2u], 3); }
+        break; }
+#else
+    case O_THRU: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
+#endif
+    default: break;
     }
     col = o == O_EQ && eq_failed ? C_BAD : lit ? C_ACC : C_OFF;
     cv_text(12, 2, &FONT_S, o == O_ABOUT ? "ABOUT" : NAME[o], on_it ? C_ACC : C_WHITE);
@@ -2523,6 +2541,65 @@ static uint32_t smk_modval(int32_t v)          /* the mod wheel's reading (up re
     r = smk_mw.hi - v <= 12 ? 0 : (smk_mw.hi - v - 12) * 127 / (span > 1 ? span : 1);
     return r < 0 ? 0u : r > 127 ? 127u : (uint32_t)r;
 }
+/* PADS (OPTIONS): NOTES, as above; OFF; or CHORDS in a major key: the bottom row its seven triads and the first an
+ * octave up, the top row the same with their sevenths, on the keys' channel and in their octave (a C major's first is
+ * C3 E3 G3 where the keyboard's F3 is its key 0). What a pad struck is kept, so it lets go of that whatever has been
+ * changed since; a note two held pads share sounds until both are up. */
+static struct { uint8_t n, st, note[4]; } smk_pad[16];
+static uint8_t smk_pad_cnt[128], smk_pads_shown = 255;
+static void smk_pad_idle(uint32_t p)            /* a pad at rest: dark, or in CHORDS dim (a key's first chords brighter) */
+{
+    uint32_t c = opt_pads() > 1u, first = !(p & 7u) || (p & 7u) == 7u;
+    padled_set(p, 0, c ? (p < 8u ? 14u : 4u) * (first ? 2u : 1u) : 0u, c ? 14u * (first ? 2u : 1u) : 0u);
+}
+static void smk_pad_up(const hb_module_t *m, uint32_t p)
+{
+    uint32_t i;
+    for (i = 0; i < smk_pad[p].n; i++) {
+        uint32_t d = smk_pad[p].note[i];
+        if (smk_pad[p].st == 0x99u)
+            smk_send(m, 0x89u, d, 0);
+        else if (smk_pad_cnt[d] && --smk_pad_cnt[d] == 0)
+            smk_send(m, 0x80u, d, 0);
+    }
+    smk_pad[p].n = 0;
+    smk_pad_idle(p);
+}
+static void smk_pad_hit(const hb_module_t *m, uint32_t p, uint32_t vel, uint32_t base)
+{
+    static const uint8_t SCALE[7] = {0, 2, 4, 5, 7, 9, 11};
+    uint32_t mode = opt_pads(), i, deg = p & 7u, n = p < 8u ? 4u : 3u;
+    smk_pad_up(m, p);                           /* (struck again without a let-go) */
+    if (mode == 1u)
+        return;
+    padled_set(p, (uint8_t)(180u * vel / 127u), (uint8_t)(140u * vel / 127u), (uint8_t)(255u * vel / 127u));
+    if (!mode) {
+        smk_pad[p].st = 0x99u;
+        smk_pad[p].note[smk_pad[p].n++] = (uint8_t)SMK_PAD_NOTE(p);
+        smk_send(m, 0x99u, SMK_PAD_NOTE(p), vel);
+        return;
+    }
+    smk_pad[p].st = 0x90u;
+    for (i = 0; i < n; i++) {                   /* the chord's thirds up the scale */
+        uint32_t s7 = deg + 2u * i, d = 48u + (mode - 2u) + base - KEY0 + SCALE[s7 % 7u] + 12u * (s7 / 7u);
+        if (d > 127u)
+            continue;
+        smk_pad[p].note[smk_pad[p].n++] = (uint8_t)d;
+        smk_pad_cnt[d]++;
+        smk_send(m, 0x90u, d, vel);
+    }
+}
+static void smk_let_go(const hb_module_t *m)    /* before LOCAL, MIDI CH or PADS changes: what is held ends as it began */
+{
+    uint32_t i;
+    for (i = 0; i < 16u; i++)
+        smk_pad_up(m, i);
+    for (i = 0; i < SMK_NKEY; i++)
+        if (smk_outer[i]) {
+            smk_send(m, 0x80u, smk_outer[i], 0);
+            smk_outer[i] = 0;
+        }
+}
 static void smk_extras(const hb_module_t *m, uint32_t base)
 {
     int32_t x, b;
@@ -2531,8 +2608,8 @@ static void smk_extras(const hb_module_t *m, uint32_t base)
         uint32_t code = (uint32_t)x >> 8, vel = (uint32_t)x & 0x7Fu;
         if (code >= SMK_EXT_PAD) {              /* a pad */
             uint32_t p = code - SMK_EXT_PAD;
-            smk_send(m, vel ? 0x99u : 0x89u, SMK_PAD_NOTE(p), vel);
-            padled_set(p, (uint8_t)(180u * vel / 127u), (uint8_t)(140u * vel / 127u), (uint8_t)(255u * vel / 127u));
+            if (vel) smk_pad_hit(m, p, vel, base);
+            else smk_pad_up(m, p);
         } else if (code < SMK_NKEY) {           /* an outer key: the note it started stops */
             if (vel) {
                 uint32_t note = base + code - SMK_KEY_F3;
@@ -2545,6 +2622,11 @@ static void smk_extras(const hb_module_t *m, uint32_t base)
                 smk_outer[code] = 0;
             }
         }
+    }
+    if (smk_pads_shown != opt_pads()) {         /* (at power-on, and when PADS changes) */
+        smk_pads_shown = (uint8_t)opt_pads();
+        for (i = 0; i < 16u; i++)
+            if (!smk_pad[i].n) smk_pad_idle(i);
     }
     padled_flush();
     if (!fm1_in.wheel[0] || fm1_ms < 400u)      /* (the readings settle first) */
@@ -2881,7 +2963,7 @@ static void app_main(void)
                 eqp = 2;                        /* ABOUT */
                 eq_row = 0;
                 draw_about(0);
-            } else if (sel >= n_mods && ((b & (1u << BTN_SEL | 1u << BTN_PLAY)) || (turn && sel == n_mods + O_CH))) {
+            } else if (sel >= n_mods && ((b & (1u << BTN_SEL | 1u << BTN_PLAY)) || (turn && (sel == n_mods + O_CH || (BOARD_SMK37 && sel == n_mods + O_PADS))))) {
                 uint32_t o = sel - n_mods;      /* an option changed; OPTIONS stays */
                 if (o == O_LOCAL || o == O_CH)  /* the keys held: let go as they were played */
                     for (k = 0; k < 27u; k++)
@@ -2895,6 +2977,10 @@ static void app_main(void)
                         }
                 if (o == O_LOCAL || o == O_CH)
                     sheld = 0;
+#if BOARD_SMK37
+                if (o == O_LOCAL || o == O_CH || o == O_PADS)
+                    smk_let_go(m);              /* (the outer keys and the pads too) */
+#endif
                 if (o == O_CC7) {
                     st.spare[1] ^= OPT_CC7;     /* CC7 VOLUME ON / OFF (OFF: the level as the knob alone again) */
                     cc7_set(127u);
@@ -2914,8 +3000,15 @@ static void app_main(void)
                     at_send(m, 0, 0);           /* (the old way lets go first: the wheel or the filter back) */
                     at_reset();
                     st.spare[1] = (st.spare[1] & ~OPT_AT_MASK) | (uint32_t)a << OPT_AT_SHIFT;
-                } else if (o == O_THRU && o < O_ABOUT) {   /* (the SMK-37's O_THRU: ABOUT, its page) */
+#if BOARD_SMK37
+                } else if (o == O_PADS) {       /* SEL: the next; a knob: either way */
+                    int32_t c = (int32_t)opt_pads() + (turn ? turn : 1);
+                    c = ((c % (int32_t)PADS_N) + (int32_t)PADS_N) % (int32_t)PADS_N;
+                    st.spare[1] = (st.spare[1] & ~OPT_PADS_MASK) | (uint32_t)c << OPT_PADS_SHIFT;
+#else
+                } else if (o == O_THRU) {
                     st.spare[1] ^= OPT_THRU;
+#endif
                 }
                 if (o < N_OPTS_HOST)
                     store_touch();

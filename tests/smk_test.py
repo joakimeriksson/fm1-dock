@@ -268,6 +268,43 @@ def main():
         on = [n[:4] for n in notes(usb) if n.startswith("9")]
         check("channel", on == ["9130", "913c"], f"MIDI CH 2: C3 and a middle key both on channel 2 ({on})")
 
+        print("the pads (OPTIONS, PADS)")
+        def pads(name, clicks, ev, ms=6200):
+            """PADS `clicks` on from NOTES (K2... SCALE), then the events; -> the notes out, and the sine's peak"""
+            fl = flash.with_name(f"pad{name}.bin")
+            fl.write_bytes(base)
+            o = ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 7}"]
+            for i in range(clicks):
+                o += [f"{2900 + 120 * i}:scale", f"{2950 + 120 * i}:scale^"]
+            o += ["3900:patch", "3950:patch^"]
+            out_, _, usb = live(ms, o + ev, fl, usb=[])
+            return [n for n in notes(usb)], peak(out_)
+        hit = lambda a, t, t2: [f"{t}:a{a}:700", f"{t2}:a{a}:0"]
+        on = lambda ns: [(n[1], int(n[2:4], 16)) for n in ns if n[0] == "9" and n[4:] != "00"]
+        off = lambda ns: [(n[1], int(n[2:4], 16)) for n in ns if n[0] == "8"]
+        ns, _ = pads("notes", 0, hit(8, 4300, 4600))
+        check("pads notes", on(ns) == [("9", 36)] and off(ns) == [("9", 36)], f"NOTES, as before: the bottom left pad: {ns}")
+        ns, pk = pads("off", 1, hit(8, 4300, 6100))
+        check("pads off", ns == [] and pk < 50, f"OFF: nothing sent, nothing sounds ({ns}, peak {pk})")
+        ns, _ = pads("c", 2, hit(8, 4300, 4600) + hit(13, 5000, 5300) + hit(4, 5600, 5900))
+        check("pads chords", on(ns) == [("0", x) for x in (48, 52, 55, 57, 60, 64, 55, 59, 62, 65)] and sorted(off(ns)) == sorted(on(ns)),
+              f"CHORDS C: C (48 52 55), the 6th Am (57 60 64), the top row's 5th G7 (55 59 62 65): {[x for _, x in on(ns)]}, all let go")
+        ns, _ = pads("d", 4, hit(8, 4300, 4600))
+        check("pads key", on(ns) == [("0", 50), ("0", 54), ("0", 57)], f"CHORDS D: D F# A ({[x for _, x in on(ns)]})")
+        # two pads that share notes (C and Am: C and E): the shared ones end with the second pad
+        ns, _ = pads("share", 2, ["4300:a8:700", "4700:a13:700", "5100:a8:0", "5600:a13:0"])
+        first = [int(n[2:4], 16) for n in ns if n[0] == "8"]
+        check("pads shared", sorted(first) == [48, 52, 55, 57, 60, 64] and first.index(48) < first.index(57),
+              f"C then Am, C let go first: {first} (each note ends once)")
+        # in a synth with its own octave the chords follow it
+        fl = flash.with_name("padoct.bin")
+        fl.write_bytes(base)
+        live(5200, ["900:patch", "1000:patch^", f"1400:e1:{1 + 4 + 7}", "2900:scale", "2950:scale^", "3050:scale", "3100:scale^", "3900:patch", "3950:patch^"], fl)
+        _, log, usb = live(5600, ["900:patch", "1000:patch^", "1400:e1:-40", "2300:e1:2", "2600:scale", "2700:scale^", "3600:octave-", "3700:octave-^",
+                                  "4300:a8:700", "4700:a8:0"], fl, usb=[])
+        check("pads octave", "started 00000001" in log and on(notes(usb)) == [("0", 36), ("0", 40), ("0", 43)],
+              f"kept over a restart; CS-1 an octave down: the C chord an octave down ({on(notes(usb))})")
+
         print("CS-1's velocity")
         pick = ["900:patch", "1000:patch^", "1400:e1:2", "1900:scale", "2000:scale^"]
         soft = peak(live(2900, pick + ["2400:k12@15"], flash)[0])
