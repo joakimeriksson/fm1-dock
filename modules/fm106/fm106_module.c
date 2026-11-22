@@ -26,6 +26,7 @@ static void draw(uint32_t full)
         fm106_leds_resend();
     }
     fm106_app_frame();
+    hb_key0(H, (int32_t)KEY0 + 12 * g_synth.octave_shift);   /* (the SMK-37's outer keys go on from this octave) */
 }
 
 static int init(const hb_host_t *h)

@@ -36,6 +36,7 @@ static void draw(uint32_t full)
     if (full) page_drawn = ~0u;                 /* (back from the module list: the page again) */
     cs1_sense_sync();
     app_loop();
+    hb_key0(H, KEY0 + 12 * oct());   /* (the SMK-37's outer keys go on from this octave) */
 }
 
 static void note(uint32_t ch, uint32_t key, uint32_t vel)

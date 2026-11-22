@@ -57,6 +57,7 @@ static void monk_mod_draw(uint32_t full)
     } else {
         ui_input_only();
     }
+    hb_key0(H, note_of(0));   /* (the SMK-37's outer keys go on from this octave) */
 }
 
 static int monk_mod_init(const hb_host_t *h)

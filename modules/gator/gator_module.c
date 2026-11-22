@@ -59,6 +59,7 @@ static void gator_draw(uint32_t full)
     fm1_ms = gator_frame;
     fw_input_read(&in);
     app_frame(&in);
+    hb_key0(H, (int32_t)FW_KEY_BASE_NOTE + 12 * octave);   /* (the SMK-37's outer keys go on from this octave) */
 }
 
 static int gator_init(const hb_host_t *h)

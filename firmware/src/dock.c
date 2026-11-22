@@ -254,6 +254,27 @@ static hb_entry_t mods[HB_SLOTS + 1];
 static uint32_t n_mods, cur;
 static const hb_module_t *volatile hb_active;  /* what the audio ISR renders (0: silence) */
 static volatile uint32_t hb_blocks, hb_over, hb_slow;   /* blocks; overruns in a row; stopped for them */
+/* Code written where code ran: the chip keeps what it fetched from flash (its instruction cache), and the flash
+ * driver's flushinv drops the data cache's lines only: after a write there the old code and the new run mixed,
+ * until a reset (seen on an FM-1, #87: tests/cache_hw_test.py; iflush, by line or by word, changed nothing:
+ * probes/iflush.c). So the host notes the flash sectors a module's code has run from since power-on (ran_map),
+ * and a deploy that writes into one of them does not start what it wrote: the unit restarts, and starts it then. */
+static uint8_t ran_map[32];                     /* a bit a 4 KiB sector of the 1 MiB */
+static uint32_t restart_on, restart_at;         /* a restart asked for, and when (fm1_ms) */
+static void ran_mark(uint32_t off, uint32_t n)
+{
+    uint32_t s;
+    for (s = off >> 12; s <= (off + n - 1u) >> 12 && s < 256u; s++)
+        ran_map[s >> 3] |= (uint8_t)(1u << (s & 7u));
+}
+static int ran_any(uint32_t off, uint32_t n)
+{
+    uint32_t s;
+    for (s = off >> 12; s <= (off + n - 1u) >> 12 && s < 256u; s++)
+        if (ran_map[s >> 3] >> (s & 7u) & 1u)
+            return 1;
+    return 0;
+}
 
 static uint32_t name_key(const char *s)
 {
@@ -391,6 +412,9 @@ typedef struct {
 #define OPT_CH_MASK (31u << OPT_CH_SHIFT)
 #define OPT_AT_SHIFT 13u                        /* AFTERTOUCH in bits 13..14: AS IS, CHANNEL, MOD WHL, FILTER (at_route) */
 #define OPT_AT_MASK (3u << OPT_AT_SHIFT)
+#define OPT_PADS_SHIFT 15u                      /* (SMK-37) PADS in bits 15..18: NOTES, OFF, CHORDS in C .. B (2..13) */
+#define OPT_PADS_MASK (15u << OPT_PADS_SHIFT)
+#define PADS_N 14u
 static st_t st;
 static uint32_t st_dirty, st_changed;
 
@@ -461,6 +485,9 @@ static uint32_t opt_ch(void)
  * 2 as CC 1 (the mod wheel), 3 as CC 74 (the filter, brilliance on most modules). For the modules that do nothing
  * with pressure: what they have for the wheel or the cutoff follows the keys. The MIDI the keys send out stays poly. */
 static uint32_t opt_at(void) { return (st.spare[1] & OPT_AT_MASK) >> OPT_AT_SHIFT; }
+#if BOARD_SMK37
+static uint32_t opt_pads(void) { uint32_t v = (st.spare[1] & OPT_PADS_MASK) >> OPT_PADS_SHIFT; return v < PADS_N ? v : 0u; }
+#endif
 static uint8_t at_poly[128], at_last;           /* each note's pressure; the value last sent */
 static void at_send(const hb_module_t *m, uint32_t ch, uint32_t v)
 {
@@ -869,7 +896,17 @@ static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (h
 }
 #endif
 static uint32_t h_rand(void) { return rng(); }
-static void h_midi_send(uint32_t st_, uint32_t d1, uint32_t d2) { midi_send(st_, d1, d2); }
+static volatile uint8_t in_render;              /* the module's render runs (the audio interrupt) */
+#if BOARD_SMK37
+static void mod_ch_learn(uint32_t st_, uint32_t d1, uint32_t d2);
+#endif
+static void h_midi_send(uint32_t st_, uint32_t d1, uint32_t d2)
+{
+#if BOARD_SMK37
+    mod_ch_learn(st_, d1, d2);
+#endif
+    midi_send(st_, d1, d2);
+}
 static uint32_t h_master(void) { return (uint32_t)master_q12; }
 static void h_blit(int32_t x, int32_t y, int32_t w, int32_t h, const uint16_t *px)
 {
@@ -1042,12 +1079,27 @@ static uint32_t h_bank_free(void)              /* banks a save could still take:
 
 /* the second core (cpu1.c), for the module's render only: a job is never out while the main loop runs
  * (flash writes, a module switch) */
-static volatile uint8_t in_render;
 static uint8_t cpu1_said;                       /* the second core's state as last logged */
 static int h_c1_run(void (*fn)(uint32_t), uint32_t arg) { return in_render && cpu1_run(fn, arg); }
 static int h_c1_wait(void) { return in_render ? cpu1_wait() : 0; }
 static uint32_t mod_key0;                       /* the note a panel module's key 0 plays (key_base), 0: the host's */
 static void h_key_base(uint32_t n) { mod_key0 = n < 128u ? n : 0u; }
+#if BOARD_SMK37
+/* A panel module sends its keys' notes itself, on a channel of its own (MIDI CH is the host's keys'): the outer keys
+ * go out on that one too. It is the channel of the note the module sends for a middle key it was just given, which it
+ * must be exactly (mod_key0: told, hb_key0); channel 1 until then. Not from the audio interrupt: a sequencer's. */
+static uint32_t given_k, given_ms;              /* the key given + 1 (0: none), and when */
+static uint8_t mod_ch;
+static void key_given(uint32_t k) { given_k = k + 1u; given_ms = fm1_ms; }
+static void mod_ch_learn(uint32_t st_, uint32_t d1, uint32_t d2)
+{
+    if ((st_ & 0xF0u) == 0x90u && d2 && given_k && mod_key0 && !in_render && fm1_ms - given_ms < 100u &&
+        d1 == mod_key0 + given_k - 1u) {
+        mod_ch = (uint8_t)(st_ & 15u);
+        given_k = 0;
+    }
+}
+#endif
 
 static const hb_host_t HOST = {
     HB_ABI, sizeof(hb_host_t), h_ms, h_ticks, hb_log, hb_log_u32,
@@ -1127,6 +1179,7 @@ static int start_module(uint32_t i)
         return -1;
     if (f) {
         const uint8_t *img = (const uint8_t *)f->base;
+        ran_mark(FL_OF((uint32_t)f), (uint32_t)(img - (const uint8_t *)f) + f->code_size + f->data_size + f->rt_size);
         memcpy((void *)HB_MOD_RAM, img + f->code_size, f->data_size);
         memset((uint8_t *)HB_MOD_RAM + f->data_size, 0, f->bss_size);
         memcpy((void *)HB_MOD_RT, img + f->code_size + f->data_size, f->rt_size);
@@ -1135,6 +1188,10 @@ static int start_module(uint32_t i)
     hb_over = 0;
     sense_defaults();                           /* (what the module before set is gone) */
     mod_key0 = 0;
+#if BOARD_SMK37
+    mod_ch = 0;
+    given_k = 0;
+#endif
     hb_nv.active = i + 1u;                      /* a crash in init counts as the module's */
     hb_nv.stats.module = i;
     hb_nv.stats.worst = hb_nv.stats.overruns = 0;
@@ -1312,11 +1369,8 @@ static void draw_top(int32_t oct)
 
 /* the list, then OPTIONS (past the last module): the host's, ABOUT, then BLUETOOTH (the last line, as it was) */
 enum { O_CC7, O_MASTER_CC7, O_CH, O_LOCAL, O_EQ, O_KNOBS, O_AT, O_THRU };
-#if BOARD_SMK37
-#define N_OPTS_HOST 8u                          /* (no DIN jack: no MIDI THRU, ABOUT in its place) */
-#else
 #define N_OPTS_HOST 9u
-#endif
+#define O_PADS O_THRU                           /* (the SMK-37 has no DIN jack, so no MIDI THRU: PADS in its place) */
 #define O_ABOUT (N_OPTS_HOST - 1u)              /* the host's last: its page (draw_about) */
 #define N_OPTS (N_OPTS_HOST + hx_built)
 #define OPT_H 16u                               /* (ten lines above the footer) */
@@ -1331,8 +1385,13 @@ static char *put_u(char *p, uint32_t v)         /* v in decimal; the end */
 }
 static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
 {
-    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "AFTERTOUCH", "MIDI THRU"};
-    char v[8] = "OFF";
+    static const char *const NAME[] = {"CC7 VOLUME", "MASTER CC7", "MIDI CH", "LOCAL", "EQ", "KNOBS CC", "AFTERTOUCH",
+#if BOARD_SMK37
+                                       "PADS"};
+#else
+                                       "MIDI THRU"};
+#endif
+    char v[12] = "OFF";
     uint32_t lit = 0, opt = st.spare[1];
     uint16_t col;
     cv_begin(240, OPT_H, on_it ? RGB(40, 30, 60) : C_BLACK);
@@ -1367,7 +1426,17 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
         uint32_t i = 0;
         do v[i] = t[i]; while (t[i++]);
         break; }
-    default: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
+#if BOARD_SMK37
+    case O_PADS: {                              /* NOTES, OFF, CHORDS and their key */
+        static const char KEYS[12][3] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+        lit = opt_pads();
+        if (!lit) memcpy(v, "NOTES", 6);
+        else if (lit > 1u) { memcpy(v, "CHORDS ", 7); memcpy(v + 7, KEYS[lit - 2u], 3); }
+        break; }
+#else
+    case O_THRU: if ((lit = opt & OPT_THRU) != 0) v[0] = 'O', v[1] = 'N', v[2] = 0; break;
+#endif
+    default: break;
     }
     col = o == O_EQ && eq_failed ? C_BAD : lit ? C_ACC : C_OFF;
     cv_text(12, 2, &FONT_S, o == O_ABOUT ? "ABOUT" : NAME[o], on_it ? C_ACC : C_WHITE);
@@ -1871,6 +1940,8 @@ static uint32_t d_commit(uint32_t *key)
     if (old == HB_SLOTS)
         e[n++] = sl;
     hb_log_u32("deploy: written at", sl.at);
+    if (ran_any(at, need))
+        restart_on = 1;                         /* (code ran from there since power-on: not started before a restart) */
     return dt_write(e, n);
 }
 
@@ -2179,6 +2250,18 @@ static uint32_t deploy_frame(void)
             uint32_t back = st_ == D_OK ? key : rx.prev_key;
             if (st_ == D_OK) hb_log("deploy: done");
             rx_end(st_);
+            if (st_ == D_OK && restart_on) {    /* written where code ran: started after a restart, not now (ran_map) */
+                hb_log("deploy: code ran from that flash: restarting");
+                st.sel_key = key;
+                store_flush();
+                rx_draw("RESTARTING", C_WHITE);
+                restart_at = fm1_ms;
+                memset(hb_nv.strikes, 0, sizeof hb_nv.strikes);   /* (by place in the list, which may have moved: as d_restart) */
+                r[2] = 1;                       /* (the computer waits for the unit to come back) */
+                rn = 8;
+                break;                          /* (the screen stays as it is until then) */
+            }
+            restart_on = 0;                     /* (a commit that failed after its write: nothing new to start) */
             d_restart(back);
             wr32(r + 4, mods[cur].file ? (uint32_t)mods[cur].file : 0);
             r[1] = (uint8_t)cur;
@@ -2385,6 +2468,11 @@ static uint32_t deploy_frame(void)
         if (!r[0]) r[0] = D_BAD_MSG;
         break;
     }
+    if (usb_src && cmd == D_COMMIT) {           /* (the flash writes kept USB waiting: if it has to come back, first) */
+        uint32_t t0 = fm1_ms;
+        while (!*(volatile uint8_t *)&usb.config && fm1_ms - t0 < 1000u)
+            fm1_wdt_feed();
+    }
     if (usb_src)
         d_reply(cmd, seq, r, rn);
     return ch;
@@ -2434,21 +2522,37 @@ static void play_note(uint32_t ch, uint32_t key, uint32_t vel)
  * port's do (its smk_wheel.h, not taught): the pitch wheel's first reading is its centre, which follows a slow
  * drift while it rests, and its ends widen to what it reaches; the mod wheel's bottom and top likewise. */
 #define SMK_PAD_NOTE(p) ((p) < 8u ? 44u + (p) : 36u + (p) - 8u)
-static uint8_t smk_outer[SMK_NKEY], smk_fad[4], smk_mod, smk_live;
+static uint8_t smk_outer[SMK_NKEY], smk_outer_ch[SMK_NKEY], smk_fad[4], smk_mod, smk_live;
 static int32_t smk_bend;
 static struct { int32_t pc, plo, phi; uint32_t drift_ms; } smk_pw;
 static struct { int32_t lo, hi; } smk_mw;
 
-static void smk_send(const hb_module_t *m, uint32_t st_, uint32_t d1, uint32_t d2)
-{
-    if (m && m->midi) {
+static uint8_t smk_local = 1, smk_ch;           /* LOCAL, and the channel the keys send on, this pass */
+static void smk_send_ch(const hb_module_t *m, uint32_t st_, uint32_t d1, uint32_t d2, uint32_t ch)
+{                                               /* to the module on channel 1 (a pad's: 10), out on ch */
+    if (!smk_local) {
+        /* LOCAL OFF: MIDI only, as the middle keys (#53, #61, #88) */
+    } else if (m && m->midi) {
         m->midi(st_, d1, d2);
     } else if ((st_ & 0xF0u) == 0x90u || (st_ & 0xF0u) == 0x80u) {
         play_note(st_ & 15u, d1, (st_ & 0xF0u) == 0x90u ? d2 : 0u);
     } else if ((st_ & 0xF0u) == 0xB0u && m && m->cc) {
         m->cc(st_ & 15u, d1, d2);
     }
-    midi_send(st_, d1, d2);
+    midi_send((st_ & 15u) == 9u ? st_ : st_ | ch, d1, d2);   /* (the pads keep channel 10) */
+}
+static void smk_send(const hb_module_t *m, uint32_t st_, uint32_t d1, uint32_t d2) { smk_send_ch(m, st_, d1, d2, smk_ch); }
+static void smk_outer_up(const hb_module_t *m, uint32_t code)   /* what the key started, where it started it */
+{
+    if (smk_outer[code])
+        smk_send_ch(m, 0x80u, smk_outer[code], 0, smk_outer_ch[code]);
+    smk_outer[code] = 0;
+}
+static void smk_let_go(const hb_module_t *m)    /* before LOCAL or MIDI CH changes: what is held ends as it began */
+{
+    uint32_t i;
+    for (i = 0; i < SMK_NKEY; i++)
+        smk_outer_up(m, i);
 }
 static int32_t smk_pitch(int32_t p, uint32_t now)   /* the pitch wheel's reading -> the bend, -8192..8191 */
 {
@@ -2488,6 +2592,63 @@ static uint32_t smk_modval(int32_t v)          /* the mod wheel's reading (up re
     r = smk_mw.hi - v <= 12 ? 0 : (smk_mw.hi - v - 12) * 127 / (span > 1 ? span : 1);
     return r < 0 ? 0u : r > 127 ? 127u : (uint32_t)r;
 }
+/* PADS (OPTIONS): NOTES, as above; OFF; or CHORDS in a major key: the bottom row its seven triads and the first an
+ * octave up, the top row the same with their sevenths, on the keys' channel and in their octave (a C major's first is
+ * C3 E3 G3 where the keyboard's F3 is its key 0). What a pad struck is kept, so it lets go of that whatever has been
+ * changed since; a note two held pads share sounds until both are up. */
+static struct { uint8_t n, st, note[4]; } smk_pad[16];
+static uint8_t smk_pad_cnt[128], smk_pad_ch[128], smk_pads_shown = 255;   /* how many pads hold a note; its last note-on's channel */
+static void smk_pad_idle(uint32_t p)            /* a pad at rest: dark, or in CHORDS dim (a key's first chords brighter) */
+{
+    uint32_t c = opt_pads() > 1u, first = !(p & 7u) || (p & 7u) == 7u;
+    padled_set(p, 0, c ? (p < 8u ? 14u : 4u) * (first ? 2u : 1u) : 0u, c ? 14u * (first ? 2u : 1u) : 0u);
+}
+static void smk_pad_up(const hb_module_t *m, uint32_t p)
+{
+    uint32_t i;
+    for (i = 0; i < smk_pad[p].n; i++) {
+        uint32_t d = smk_pad[p].note[i];
+        if (smk_pad[p].st == 0x99u)
+            smk_send(m, 0x89u, d, 0);
+        else if (smk_pad_cnt[d] && --smk_pad_cnt[d] == 0)
+            smk_send_ch(m, 0x80u, d, 0, smk_pad_ch[d]);
+    }
+    smk_pad[p].n = 0;
+    smk_pad_idle(p);
+}
+static void smk_pad_hit(const hb_module_t *m, uint32_t p, uint32_t vel, uint32_t base)
+{
+    static const uint8_t SCALE[7] = {0, 2, 4, 5, 7, 9, 11};
+    uint32_t mode = opt_pads(), i, deg = p & 7u, n = p < 8u ? 4u : 3u;
+    smk_pad_up(m, p);                           /* (struck again without a let-go) */
+    if (mode == 1u)
+        return;
+    padled_set(p, (uint8_t)(180u * vel / 127u), (uint8_t)(140u * vel / 127u), (uint8_t)(255u * vel / 127u));
+    if (!mode) {
+        smk_pad[p].st = 0x99u;
+        smk_pad[p].note[smk_pad[p].n++] = (uint8_t)SMK_PAD_NOTE(p);
+        smk_send(m, 0x99u, SMK_PAD_NOTE(p), vel);
+        return;
+    }
+    smk_pad[p].st = 0x90u;
+    for (i = 0; i < n; i++) {                   /* the chord's thirds up the scale */
+        uint32_t s7 = deg + 2u * i, d = 48u + (mode - 2u) + base - KEY0 + SCALE[s7 % 7u] + 12u * (s7 / 7u);
+        if (d > 127u)
+            continue;
+        smk_pad[p].note[smk_pad[p].n++] = (uint8_t)d;
+        if (smk_pad_cnt[d]++)                   /* (another pad's too: ended first, struck again; two note-ons and one
+                                                 * note-off would leave a synth that counts them a voice: FM-106) */
+            smk_send_ch(m, 0x80u, d, 0, smk_pad_ch[d]);
+        smk_pad_ch[d] = smk_ch;
+        smk_send(m, 0x90u, d, vel);
+    }
+}
+static void smk_pads_let_go(const hb_module_t *m)   /* as smk_let_go: before LOCAL, MIDI CH or PADS changes */
+{
+    uint32_t i;
+    for (i = 0; i < 16u; i++)
+        smk_pad_up(m, i);
+}
 static void smk_extras(const hb_module_t *m, uint32_t base)
 {
     int32_t x, b;
@@ -2496,17 +2657,26 @@ static void smk_extras(const hb_module_t *m, uint32_t base)
         uint32_t code = (uint32_t)x >> 8, vel = (uint32_t)x & 0x7Fu;
         if (code >= SMK_EXT_PAD) {              /* a pad */
             uint32_t p = code - SMK_EXT_PAD;
-            smk_send(m, vel ? 0x99u : 0x89u, SMK_PAD_NOTE(p), vel);
-            padled_set(p, (uint8_t)(180u * vel / 127u), (uint8_t)(140u * vel / 127u), (uint8_t)(255u * vel / 127u));
+            if (vel) smk_pad_hit(m, p, vel, base);
+            else smk_pad_up(m, p);
         } else if (code < SMK_NKEY) {           /* an outer key: the note it started stops */
             if (vel) {
-                smk_outer[code] = (uint8_t)(base + code - SMK_KEY_F3);
-                smk_send(m, 0x90u, smk_outer[code], vel);
-            } else if (smk_outer[code]) {
-                smk_send(m, 0x80u, smk_outer[code], 0);
-                smk_outer[code] = 0;
+                uint32_t note = base + code - SMK_KEY_F3;
+                if (note > 127u)                /* (past MIDI's notes, either way: no note, not another one) */
+                    continue;
+                smk_outer_up(m, code);          /* (struck again without a let-go) */
+                smk_outer[code] = (uint8_t)note;
+                smk_outer_ch[code] = smk_ch;
+                smk_send(m, 0x90u, note, vel);
+            } else {
+                smk_outer_up(m, code);
             }
         }
+    }
+    if (smk_pads_shown != opt_pads()) {         /* (at power-on, and when PADS changes) */
+        smk_pads_shown = (uint8_t)opt_pads();
+        for (i = 0; i < 16u; i++)
+            if (!smk_pad[i].n) smk_pad_idle(i);
     }
     padled_flush();
     if (!fm1_in.wheel[0] || fm1_ms < 400u)      /* (the readings settle first) */
@@ -2647,6 +2817,8 @@ static void app_main(void)
         local = !(st.spare[1] & OPT_LOCAL_OFF);
         kpanel = panel && local;                /* the module plays its keys (LOCAL OFF: the host sends them) */
         och = opt_ch() ? opt_ch() - 1u : 0;     /* the channel the keys send on (MIDI CH; ALL: 1) */
+        if (panel && !local && mod_key0)
+            base = mod_key0;                    /* (LOCAL OFF: the OCT buttons are the module's, so the keys send in its octave) */
 
         keys = fm1_in.notes;                    /* bit k: key k (0 = F3 .. 26 = G5) */
         down = keys & ~prev;
@@ -2654,7 +2826,9 @@ static void app_main(void)
         prev = keys;
 #if BOARD_SMK37
         smk_sense_keys(down, up);               /* (as the FM-1's sensed keys, with the velocity) */
-        smk_extras(m, panel && mod_key0 ? mod_key0 : base);   /* (the outer keys go on from the module's octave) */
+        smk_local = (uint8_t)local;
+        smk_ch = (uint8_t)(kpanel ? mod_ch : och);   /* (as the middle keys: the module's own, or MIDI CH) */
+        smk_extras(m, kpanel && mod_key0 ? mod_key0 : base);   /* (the outer keys go on from the middle ones') */
 #endif
         sensed = h_sense_keys();
         for (k = 0; k < 27u; k++) {
@@ -2664,6 +2838,9 @@ static void app_main(void)
                 continue;
             }
             if (kpanel) {                       /* the module plays its keys */
+#if BOARD_SMK37
+                if (down >> k & 1u) key_given(k);
+#endif
                 if (down >> k & 1u) m->ui(HB_EV_KEY_DOWN | k, 0);
                 if (up >> k & 1u) m->ui(HB_EV_KEY_UP | k, 0);
                 continue;
@@ -2688,6 +2865,9 @@ static void app_main(void)
                 sheld |= 1u << k;
                 press_sent[k] = 0;
                 if (kpanel) {
+#if BOARD_SMK37
+                    key_given(k);
+#endif
                     m->ui(HB_EV_KEY_DOWN | k, (int32_t)v);
                 } else {
                     held[k] = (uint8_t)(base + k);
@@ -2767,6 +2947,17 @@ static void app_main(void)
             }
         }
 
+        if (restart_on) {                       /* (no frame, button or note meanwhile: the list is of before) */
+            fm1_wdt_feed();
+            if (fm1_ms - restart_at > (so_w == so_r ? 400u : 2000u)) {   /* (the COMMIT's answer is out) */
+                fm1_audio_stop();
+                bootguard_clear(&bootguard);    /* (asked for: not a start that failed, however soon after one) */
+                usb_detach();                   /* (the computer sees it go, as before an update) */
+                fm1_delay_ms(30);
+                fm1_reboot();
+            }
+            continue;
+        }
         if (deploy_tick()) {                    /* a deploy: the module may have changed */
             picker = eqp = 0;
             full = 1;
@@ -2832,7 +3023,7 @@ static void app_main(void)
                 eqp = 2;                        /* ABOUT */
                 eq_row = 0;
                 draw_about(0);
-            } else if (sel >= n_mods && ((b & (1u << BTN_SEL | 1u << BTN_PLAY)) || (turn && sel == n_mods + O_CH))) {
+            } else if (sel >= n_mods && ((b & (1u << BTN_SEL | 1u << BTN_PLAY)) || (turn && (sel == n_mods + O_CH || (BOARD_SMK37 && sel == n_mods + O_PADS))))) {
                 uint32_t o = sel - n_mods;      /* an option changed; OPTIONS stays */
                 if (o == O_LOCAL || o == O_CH)  /* the keys held: let go as they were played */
                     for (k = 0; k < 27u; k++)
@@ -2846,6 +3037,12 @@ static void app_main(void)
                         }
                 if (o == O_LOCAL || o == O_CH)
                     sheld = 0;
+#if BOARD_SMK37
+                if (o == O_LOCAL || o == O_CH || o == O_PADS) {
+                    smk_let_go(m);              /* (the outer keys and the pads too) */
+                    smk_pads_let_go(m);
+                }
+#endif
                 if (o == O_CC7) {
                     st.spare[1] ^= OPT_CC7;     /* CC7 VOLUME ON / OFF (OFF: the level as the knob alone again) */
                     cc7_set(127u);
@@ -2865,8 +3062,15 @@ static void app_main(void)
                     at_send(m, 0, 0);           /* (the old way lets go first: the wheel or the filter back) */
                     at_reset();
                     st.spare[1] = (st.spare[1] & ~OPT_AT_MASK) | (uint32_t)a << OPT_AT_SHIFT;
-                } else if (o == O_THRU && o < O_ABOUT) {   /* (the SMK-37's O_THRU: ABOUT, its page) */
+#if BOARD_SMK37
+                } else if (o == O_PADS) {       /* SEL: the next; a knob: either way */
+                    int32_t c = (int32_t)opt_pads() + (turn ? turn : 1);
+                    c = ((c % (int32_t)PADS_N) + (int32_t)PADS_N) % (int32_t)PADS_N;
+                    st.spare[1] = (st.spare[1] & ~OPT_PADS_MASK) | (uint32_t)c << OPT_PADS_SHIFT;
+#else
+                } else if (o == O_THRU) {
                     st.spare[1] ^= OPT_THRU;
+#endif
                 }
                 if (o < N_OPTS_HOST)
                     store_touch();
