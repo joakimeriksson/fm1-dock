@@ -128,7 +128,7 @@ class Port:
             raise SystemExit("needs python-rtmidi: uv run --with python-rtmidi tools/dock.py ...")
         self.out = rtmidi.MidiOut()
         self.inp = None if blind else rtmidi.MidiIn()
-        want = [name] if name else ["Felucca", "FM1-DOCK", "HARBOR", "FM-1"]
+        want = self.want = [name] if name else ["Felucca", "FM1-DOCK", "HARBOR", "FM-1"]
         self.out.open_port(self._find(self.out, want))
         if self.inp:
             self.inp.open_port(self._find(self.inp, want))
@@ -144,6 +144,30 @@ class Port:
                 if w.lower() in p.lower():
                     return i
         raise SystemExit(f"no MIDI port matching {' / '.join(want)}; there are: {', '.join(ports) or 'none'}")
+
+    def wait_back(self, timeout=12.0):
+        """the unit restarted (its USB went away): its ports found again and HELLO answered, or SystemExit"""
+        import rtmidi
+        want = self.want
+        for port in (self.out, self.inp):       # (Windows: only one program, and one handle, has a port)
+            try:
+                port.close_port()
+            except Exception:
+                pass
+        end = time.monotonic() + timeout
+        time.sleep(1.0)
+        while time.monotonic() < end:
+            try:
+                out, inp = rtmidi.MidiOut(), rtmidi.MidiIn()
+                out.open_port(self._find(out, want))
+                inp.open_port(self._find(inp, want))
+                inp.ignore_types(sysex=False, timing=True, active_sense=True)
+                self.out, self.inp = out, inp
+                self.ask(HELLO, timeout=0.5, tries=2)
+                return
+            except (SystemExit, Exception):     # (not there yet, or not openable yet)
+                time.sleep(0.5)
+        raise SystemExit("the FM-1 did not come back after its restart")
 
     def send(self, cmd, payload=b""):
         self.seq = (self.seq + 1) & 0x7F
@@ -259,6 +283,8 @@ def deploy(p, blob, say=print):
     t0 = time.monotonic()
     frames = deploy_frames(blob)
     for i, (cmd, payload) in enumerate(frames):
+        if cmd == COMMIT and not p.blind:
+            log_at = hello(p)["log_w"]
         if p.blind:
             p.send(cmd, payload)
             if cmd == BEGIN:
@@ -266,14 +292,27 @@ def deploy(p, blob, say=print):
             if cmd == DATA and i % 32 == 0:
                 say(f"  {min(len(blob), (i - 1) * CHUNK + CHUNK) * 100 // len(blob):3d} %")
             continue
-        d = p.ask(cmd, payload, timeout=30.0 if cmd == COMMIT else 2.0, tries=1 if cmd == COMMIT else 4)
+        try:
+            d = p.ask(cmd, payload, timeout=30.0 if cmd == COMMIT else 2.0, tries=1 if cmd == COMMIT else 4)
+        except SystemExit:
+            if cmd != COMMIT:
+                raise
+            p.wait_back()                       # (its answer was lost: the unit's log says what came of it)
+            if "deploy: done" not in log_text(p, log_at)[0]:
+                raise
+            say(f"{name}: in flash, its answer was lost ({time.monotonic() - t0:.1f} s)")
+            return
         if d[0] != 0:
             if cmd != COMMIT:
                 p.send(ABORT)
             raise SystemExit(f"{name}: {status(d)} (at {['BEGIN', 'DATA', 'COMMIT'][(cmd > BEGIN) + (cmd == COMMIT)]})")
         if cmd == DATA and (i % 64 == 0 or i == len(frames) - 2):
             say(f"  {min(len(blob), i * CHUNK) * 100 // len(blob):3d} %")
-        if cmd == COMMIT:
+        if cmd == COMMIT and len(d) > 2 and d[2] == 1:   # written where code ran since power-on: run after a restart
+            say(f"{name}: in flash; the FM-1 restarts to run it")
+            p.wait_back()
+            say(f"{name}: running ({time.monotonic() - t0:.1f} s)")
+        elif cmd == COMMIT:
             (at,) = struct.unpack_from("<I", d, 4)
             say(f"{name}: in flash at {at:#010x}, running ({time.monotonic() - t0:.1f} s)")
     if p.blind:
@@ -281,9 +320,10 @@ def deploy(p, blob, say=print):
         say(f"{name}: sent (blind: check the FM-1's screen)")
 
 
-def log_text(p):
+def log_text(p, since=0):
+    """the log (its last 2 KiB, or from the byte count since on) and HELLO"""
     h = hello(p)
-    w, frm, out = h["log_w"], max(0, h["log_w"] - 2048), bytearray()
+    w, frm, out = h["log_w"], max(since, h["log_w"] - 2048, 0), bytearray()
     while frm < w:
         d = p.ask(LOG, struct.pack("<I", frm))
         _, at = struct.unpack_from("<II", d, 4)

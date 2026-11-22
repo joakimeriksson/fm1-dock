@@ -190,7 +190,11 @@ async function deployFile() {
   bar("c-deploy-bar", 0);
   try {
     const r = await serial(() => hb.deploy(f.blob, (x, t) => { bar("c-deploy-bar", x); msg.textContent = t; }));
-    msg.textContent = `${r.info.name}: in flash at ${hex32(r.at)}, running`;
+    if (r.restarting) {                         // (its USB goes away for a moment)
+      msg.textContent = `${r.info.name}: in flash; the FM-1 restarts to run it…`;
+      await sleep(4000);
+    }
+    msg.textContent = `${r.info.name}: in flash${r.at ? ` at ${hex32(r.at)}` : ""}, running`;
     msg.className = "msg ok";
     await refresh();
   } catch (e) { msg.textContent = e.message; msg.className = "msg bad"; }
