@@ -333,12 +333,12 @@ function renderPresets() {
   const said = S.presetMsg ? `<p class="say meter-say ${S.presetMsg.cls || ""}">${esc(S.presetMsg.text)}</p>` : "";
   if (!d) {
     el.innerHTML = `<div class="meter-h"><h3>Your presets</h3><span class="figs">Connect your device to back up, move or restore
-      what you saved in the synths (fm1-dock 0.10 and later)</span></div>` + said;
+      what you saved in the synths (fm1-dock 1.0 and later)</span></div>` + said;
     return;
   }
   if (!d.banks) {
     el.innerHTML = `<div class="meter-h"><h3>Your presets</h3><span class="figs">Backing up and restoring presets comes with
-      fm1-dock 0.10; this ${esc(devName())} runs ${esc(d.version || "an older one")}</span></div>` + said;
+      fm1-dock 1.0; this ${esc(devName())} runs ${esc(d.version || "an older one")}</span></div>` + said;
     return;
   }
   const by = new Map();

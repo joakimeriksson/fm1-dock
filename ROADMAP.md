@@ -33,7 +33,7 @@ large ones can fill it. 0.9 makes every synth an add-on.
 1. **An empty dock**: the firmware carries only the sine. CS-1, Scintilla and OberVave become add-ons like the
    others, removable ([#38](https://github.com/joakimeriksson/fm1-dock/issues/38)).
 2. **About 500 KiB for add-ons on the FM-1** instead of 296: a second add-on area where the built-ins were (the
-   SMK-37 already has two areas). In 0.10: the image's room (744 KiB in all with the Empty dock), the boot slot gone.
+   SMK-37 already has two areas). In 1.0: the image's room (744 KiB in all with the Empty dock), the boot slot gone.
 3. **The free room joined**: add-ons moved together, so that one that fits in total fits in one piece (today
    Niagara Drift beside PROPHET can leave too little in one piece for B3 ORGAN). Until then the page says which
    add-on to remove.
