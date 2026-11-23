@@ -75,6 +75,11 @@ S=np.array([spec(y,i) for i in range(0,len(y)-8192,2048)]); fr=np.fft.rfftfreq(8
 band=(fr>300)&(fr<8000); v=S[:,band].std(axis=0); chk(v.mean()>2.5,f'the spectrum moves over time: mean spread {v.mean():.1f} dB (steady comb would be ~0)')
 dl=y[:,0]-y[:,1]; chk(rms(dl)/rms(y)>0.05,f'left and right differ: |L-R| {rms(dl)/rms(y):.2f} of the level')
 imp=np.zeros((FS*3,2)); imp[:4000]=rng.normal(0,8000,(4000,2)); y,e=run('phaser',imp.astype(np.int16),50,100,100,100); chk(abs(y[FS*2:]).max()<=4,f"settles to a +-1-3 LSB rounding wobble (-80 dBFS) at feedback 100: tail after 2 s {abs(y[FS*2:]).max():.0f}")
+# the notch is in the band you hear: RATE 0 holds the sweep at one end; an impulse gives the transfer function
+imp=np.zeros((FS,2)); imp[100,:]=20000; y,e=run('phaser',imp.astype(np.int16),0,100,0,100)
+H=np.abs(np.fft.rfft(y[:4096,0]))/20000; fr=np.fft.rfftfreq(4096,1/FS); lo=fr<8000
+chk(H[lo].min()<0.2,f'a notch below 8 kHz at one end of the sweep: {fr[lo][H[lo].argmin()]:.0f} Hz, gain {H[lo].min():.2f}')
+
 print("TREMOLO")
 y,e=run('tremolo',mid,40,60); env=np.array([rms(y[i:i+441]) for i in range(0,len(y)-441,441)]); chk(env.max()/max(env.min(),1)>2,f'level swings {env.min():.0f}..{env.max():.0f}')
 print('\nALL OK' if ok else '\nFAILURES'); sys.exit(0 if ok else 1)

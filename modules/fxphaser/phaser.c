@@ -16,6 +16,9 @@ static int32_t val[4];
 static uint32_t ph;
 static int32_t zs[2][STAGES], last[2];
 
+/* The stage is (c + z^-1) / (1 + c z^-1): its corner is low when c is near -1 (c = -0.95: 360 Hz, -0.68: 2.6 kHz,
+ * -0.41: 5.5 kHz), so the coefficient is the negative of this, 0.41 .. 0.95 of the sweep. (With c > 0 the corner is up by
+ * the Nyquist frequency and the phaser is inaudible: the notch sat at 11 and 20 kHz.) */
 #define CENTRE 22282                            /* Q15 0.68 */
 
 static int init(void)
@@ -49,7 +52,7 @@ static void run(int32_t *lr, uint32_t n)        /* the audio interrupt's */
             uint32_t t = (p + (c ? 0x40000000u : 0u)) >> 15;
             int32_t x = lr[2 * i + c], y, a, s;
             if (t > 65535u) t = 131071u - t;                        /* a triangle, 0..65535 */
-            a = CENTRE + (int32_t)(((int64_t)hf * ((int32_t)t - 32768)) >> 15);   /* (the products below are rounded, not floored: a floor leaves a DC in the loop) */
+            a = -(CENTRE + (int32_t)(((int64_t)hf * ((int32_t)t - 32768)) >> 15));   /* (the products below are rounded, not floored: a floor leaves a DC in the loop) */
             y = x + (int32_t)(((int64_t)f * last[c] + 16384) >> 15);
             if (y > 65535) y = 65535;
             if (y < -65535) y = -65535;
