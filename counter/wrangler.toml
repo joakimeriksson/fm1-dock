@@ -1,0 +1,14 @@
+name = "counter"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# `wrangler d1 create counter-db` prints the id: paste it here before the first deploy.
+[[d1_databases]]
+binding = "DB"
+database_name = "counter-db"
+database_id = "PASTE-THE-ID-HERE"
+
+# Needs botbox.se as a zone in the same Cloudflare account.
+# [[routes]]
+# pattern = "counter.botbox.se"
+# custom_domain = true

@@ -75,7 +75,27 @@ export function ask(text, yes = "Yes") {
 
 // ------------------------------------------------------------------ the catalog's data ---
 
+// How often each module was added from this page (counter/, a Cloudflare Worker): a count per module and day,
+// no address, no cookie. Do Not Track is respected; a counter that is down changes nothing here.
+const COUNTER = "https://counter.botbox.se";
+const dnt = () => navigator.doNotTrack === "1" || window.doNotTrack === "1";
+async function counts() {
+  try {
+    const r = await fetch(`${COUNTER}/counts`);
+    return r.ok ? (await r.json()).counts || {} : {};
+  } catch (_) { return {}; }
+}
+function countAdd(m) {
+  if (dnt()) return;
+  try {
+    fetch(`${COUNTER}/add`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ m: m.id }) }).catch(() => {});
+  } catch (_) { /* never in the way of an install */ }
+}
+
 async function load() {
+  S.counts = {};
+  counts().then((c) => { S.counts = c; if (S.mods) renderCatalog(); });
   const [mods, index, tryit] = await Promise.all([
     fetch("modules/modules.json", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`modules.json: HTTP ${r.status}`); return r.json(); }),
     catalog().catch(() => null),              // fw/index.json: on the published site (tools/site_packages.py)
@@ -373,7 +393,7 @@ function card(m) {
       <p class="by">by ${by}</p>
       <ul class="tags" aria-label="Tags">${m.tags.map((t) => `<li${t === LARGE_TAG ? ` class="large" title="${esc(largeNote(m))}"` : ""}>${esc(t)}</li>`).join("")}</ul>
       <p class="desc">${esc(m.description)}</p>
-      <dl class="facts"><dt>Voices</dt><dd>${esc(m.voices || "—")}</dd><dt>Size</dt><dd>${size}</dd><dt>Licence</dt><dd>${esc(m.license || "—")}</dd></dl>
+      <dl class="facts"><dt>Voices</dt><dd>${esc(m.voices || "—")}</dd><dt>Size</dt><dd>${size}</dd><dt>Licence</dt><dd>${esc(m.license || "—")}</dd>${m.addon && S.counts && S.counts[m.id] ? `<dt>Added</dt><dd title="How many times it was added from this page (approximate; adds with the tools are not counted)">${S.counts[m.id]}×</dd>` : ""}</dl>
       ${links.length ? `<p class="links">${links.join("")}</p>` : ""}
       <div class="act"></div>
     </div>`;
@@ -486,7 +506,10 @@ async function add(m) {
     const got = await addModule(midi, mod, (q) => ask(q, /^Update/.test(q) ? "Update" : "Add"),
       (x, t) => say(m, `Sending: ${t}`, "", x));
     if (got === null) say(m, "Cancelled: nothing was sent.");
-    else say(m, `Done: ${got} is in fm1-dock. Hold HOME on the ${devName()} and pick it.`, "ok");
+    else {
+      say(m, `Done: ${got} is in fm1-dock. Hold HOME on the ${devName()} and pick it.`, "ok");
+      countAdd(m);
+    }
   } catch (e) {
     say(m, ACCESS[e.code] || explain(e), "bad");
     console.error(e);

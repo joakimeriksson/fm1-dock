@@ -316,6 +316,12 @@ through the DIN jack) and the SELECT that picks it, for fm1-emu's page on the sa
 The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `platform.c` gives), [docs/RULES.md](docs/RULES.md)
 (the chip's rules and what the build checks), [docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md).
 
+## The add counter
+
+The page counts how many times each add-on is added from it (the "Added" line on a card). A small Cloudflare Worker,
+[counter/](counter/), keeps one number per add-on and day: no address, no cookie, nothing about you or your unit. Do
+Not Track is respected. Adds made with `tools/dock.py` are not counted, so the numbers are approximate.
+
 ## Credits
 
 - **fm1-dock** (the host, the module interface, the tools, the page), **FM-1 SID** and **Scintilla**: Joakim Eriksson.
