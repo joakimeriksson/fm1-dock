@@ -671,3 +671,34 @@ dialog.ask .row { justify-content: flex-end; }
   .ad-fix > div { grid-template-columns: 1fr; }
   .ad-help { padding: 4px 16px 8px; }
 }
+
+/* effects.html */
+.fx-tag { font: 600 0.74rem var(--mono); color: var(--acc-text); text-transform: uppercase; letter-spacing: 0.08em; }
+.fx-cols { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 860px) { .fx-cols { grid-template-columns: minmax(0, 1fr); } }
+.fx-p { min-width: 0; }
+.fx-p td:first-child { white-space: nowrap; }
+.fx-fig { margin: 18px 0 0; }
+.fx-fig figcaption { font-size: 0.82rem; color: var(--muted); margin-top: 10px; max-width: 62ch; }
+.fx-keys { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 8px; font: 0.74rem var(--mono); color: var(--fg-2); }
+.fx-keys span { display: inline-flex; align-items: center; gap: 6px; }
+.fx-keys i { width: 14px; height: 3px; display: inline-block; }
+.fx-sq { width: 100%; max-width: 420px; height: auto; display: block; }
+.fx-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.fx-cells > div { min-width: 0; }
+.fx-cells svg, .fx-cells img { width: 100%; height: auto; display: block; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; }
+.fx-cells span { display: block; margin-top: 4px; font: 0.74rem var(--mono); color: var(--muted); }
+.fx-frame { fill: var(--surface-2); stroke: var(--line-2); }
+.fx-grid { stroke: var(--line-2); stroke-width: 1; }
+.fx-curve { fill: none; stroke-width: 2.4; stroke-linejoin: round; }
+.fx-wave { fill: none; stroke: var(--acc); stroke-width: 1.8; }
+.fx-ax { fill: var(--muted); font: 12px var(--mono); }
+.fx-clips { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.fx-clip { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.fx-clip.ref { background: var(--surface); border-style: dashed; }
+.fx-clip-h { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.fx-clip-h span { font: 0.76rem var(--mono); color: var(--muted); }
+.fx-clip p { margin: 4px 0 8px; font-size: 0.86rem; color: var(--muted); }
+.fx-clip audio { width: 100%; height: 36px; display: block; }
+.fx-more { margin-top: 22px; }
+.fx-h3 { margin: 28px 0 10px; font-size: 1.05rem; }
