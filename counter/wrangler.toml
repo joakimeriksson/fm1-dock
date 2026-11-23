@@ -6,9 +6,9 @@ compatibility_date = "2026-11-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "counter-db"
-database_id = "PASTE-THE-ID-HERE"
+database_id = "2eb28cbe-8862-474d-be9a-d897e172e0d1"
 
 # Needs botbox.se as a zone in the same Cloudflare account.
-# [[routes]]
-# pattern = "counter.botbox.se"
-# custom_domain = true
+[[routes]]
+pattern = "counter.botbox.se"
+custom_domain = true
