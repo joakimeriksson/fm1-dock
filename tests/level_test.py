@@ -34,6 +34,13 @@ PROGRAMS = {
     "PROPHET": [0, 1, 2, 3, 4],
     "S1VAVE": [0, 3, 4, 6, 11, 12],              # POLY SAW, PWM PAD, BRASS, CHORD STAB, STRINGS, SYNTH KEYS
 }
+# patches picked with the PRESETS encoder (a module that takes no program change): their places in its list
+ENC_PRESETS = {
+    "VECTOR37": [0, 2, 4, 8, 9, 16, 17, 18, 19],   # NEBULA PAD, GLASS BELLS, DEEP DRONE, WAVE ORBIT, PPG GLASS,
+}                                               # WARM STRINGS, PWM PAD, CHOIR AAH, DRAWBAR ORGAN
+# data packs an add-on needs (hb_module.h "Data packs"): deployed after it, as the page does (the module first: the
+# bigger one takes the plain area), from beside its .dock or build/modules/
+PACKS = {"VECTOR37": "v37-wt.dock"}
 PANEL = {"ARTIHIVE": "8"}                       # played on the FM-1's own keys (its MIDI notes gate fixed voices),
                                                 # after this key (ARTIHIVE: POLY)
 SKIP = {"NIAGARA": "two drones, from scene keys: no chords to play"}
@@ -47,10 +54,17 @@ LOUD = 2000                                     # ... and this level: a quiet wa
 LIMIT = 0.002                                   # the chord's flat share allowed over the note's (0.2 %)
 
 
-def script(progs, t0, panel=None):
-    k = []
+def script(progs, t0, panel=None, enc=False):
+    k, at = [], 0
     for i, p in enumerate(progs):
         b = t0 + i * STEP
+        if enc:                                 # the PRESETS encoder to place p (6: PRESETS)
+            if p != at:
+                k.append(f"{b - 200}:e6:{p - at}")
+            at = p
+            k += [f"{b + 300}:m903c7f", f"{b + 1300}:m803c00"]
+            k += [f"{b + 1800}:m90{n:02x}7f" for n in CHORD] + [f"{b + 3300}:m80{n:02x}00" for n in CHORD]
+            continue
         if panel:
             k += [f"{b - 400}:{panel}", f"{b - 350}:{panel}^"] if i == 0 else []
             k += [f"{b + 300}:21", f"{b + 1300}:21^"]
@@ -93,19 +107,35 @@ def measure(fwsc, dock, out):
     name = hbmod.parse(raw)[0]["name"]
     if name in SKIP:
         return name, {"skipped": SKIP[name]}
-    progs = [0] if name in PANEL else PROGRAMS.get(name, [0, 1, 2, 3])
-    t0 = 1000 + int(len(raw) * DEPLOY_MS) + 3000
-    keys, ms = script(progs, t0, PANEL.get(name))
+    enc = name in ENC_PRESETS
+    progs = [0] if name in PANEL else ENC_PRESETS[name] if enc else PROGRAMS.get(name, [0, 1, 2, 3])
+    deploy = [str(dock)]
+    pre = []
+    if name in PACKS:                           # its pack after it (both by their DIN scripts: one run)
+        import hbdeploy
+        pk = next((d / PACKS[name] for d in (Path(dock).parent, SRC / "build" / "modules") if (d / PACKS[name]).exists()), None)
+        if not pk:
+            return name, {"error": f"its data pack {PACKS[name]} is not built (tools/hbmod.py --pack)"}
+        e1, t1 = hbdeploy.din_script(raw, 1000)
+        e2, t2 = hbdeploy.din_script(pk.read_bytes(), int(t1) + 4500)
+        pre, deploy = e1 + e2, []
+        t0 = int(t2) + 4500                     # (the module starts again with its pack: its boot's 3 s)
+    else:
+        t0 = 1000 + int(len(raw) * DEPLOY_MS) + 3000
+    keys, ms = script(progs, t0, PANEL.get(name), enc)
+    keys = ",".join(pre + [keys]) if pre else keys
     o = out / Path(dock).stem
-    r = subprocess.run([sys.executable, str(SRC / "tools" / "dock.py"), "emu", "--fwsc", str(fwsc), "--deploy",
-                        str(dock), "--ms", str(ms), "--keys", keys, "--out", str(o)], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, str(SRC / "tools" / "dock.py"), "emu", "--fwsc", str(fwsc),
+                        *(["--deploy", deploy[0]] if deploy else []), "--ms", str(ms), "--keys", keys, "--out", str(o)],
+                       capture_output=True, text=True)
     log = (o / "log.txt").read_text(errors="replace") if (o / "log.txt").exists() else ""
     if r.returncode or not (o / "audio.wav").exists():
         return name, {"error": (r.stderr or r.stdout)[-400:]}
     w = wave.open(str(o / "audio.wav"))
     sr, d = w.getframerate(), w.readframes(w.getnframes())
     s = struct.unpack(f"<{len(d) // 2}h", d)
-    done = re.search(r"^(\d+) deploy: done", log, re.M)
+    done = list(re.finditer(r"^(\d+) deploy: done", log, re.M))
+    done = done[-1] if done else None              # (with a pack: its deploy, the last)
     res = {"faults": log.count("FAULT"), "patches": [],
            "started": bool(done) and int(done.group(1)) < t0 - 300 and
            re.search(rf"^\d+ started \w+\n\d+ {re.escape(name)}$", log[done.start():], re.M) is not None}
