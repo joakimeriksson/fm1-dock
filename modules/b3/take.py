@@ -8,7 +8,9 @@ module's RAM: the delay lines' ORGAN_POOL and gfx.c's .pool in .bss (a module's 
 host). The battery in the corner goes: a module has no battery reading (the screen's corner stays black). Its
 `#include "platform.c"` finds b3/platform.c: fm1-dock's (b3_platform.inc copied in, see there). Run it again on a new
 B3 ORGAN:
-    modules/b3/take.py ~/src/setBfree-fm1        (B3 ORGAN v0.6.1, d2dc753)"""
+    modules/b3/take.py ~/src/setBfree-fm1        (B3 ORGAN v0.6.1, d2dc753)
+The whole refresh (this, the version, the build, the catalog, the checks) is modules/b3/refresh.py; REFRESH.md
+has the steps, what stops them, and what is left to a person."""
 import shutil
 import sys
 from pathlib import Path
