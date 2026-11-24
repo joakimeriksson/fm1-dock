@@ -78,14 +78,14 @@ python3 tools/hbmod.py modules/mysynth
     <ul class="mt-list">
       <li>One core at 240 MHz (a second one for voices, optional), <b>integers only</b>, no 64-bit division.</li>
       <li>272 KiB of RAM, 16 KiB of code in RAM (<code>HB_FAR</code>).</li>
-      <li>Keep it small: the add-ons share 296 KiB of flash on the FM-1 (from 0.10 more with fewer built-in synths), and most synths take 6 to 60 KiB.</li>
+      <li>Keep it small: the add-ons share 296 KiB of flash on the FM-1 (from 1.0 more with fewer built-in synths), and most synths take 6 to 60 KiB.</li>
       <li>The build refuses what would crash the chip: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/docs/RULES.md">RULES.md</a>.</li>
     </ul>
   </div>
   <div class="dv-note" id="effect">
     <h3>Or write an effect</h3>
     <p><a href="effects.html">The Effects page</a> has the four newest to listen to, and a short guide to adding and developing one.</p>
-    <p>From fm1-dock 0.10 an add-on can also be an <b>effect</b>. It runs on what the playing synth renders, under
+    <p>From fm1-dock 1.0 an add-on can also be an <b>effect</b>. It runs on what the playing synth renders, under
       every synth, and the player picks it and sets its values under <b>OPTIONS &gt; EFFECT</b>. It is built, tested
       and shared exactly like a synth; the difference is one line in <code>module.cfg</code> and a much smaller
       interface.</p>
@@ -134,7 +134,7 @@ tools/dock.py deploy build/modules/fxtremolo.dock   <span class="c"># added, and
         within &plusmn;32767, changed in place.</li>
       <li><b>Up to four values.</b> Each has a name, a unit, a range, a start and a step. fm1-dock draws the page,
         puts them on KNOB1&ndash;4, and keeps them.</li>
-      <li><b>Its own 24 KiB of RAM.</b> The synth keeps all of its 272 KiB. No code in RAM, integers only, no call
+      <li><b>Its own 24 KiB of RAM, and a 4 KiB sector of flash.</b> The sector is the smallest piece of the add-on room, however small the effect. The synth keeps all of its 272 KiB. No code in RAM, integers only, no call
         into fm1-dock from <code>run()</code>.</li>
       <li><b><code>set()</code> can be interrupted by <code>run()</code>.</b> Write each value as one word, as the
         tremolo does, or prepare a set and flag it last, as <code>modules/fxdelay</code> does.</li>

@@ -279,7 +279,7 @@ def deploy(p, blob, say=print):
             raise SystemExit(f"the FM-1's fm1-dock speaks ABI {h['abi']}, {name} was built for "
                              f"{struct.unpack_from('<I', blob, 4)[0]}: update one of them")
         if struct.unpack_from("<I", blob, 8)[0] & 0x800 and not h.get("fx"):
-            raise SystemExit(f"{name} is an effect: this fm1-dock takes none yet (0.10 and later)")
+            raise SystemExit(f"{name} is an effect: this fm1-dock takes none yet (1.0 and later)")
         if len(blob) > h["max_file"]:
             raise SystemExit(f"{name}: {len(blob)} B, fm1-dock takes up to {h['max_file']} B")
         say(f"{name} v{version}, {len(blob)} B; the FM-1 has {h['free'] // 1024} KiB free "
