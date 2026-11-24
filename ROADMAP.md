@@ -57,6 +57,22 @@ the built-ins' flash alone, the next step.
 **With it**: the host's reverb (the processing section), one for every synth, so a synth need not carry its own:
 it wants a little of the lean firmware's flash, and Scintilla's build uses it instead of its own reverb.
 
+## After 1.0: a fresh catalog
+
+The catalog holds the synths as they were when each was added, and several authors have moved on (checked
+2026-11-24 against their repositories: B3 ORGAN 0.2 against 0.6.1, Niagara Drift 0.2.1 against 0.3.1, ARTIHIVE
+2.0.3 against 2.0.6, FMINI-1 2.5.13 against 2.6.0, FM-106 Beta 6 against 1.02, DUB-1, ATEK303, AMB-1, FoMni,
+MONK-1 and FiMba-1 a release or more behind; [#128](https://github.com/joakimeriksson/fm1-dock/issues/128),
+[#113](https://github.com/joakimeriksson/fm1-dock/issues/113)). A refresh needs no new firmware: rebuild a module,
+play it on an FM-1, publish it with the page.
+
+1. **A refresh in batches**, B3 ORGAN and Niagara Drift first (people asked), then the ones that moved most
+   recently. Each rebuilt with its `take.py`, played on a real FM-1 and checked for the room and the CPU.
+2. **The page shows what is stale**: a card says "on your unit: 0.2, in the catalog: 0.6.1", with an Update
+   button, so nobody finds out by reading an issue. It needs the installed module's version from the unit.
+3. **Say which commit a module is built from** for every entry (CS-1 and OberVave do not yet), so the next check
+   is a script and not a search.
+
 ## Later
 
 - **ORRERY** past its preview ([orrery-fm1](https://github.com/joakimeriksson/orrery-fm1) 0.1.0 is in the

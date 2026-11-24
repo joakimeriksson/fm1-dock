@@ -291,7 +291,7 @@ function renderMeter() {
   let head, segs = [], free, total, largest = null, legend = [];
   if (!d) {
     total = b.area; free = total;
-    head = `<h3>Room for add-ons</h3><span class="figs"><b>${kib(BOARD.fm1.area)}</b> on an FM-1 · <b>${kib(BOARD.smk37.area)}</b> on an SMK-37</span>`;
+    head = `<h3>Room for add-ons</h3><span class="figs"><b>472 KiB</b> on an FM-1 with Standard (<b>744 KiB</b> with the Empty dock) · <b>448 KiB</b> on an SMK-37</span>`;
   } else {
     total = roomOf(d); free = d.hello.free; largest = d.hello.largest;
     const sizeOf = (x) => { const c = S.mods.find((m) => m.module === x.name && m.size); return sectors(c ? c.size : x.size); };
@@ -507,6 +507,7 @@ function card(m) {
 
 // what a large add-on costs: much of an FM-1's room (296 KiB and what its package's image leaves), so little else fits beside it
 function largeNote(m) {
+  if (!dock()) return `A big one: it takes ${kib(sectors(m.size))}, a third to a half of an FM-1's room for add-ons, so only smaller ones fit beside it.`;
   return `A big one: it takes ${kib(sectors(m.size))} of the FM-1's ${kib(roomOf(dock()))} for add-ons on its own, so only smaller ones fit beside it.`;
 }
 
