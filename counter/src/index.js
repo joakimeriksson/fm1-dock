@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // counter: how many times each module was added from the page. POST /add {"m":"flat20"}, GET /counts.
 // Stores a count per project, module and day: no address, no user agent, no cookie.
 const ORIGINS = ["https://joakimeriksson.github.io", "http://localhost:8000", "http://127.0.0.1:8000"];

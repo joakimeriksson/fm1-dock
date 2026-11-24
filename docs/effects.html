@@ -33,7 +33,7 @@
   <ol class="ad-path fx-steps">
     <li><span class="dv-n" aria-hidden="true">1</span><div><b>Add it</b>
       <p>Open <a href="./#modules">the page</a> in Chrome or Edge, press <b>Connect over USB</b>, choose the <b>Effects</b> filter in
-        the catalog and press <b>Add to my FM-1</b> on the one you want. It takes a second, as an effect is only a few hundred bytes.</p></div></li>
+        the catalog and press <b>Add to my FM-1</b> on the one you want. It takes a second. An effect is only a few hundred bytes of code, but it takes one 4 KiB sector of the add-on room.</p></div></li>
     <li><span class="dv-n" aria-hidden="true">2</span><div><b>Open OPTIONS</b>
       <p>On the unit, hold <b>HOME</b>, then turn SELECT past the last synth to <b>OPTIONS</b> and go to the line <b>EFFECT</b>.</p></div></li>
     <li><span class="dv-n" aria-hidden="true">3</span><div><b>Pick it</b>
@@ -56,18 +56,18 @@
   </div>
   <h3 class="fx-h3">What each one costs</h3>
   <div class="table-scroll"><table class="g-table">
-    <thead><tr><th>Effect</th><th>Knobs</th><th>Add-on size</th><th>Time</th></tr></thead>
+    <thead><tr><th>Effect</th><th>Knobs</th><th>Flash room</th><th>Time</th></tr></thead>
     <tbody>
-      <tr><td>DRIVE</td><td>DRIVE, TONE, LEVEL, MIX</td><td>700 bytes</td><td>about 1.4 % of a block</td></tr>
-      <tr><td>PHASER</td><td>RATE, DEPTH, FEEDBACK, MIX</td><td>916 bytes</td><td>about 3.4 % of a block</td></tr>
-      <tr><td>CRUSH</td><td>BITS, RATE, MIX</td><td>608 bytes</td><td>about 0.6 % of a block</td></tr>
-      <tr><td>TREMOLO</td><td>RATE, DEPTH</td><td>468 bytes</td><td>about 0.4 % of a block</td></tr>
-      <tr><td>CHORUS</td><td>RATE, DEPTH, MIX</td><td>1 000 bytes</td><td>about 2 %</td></tr>
-      <tr><td>FLANGER</td><td>RATE, DEPTH, FEEDBACK, MIX</td><td>1 024 bytes</td><td>about 2 %</td></tr>
-      <tr><td>DELAY</td><td>TIME, FEEDBACK, MIX</td><td>828 bytes</td><td>about 1 %</td></tr>
-      <tr><td>TRIO</td><td>a chorus, a flanger or a delay</td><td>1 856 bytes</td><td>1 to 3 %</td></tr>
+      <tr><td>DRIVE</td><td>DRIVE, TONE, LEVEL, MIX</td><td>4 KiB (file 700 B)</td><td>about 1.4 % of a block</td></tr>
+      <tr><td>PHASER</td><td>RATE, DEPTH, FEEDBACK, MIX</td><td>4 KiB (file 916 B)</td><td>about 3.4 % of a block</td></tr>
+      <tr><td>CRUSH</td><td>BITS, RATE, MIX</td><td>4 KiB (file 608 B)</td><td>about 0.6 % of a block</td></tr>
+      <tr><td>TREMOLO</td><td>RATE, DEPTH</td><td>4 KiB (file 468 B)</td><td>about 0.4 % of a block</td></tr>
+      <tr><td>CHORUS</td><td>RATE, DEPTH, MIX</td><td>4 KiB (file 1 000 B)</td><td>about 2 %</td></tr>
+      <tr><td>FLANGER</td><td>RATE, DEPTH, FEEDBACK, MIX</td><td>4 KiB (file 1 024 B)</td><td>about 2 %</td></tr>
+      <tr><td>DELAY</td><td>TIME, FEEDBACK, MIX</td><td>4 KiB (file 828 B)</td><td>about 1 %</td></tr>
+      <tr><td>TRIO</td><td>a chorus, a flanger or a delay</td><td>4 KiB (file 1 856 B)</td><td>1 to 3 %</td></tr>
     </tbody></table></div>
-  <p class="hint">A block is 256 frames, 5.8 ms. The times for the four new effects are the worst block over a bare sine, measured
+  <p class="hint">Each effect takes one 4 KiB sector of the add-on room, whatever its size, and its own 24 KiB of RAM does not touch the synth's. A block is 256 frames, 5.8 ms. The times for the four new effects are the worst block over a bare sine, measured
     in the emulator; the older ones are from their catalog entries. <b>They have been run in the emulator and on the computer, and
     not yet on a real FM-1 or SMK-37</b>; the cards say so until someone has.</p>
 </section>

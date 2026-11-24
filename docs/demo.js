@@ -7,7 +7,7 @@
 //   ?demo, ?demo=fm1   an FM-1 running fm1-dock 0.5, FM-1 SID added
 //   ?demo=fresh        an FM-1 running fm1-dock, nothing added
 //   ?demo=smk          an SMK-37 Pro running fm1-dock, FM-1 SID and AMB-1 added
-//   ?demo=presets      an FM-1 running fm1-dock 0.10 with saved presets: the page's Presets (the bank commands)
+//   ?demo=presets      an FM-1 running fm1-dock 1.0 with saved presets: the page's Presets (the bank commands)
 //   ?demo=stock        an FM-1 with M-VAVE's firmware: no fm1-dock
 //   ?demo=none         nothing plugged in
 import { frame, parse, crc32, CMD } from "./dock.js";
@@ -21,7 +21,7 @@ const SCENES = {
   fm1: { model: "FM-1", identity: "FM-1_921", dock: "0.5", added: [["FM-1 SID", 272640]] },
   fresh: { model: "FM-1", identity: "FM-1_921", dock: "0.6", added: [] },
   smk: { model: "SMK-37 Pro", identity: "SMK-37 Pro_921", dock: "0.6", added: [["FM-1 SID", 272640], ["AMB-1", 77764]] },
-  presets: { model: "FM-1", identity: "FM-1_921", dock: "0.10", added: [["FM-106", 110000], ["FM6", 43000]],
+  presets: { model: "FM-1", identity: "FM-1_921", dock: "1.0", added: [["FM-106", 110000], ["FM6", 43000]],
     banks: [["CS-1", 0, 4096], ["FM-106", 1, 8176], ["FM-106", 2, 3000], ["B3 ORGAN", 0, 200]] },
   stock: { model: "FM-1", identity: "FM-1_015", dock: null, added: [] },
   none: null,
