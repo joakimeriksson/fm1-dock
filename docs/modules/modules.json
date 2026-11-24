@@ -293,8 +293,8 @@
  "b3": {
   "hub": "b3organ",
   "file": "b3.dock",
-  "version": "0.2",
-  "source": "modules/b3: R-Jeb/setBfree-fm1 7014954 (B3 ORGAN 0.2; modules/b3/take.py), fm1-dock",
+  "version": "0.6.1",
+  "source": "modules/b3: R-Jeb/setBfree-fm1 d2dc753 (B3 ORGAN 0.6.1; modules/b3/take.py), fm1-dock",
   "by": "R-Jeb",
   "songs": "",
   "title": "B3 ORGAN",
@@ -307,13 +307,13 @@
   ],
   "license": "GPL-3.0-only (its organ model after setBfree, GPL-2.0-or-later)",
   "voices": "every key, 91 tonewheels",
-  "description": "A tonewheel organ modelled on setBfree: nine drawbars, key click, vibrato and chorus, percussion, overdrive, reverb and a Leslie; setBfree's 110 programs and its MIDI controllers.",
-  "save": "No presets: the registration in hand is remembered by itself. Not listed under Presets.",
+  "description": "A tonewheel organ modelled on setBfree: three manuals (upper, lower, pedal) with their drawbars, key click, vibrato and chorus, percussion, overdrive, reverb, a Leslie and an output equalizer; setBfree's 110 programs and its MIDI controllers. Runs on both cores.",
+  "save": "No presets: the registration in hand is remembered by itself. Not listed under Presets. Its web editor and the 16 programs of your own need a SysEx link that the dock does not give a module; they belong to B3 ORGAN as a firmware of its own.",
   "tags": ["synth", "poly", "vintage"],
   "kind": "keys",
   "screenshot": "media/screen_b3.png",
   "accent": "#ffbe5a",
-  "alt": "B3 ORGAN's screen: the nine drawbars of Standard B (88 8000 000), vibrato, Leslie, percussion, overdrive and reverb under them"
+  "alt": "B3 ORGAN's screen: the nine drawbars of the upper manual (Standard B), vibrato, Leslie, percussion, overdrive and reverb under them"
  },
  "niagara": {
   "hub": "niagara",
