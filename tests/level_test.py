@@ -4,6 +4,9 @@
 page does it, plays a note and then an eight-note chord, both at velocity 127, on some of its patches; the chord
 must not come out clipped.
   tests/level_test.py --fwsc build/fm1-dock.fwsc [docs/modules/fm6.dock ...]     (no .dock: docs/modules/*.dock)
+An effect (an add-on of kind effect: CHORUS, DRIVE ...) is played the same way, through the built-in sine, and must
+start ("effect on"), not fault, not be silent and not reach 16-bit full scale; its flat share is printed but not
+judged, as a distortion flattens the top on purpose.
 A clip is a flat top: a stretch where the wave sits at one value for several samples in a row near its peak (a
 clamp, in the module or at the host's 16 bits). A soft limiter or a tanh keeps the wave moving, so a port that
 follows its original's mix stays clean; one that cuts at a fixed level does not (0.9: FM6 cut at 20596, FMINI-1
@@ -102,13 +105,34 @@ def rms(x):
     return (sum(v * v for v in x) / max(1, len(x))) ** 0.5
 
 
+FLAT_ON_PURPOSE = {"DRIVE", "CRUSH"}
+_base = {}
+
+
+def sine_alone(fwsc, out):
+    """the chord's flat share with no effect (once): what an effect must not make worse"""
+    if "v" not in _base:
+        t0 = 4000
+        keys, ms = script([0], t0)
+        o = out / "_sine"
+        subprocess.run([sys.executable, str(SRC / "tools" / "dock.py"), "emu", "--fwsc", str(fwsc), "--ms", str(ms),
+                        "--keys", keys, "--out", str(o)], capture_output=True, text=True)
+        w = wave.open(str(o / "audio.wav"))
+        d = w.readframes(w.getnframes())
+        s = struct.unpack(f"<{len(d) // 2}h", d)
+        _base["v"] = flat_share(window(s, w.getframerate(), t0 + 1950, t0 + 3300))[0]
+    return _base["v"]
+
+
 def measure(fwsc, dock, out):
     raw = Path(dock).read_bytes()
-    name = hbmod.parse(raw)[0]["name"]
+    head = hbmod.parse(raw)[0]
+    name = head["name"]
+    fx = bool(head["flags"] & hbmod.HB_F_FX)
     if name in SKIP:
         return name, {"skipped": SKIP[name]}
     enc = name in ENC_PRESETS
-    progs = [0] if name in PANEL else ENC_PRESETS[name] if enc else PROGRAMS.get(name, [0, 1, 2, 3])
+    progs = [0] if fx or name in PANEL else ENC_PRESETS[name] if enc else PROGRAMS.get(name, [0, 1, 2, 3])
     deploy = [str(dock)]
     pre = []
     if name in PACKS:                           # its pack after it (both by their DIN scripts: one run)
@@ -136,9 +160,10 @@ def measure(fwsc, dock, out):
     s = struct.unpack(f"<{len(d) // 2}h", d)
     done = list(re.finditer(r"^(\d+) deploy: done", log, re.M))
     done = done[-1] if done else None              # (with a pack: its deploy, the last)
-    res = {"faults": log.count("FAULT"), "patches": [],
+    res = {"faults": log.count("FAULT"), "patches": [], "effect": fx,
            "started": bool(done) and int(done.group(1)) < t0 - 300 and
-           re.search(rf"^\d+ started \w+\n\d+ {re.escape(name)}$", log[done.start():], re.M) is not None}
+           (re.search(r"^\d+ effect on$", log[done.start():], re.M) is not None if fx else
+            re.search(rf"^\d+ started \w+\n\d+ {re.escape(name)}$", log[done.start():], re.M) is not None)}
     for i, p in enumerate(progs):
         b = t0 + i * STEP
         note, chord = window(s, sr, b + 450, b + 1300), window(s, sr, b + 1950, b + 3300)
@@ -147,7 +172,9 @@ def measure(fwsc, dock, out):
         clip = sum(1 for v in chord if abs(v) >= 32767)
         res["patches"].append({"program": p, "note_peak": pn, "chord_peak": pc, "note_rms": round(rms(note)),
                                "chord_rms": round(rms(chord)), "note_flat": round(fn, 5), "chord_flat": round(fc, 5),
-                               "clipped_16bit": clip, "ok": clip == 0 and fc <= fn + LIMIT and pc >= 200})
+                               "clipped_16bit": clip, "ok": clip == 0 and pc >= 200 and (
+                                   fc <= sine_alone(fwsc, out) + LIMIT if fx and name not in FLAT_ON_PURPOSE else
+                                   True if fx else fc <= fn + LIMIT)})
     return name, res
 
 

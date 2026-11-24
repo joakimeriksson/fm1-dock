@@ -58,7 +58,7 @@ Every release is built from this source and signed on GitHub by the Firmware Hub
 ([zvenson/fm1-build](https://github.com/zvenson/fm1-build)), so each package carries a build attestation:
 
 ```sh
-gh attestation verify fm1-dock-0.7.fwsc -R joakimeriksson/fm1-dock --signer-repo zvenson/fm1-build
+gh attestation verify fm1-dock-1.0.0.fwsc -R joakimeriksson/fm1-dock --signer-repo zvenson/fm1-build
 ```
 
 fm1-dock is also on the [FM-1 Firmware Hub](https://thefirmwarehub.com/#fw-fm1dock), its card with the current release.
@@ -68,7 +68,7 @@ and install it over USB:
 
 ```sh
 pip3 install mido python-rtmidi
-python3 tools/fm1_install.py fm1-dock-0.7.fwsc   # asks before it writes, restarts into fm1-dock
+python3 tools/fm1_install.py fm1-dock-1.0.0.fwsc   # asks before it writes, restarts into fm1-dock
 ```
 
 **M-Vave SMK-37** (Pro, Elite, MKE-P37) and Donner Starrykey 37 Play: read [SMK37.md](SMK37.md) first. Each model has
@@ -76,6 +76,36 @@ its own package; the installers refuse an FM-1 package on an SMK-37, and the oth
 
 Back to any other firmware, or the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing firmware is at your own risk.
+
+## New in 1.0
+
+One firmware, many synths, now with room for them and effects under them.
+
+- **The open dock.** Every synth is an add-on. The Empty dock carries only the sine; CS-1, Scintilla and OberVave are
+  add-ons like the rest, and the `-analog` and `-digital` packs come ready-made. The add-ons' room is the flash the
+  built-ins no longer fill, and the boot slot is gone ([#115](https://github.com/joakimeriksson/fm1-dock/issues/115),
+  [#107](https://github.com/joakimeriksson/fm1-dock/issues/107)): on an FM-1 472 KiB with Standard (it was 296; the
+  same figure as a unit reports) and 744 KiB with the Empty dock; on an SMK-37 448 KiB (it was 416).
+- **28 synths in the catalog**, from CS-1 and Scintilla to PROPHET, FM6, ARP 2600, ESQ-1, ORRERY and the newcomers
+  S1VAVE, EMINENT, MINIPOPS, ENSEMBLE and FLAT-20.
+- **Effects as add-ons** ([#122](https://github.com/joakimeriksson/fm1-dock/issues/122)): one effect under whatever synth
+  plays, picked in OPTIONS > EFFECT. Eight are in the catalog: CHORUS, FLANGER, DELAY, TRIO, and new in 1.0 PHASER,
+  TREMOLO, DRIVE (overdrive and distortion) and CRUSH (a bit crusher). [Listen to them, add them and write your own](https://joakimeriksson.github.io/fm1-dock/effects.html).
+- **Your sounds are yours.** Presets in a file: back up, export, restore and delete banks over USB, on the page and
+  with `dock.py bank-get` / `bank-put` ([#117](https://github.com/joakimeriksson/fm1-dock/issues/117)). Scintilla keeps
+  sounds of your own: SAVE, PRESETS for USR 1 to 12, SAVE again (#118, #125). A bank save that fails now says NOT SAVED
+  on the screen (#114).
+- **Import**: FM6 and PROPHET take a `.syx` file from the page (#120). They cannot save an edited sound yet.
+- **The SMK-37's own keys and pads**: the outer keys beside the middle ones, with LOCAL, MIDI CH and the octave (#123);
+  the pads in OPTIONS > PADS as NOTES, OFF or CHORDS in a major key (#124).
+- **MIDI clock and transport** reach the synth on time, from the TRS jack too (#110).
+- **A safer restart**: a module written where code ran is started after the restart, not before (#126, #87).
+- **An add counter on the page**: the page counts how many times each add-on is added ([below](#the-add-counter)).
+- **Guides** for players and for anyone adding a synth or an effect, and `tests/level_test.py`, which plays big chords
+  through every add-on and fails on clipping (#97, #109).
+
+Not yet tried: the SMK-37 Elite and MKE-P37 models, and an FM-1 with the newer flash chip (UC25HQ80). Both are accepted
+by the installer; nobody has run 1.0 on them (#112, #99).
 
 ## New in 0.9 (a test release)
 
@@ -189,11 +219,27 @@ RAM needs it. The originals are linked; their manuals apply.
 | **ORRERY** | Joakim Eriksson | a band: strings, a lead on the keys, bass and drums | 176 KiB | The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview, not yet played on an FM-1. [Its source](https://github.com/joakimeriksson/orrery-fm1). |
 | **VECTOR37** | M. Geisler (genkigenki) | 8 | 190 KiB, and its wavetables: the data pack V37-WT, 103 KiB | An orbiting overtone synth after the Beetlecrab Vector, vector synthesis as the Prophet VS and the Wavestation had it: four corners, each two overtone or wavetable generators, a blend and a filter, mixed by a moon circling a sun along a path you shape; 32 factory sounds, your own in a bank. Its delay and reverb are out (the dock's EFFECT plays under it); add it before its pack. Not on the page yet: `tools/dock.py deploy` the two. [The original](https://github.com/genkigenki/Vector37). |
 
-The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas), plus, from 0.10, the room the package's
+The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas), plus, from 1.0, the room the package's
 built-in synths leave below it: with the Empty dock 744 KiB in all on an FM-1, with Standard 472. The page's meter shows
 what fits before you add one. An update keeps that room: a package whose built-ins would need the room of an added
 synth is refused (the page and the FM-1 name the ones to remove first). FM-1 SID, MONK-1, DUB-1, GATOR, ORRERY and Niagara Drift are large: with one of them added, only
 smaller ones fit beside it. The new modules of 0.8 have been played on an FM-1, both cores running: at their worst ARTIHIVE took 64 % of a block, PROPHET 53 %, Niagara Drift 33 %, Scintilla 46 % (its second core 35 %), with no overruns. Niagara Drift (156 KiB) leaves too little room in one piece for B3 ORGAN beside it and PROPHET: the free room can be split, and the page's meter shows the largest piece.
+
+**Effects** are add-ons of their own kind: one runs under whatever synth plays, before the EQ, and is picked in
+OPTIONS > EFFECT. Each takes one 4 KiB sector of the add-on room and 24 KiB of RAM of its own. All are by Joakim
+Eriksson, GPL-3.0-only, in `modules/fx*/`. [The Effects page](https://joakimeriksson.github.io/fm1-dock/effects.html)
+has clips of each, how to add one and how to write one.
+
+| | knobs | what it does |
+| --- | --- | --- |
+| **CHORUS** | RATE, DEPTH, MIX | A stereo chorus: each side through a swept delay line, a quarter turn apart |
+| **FLANGER** | RATE, DEPTH, FEEDBACK, MIX | A stereo flanger: a short swept delay line fed back into itself |
+| **DELAY** | TIME, FEEDBACK, MIX | 30 to 500 ms, with darker repeats, as a tape's |
+| **TRIO** | MODE and three more | A chorus, a flanger or a delay in one add-on, by its MODE |
+| **PHASER** | RATE, DEPTH, FEEDBACK, MIX | Four all-pass stages swept from about 0.4 to 5 kHz, a quarter turn apart left and right |
+| **TREMOLO** | RATE, DEPTH | The level moved by a slow triangle; the developer guide's example |
+| **DRIVE** | DRIVE, TONE, LEVEL, MIX | An overdrive that goes to a distortion: a lift of 1 to 20 times into a smooth shaper, then a low-pass |
+| **CRUSH** | BITS, RATE, MIX | A bit crusher and sample-rate reducer; silence stays silent |
 
 ## Play it
 
@@ -272,13 +318,13 @@ uv run --with python-rtmidi tools/dock.py bank-get [NAME] [-o FILE.hbk]       # 
 uv run --with python-rtmidi tools/dock.py bank-put FILE.hbk [NAME]            # a file's presets onto the unit
 ```
 
-**Data packs** (from 0.10): read-only data a synth uses but does not carry, such as wavetables or samples, added and
+**Data packs** (after 1.0): read-only data a synth uses but does not carry, such as wavetables or samples, added and
 deleted as a synth is. `tools/hbmod.py --pack NAME FILE` makes one; the module finds it by name
 (`hb_host_t.pack_find`, on a host that has it) and reads it in place from flash. A pack is never played and is not in
 the list of synths; adding or deleting one restarts the synth playing, so it looks again. Its file, like a synth's, is
 up to 272 KiB. Add the bigger of a synth and its pack first: the bigger one takes the plain area.
 
-**Presets in a file** (from 0.10): what the synths saved lies in nine banks that all of them share. The page's
+**Presets in a file** (from 1.0): what the synths saved lies in nine banks that all of them share. The page's
 **Presets** box (under the room meter) and `tools/dock.py` back all of it up into a `.hbk` file, export one synth's
 presets for another unit, put a file back (in place of those synths' presets on the unit; the synth must be on it),
 and delete a synth's presets to free its banks. The bytes are each synth's own format: fm1-dock and the tools only

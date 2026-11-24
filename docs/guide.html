@@ -90,7 +90,7 @@
     </div>
     <div class="box">
       <h3>Room</h3>
-      <p>The add-ons share 296 KiB on the FM-1 and 416 KiB on the SMK-37, plus, from fm1-dock 0.10, the room the package's built-in synths
+      <p>The add-ons share 296 KiB on the FM-1 and 416 KiB on the SMK-37, plus, from fm1-dock 1.0, the room the package's built-in synths
         leave: on the FM-1 744 KiB in all with the <b>Empty dock</b>, 472 with Standard. The <b>meter</b> above the catalog
         shows what is in it; each added synth has a <b>Remove</b> button there. Most synths take 6 to 60 KiB; ESQ-1 and
         ORRERY take over 100. A package with more built-in synths than the one you have may need the room an added synth
@@ -98,7 +98,7 @@
     </div>
     <div class="box" id="presets">
       <h3>Your presets in a file</h3>
-      <p>From fm1-dock 0.10. What you save in a synth stays on the device, in nine banks that all synths share. Under the
+      <p>From fm1-dock 1.0. What you save in a synth stays on the device, in nine banks that all synths share. Under the
         meter, <b>Presets</b> lists what each synth has saved:</p>
       <ul>
         <li><b>Back up all to a file</b>: every synth's presets in one <code>.hbk</code> file. Do it before you delete or
@@ -249,7 +249,7 @@
       <tr><td>EQ</td><td>LOW (150 Hz), MID (1 kHz), HIGH (6 kHz), &plusmn;12 dB, for every synth. SEL opens its page: SELECT picks, ALGORITHM or KNOB1&ndash;3 (K5&ndash;K7) turn, SEL switches it on/off or puts a band back to 0 dB</td><td>Tame or brighten the speaker or a PA</td><td>OFF (a boost can clip a loud synth)</td></tr>
       <tr><td>KNOBS CC</td><td>KNOB1&ndash;4 send CC 74, 71, 73, 72 (cutoff, resonance, attack, release) over USB and Bluetooth, on a synth's own screen (in the list they move the list)</td><td>The FM-1 as a controller for a computer synth</td><td>OFF</td></tr>
       <tr><td>AFTERTOUCH</td><td>SEL steps through AS IS, CHANNEL, MOD WHL and FILTER: how pressing a held key harder (and an external keyboard's aftertouch; the SMK-37's own keys sense none) reaches the synth. AS IS: as it comes, per key. The others: the hardest-pressed key, as channel pressure, the mod wheel (CC 1) or the filter (CC 74)</td><td>Pressure on a synth that ignores it: MOD WHL for vibrato, FILTER to open it up</td><td>AS IS</td></tr>
-      <tr><td>EFFECT</td><td>One effect under whatever synth plays. Effects are add-ons: CHORUS, FLANGER, DELAY, PHASER, TREMOLO, DRIVE and CRUSH are in the catalog (Effects; <a href="effects.html">listen to them</a>), added as a synth is. SEL opens its page: SEL there picks the next effect in the dock or OFF, KNOB1&ndash;4 its values</td><td>A dry synth that wants width, an echo or some grit; a heavy synth may drop it (TOO SLOW)</td><td>OFF</td></tr>
+      <tr><td>EFFECT</td><td>One effect under whatever synth plays. Effects are add-ons: CHORUS, FLANGER, DELAY, PHASER, TREMOLO, DRIVE and CRUSH are in the catalog (Effects; <a href="effects.html">listen to them</a>), added as a synth is; each takes one 4 KiB sector of the add-on room. SEL opens its page: SEL there picks the next effect in the dock or OFF, KNOB1&ndash;4 its values</td><td>A dry synth that wants width, an echo or some grit; a heavy synth may drop it (TOO SLOW)</td><td>OFF</td></tr>
       <tr><td>PADS</td><td>SMK-37 only. NOTES: drum notes 36&ndash;51 on channel 10. OFF. CHORDS C &hellip; B: the bottom row plays the key's seven chords (and the first an octave up), the top row the same with a seventh; a knob (or SCALE) picks the key</td><td>Chords under one finger; OFF when the pads play unwanted low notes in a synth</td><td>NOTES</td></tr>
       <tr><td>MIDI THRU</td><td>The TRS jack's MIDI (not clock or SysEx) goes on to USB and Bluetooth; the synth plays it too</td><td>A hardware keyboard through the FM-1 into a computer</td><td>OFF</td></tr>
       <tr><td>ABOUT</td><td>SEL opens a page: the fm1-dock version (a release's with its source, <code>0.8.2 (abc1234)</code>; any other build is its source, <code>2dcbfbf+</code>), the model, one or two CPU cores, the chip, the flash chip's id and size, the RAM for synths, the room left for add-ons (all of it and the largest piece), the Bluetooth address, and every synth with its version and size. SELECT scrolls, HOME goes back</td><td>Asking for help, or checking what a unit runs</td><td>&ndash;</td></tr>
