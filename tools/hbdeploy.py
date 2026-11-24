@@ -25,7 +25,8 @@ BANKS, BANK_READ, BANK_WRITE, BANK_ERASE = 0x24, 0x25, 0x26, 0x27   # the module
 STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed", "data missing",
           "not started", "not found", "bad message", "refused"]
 STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"]
-KIND = ["built in", "image", "deployed", "boot", "effect", "effect (image)"]   # (4, 5: effects, their places 0x80 up)
+KIND = ["built in", "image", "deployed", "boot", "effect", "effect (image)", "pack", "pack (image)"]
+# (4, 5: effects, their places 0x80 up; 6, 7: data packs, theirs 0xC0 up)
 CHUNK = 256
 BYTE_MS = 10 * 1000 / 31250                     # a MIDI byte on the DIN jack: 0.32 ms
 HRBR_MAGIC = 0x52425248                         # "HRBR"

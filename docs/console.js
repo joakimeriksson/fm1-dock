@@ -119,7 +119,7 @@ function showModules(mods, h) {
     tr.innerHTML = `<td>${m.index === h.cur ? "▸" : ""}${m.index}</td><td>${esc(m.name)}</td><td>${m.kind}</td>` +
       `<td>${m.at ? kib(m.size) : ""}</td><td class="${m.state === "ok" ? "" : "st-bad"}">${m.state}</td><td></td>`;
     const cell = tr.cells[5];
-    if (m.index !== h.cur) {
+    if (m.index !== h.cur && !m.kind.startsWith("pack")) {   // (a data pack is not played: a synth reads it)
       const b = document.createElement("button");
       b.className = "btn small";
       b.textContent = m.kind.startsWith("effect") ? "Use" : "Play";

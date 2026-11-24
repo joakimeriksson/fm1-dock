@@ -5,6 +5,8 @@
   tools/hbmod.py modules/sine [modules/sid ...]     -> build/modules/<dir>.dock
   tools/hbmod.py --info build/modules/sine.dock
   tools/hbmod.py probes/timing.c                     -> build/probes/timing.dock (tools/probe.py)
+  tools/hbmod.py --pack NAME DATA.bin [--version N] [-o OUT.dock]
+                                                     a data pack (hb_module.h "Data packs") -> build/modules/<name>.dock
 
 A module is a directory of C / C++ files (*.c, *.cc), and module.cfg: `name =`, `version =`,
 `cflags =`, `cflags FILE =` more for one of its files (after cflags; FILE as in `sources`, or a file of the
@@ -51,6 +53,8 @@ MOD_RT, MOD_RT_SIZE = 0x01C04000, 0x4000
 PROBE_RAM, PROBE_RAM_SIZE, PROBE_FILE = 0x01C60000, 0x14000, 0x30000
 HB_F_PROBE = 0x100
 HB_F_FX = 0x800                                 # an effect (hb_module.h "Effects"): kind = effect, modules/fx.ld
+HB_F_PACK = 0x1000                              # a data pack (hb_module.h "Data packs"): data only, found by name
+PACK_MAX = MOD_RAM_SIZE                         # a .dock is received into the module RAM: a pack's file up to 272 KiB
 FX_RAM, FX_RAM_SIZE = 0x01C1A000, 0x6000
 PROBES = SRC / "probes"
 CFLAGS = ["-O2", "-ffunction-sections", "-fdata-sections", "-fno-builtin", "-ffreestanding", "-Wall",
@@ -278,6 +282,25 @@ def build_module(d):
     return path
 
 
+def make_pack(name, data, version=1, out=None):
+    """a data pack: an hb_file_t flagged HB_F_PACK, the data its image (code_size), nothing else"""
+    if not 0 < len(name) <= 23 or not name.isascii():
+        raise SystemExit(f"hbmod: pack name {name!r}: 1..23 ASCII characters")
+    if not data:
+        raise SystemExit("hbmod: an empty pack")
+    h = {"magic": HB_MAGIC, "abi": HB_ABI, "flags": HB_F_PACK, "name": name, "version": int(version),
+         "code_size": len(data), "data_size": 0, "bss_size": 0, "rt_size": 0, "worst_cycles": 0, "desc": 0,
+         "base": BASE_A, "n_relocs": 0, "reserved": 0, "crc": 0}
+    blob = pack(h, [], bytes(data))
+    if len(blob) > PACK_MAX:
+        raise SystemExit(f"hbmod: pack {name}: {len(blob)} B, a .dock is at most {PACK_MAX} B")
+    path = Path(out) if out else OUTDIR / f"{name.lower()}.dock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(blob)
+    print(f"pack   {name:<10} {path}: {len(data)} B, crc {h['crc']:08x}")
+    return path
+
+
 def info(path):
     blob = Path(path).read_bytes()
     h, relocs, image = parse(blob)
@@ -291,9 +314,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dirs", nargs="*")
     ap.add_argument("--info", nargs="+")
+    ap.add_argument("--pack", nargs=2, metavar=("NAME", "DATA"), help="a data pack named NAME from the file DATA")
+    ap.add_argument("--version", default="1", help="the pack's version (--pack)")
+    ap.add_argument("-o", dest="out", help="the pack's .dock (--pack; default build/modules/<name>.dock)")
     a = ap.parse_args()
     for p in a.info or []:
         info(p)
+    if a.pack:
+        make_pack(a.pack[0], Path(a.pack[1]).read_bytes(), a.version, a.out)
     for d in a.dirs:
         build_module(d)
 

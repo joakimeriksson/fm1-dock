@@ -92,7 +92,7 @@ def main(argv):
     out.mkdir(parents=True, exist_ok=True)
     index = {"firmware": "fm1dock", "modules": {}}
     for fid, m in json.loads((mdir / "modules.json").read_text()).items():
-        if m.get("kind") == "effect":             # (an effect is not in the list of synths: nothing to pick)
+        if m.get("kind") in ("effect", "pack"):   # (not in the list of synths: nothing to pick)
             continue
         entry = {"script": f"{fid}.txt"}
         name = m.get("module") or m.get("title")

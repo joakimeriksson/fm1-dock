@@ -271,6 +271,12 @@ uv run --with python-rtmidi tools/dock.py bank-get [NAME] [-o FILE.hbk]       # 
 uv run --with python-rtmidi tools/dock.py bank-put FILE.hbk [NAME]            # a file's presets onto the unit
 ```
 
+**Data packs** (from 0.10): read-only data a synth uses but does not carry, such as wavetables or samples, added and
+deleted as a synth is. `tools/hbmod.py --pack NAME FILE` makes one; the module finds it by name
+(`hb_host_t.pack_find`, on a host that has it) and reads it in place from flash. A pack is never played and is not in
+the list of synths; adding or deleting one restarts the synth playing, so it looks again. Its file, like a synth's, is
+up to 272 KiB. Add the bigger of a synth and its pack first: the bigger one takes the plain area.
+
 **Presets in a file** (from 0.10): what the synths saved lies in nine banks that all of them share. The page's
 **Presets** box (under the room meter) and `tools/dock.py` back all of it up into a `.hbk` file, export one synth's
 presets for another unit, put a file back (in place of those synths' presets on the unit; the synth must be on it),
