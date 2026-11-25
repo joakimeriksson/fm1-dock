@@ -638,9 +638,19 @@ static void master_cc7(uint32_t ch)
     }
 }
 
+/* A note over the module's screen for 2.5 s, drawn by the main loop: a save that failed (save_failed), or K1..K4 turned
+ * while KNOBS CC has them (knobs_cc) */
+static const char *save_note;                   /* its second line (0: no note) */
+static const char *note_title = "NOT SAVED";    /* its first line, and its colour */
+static uint16_t note_col = C_BAD;
+static uint32_t save_note_at;
+static uint8_t save_note_on, save_note_armed = 1;
+static uint8_t knobs_told;                      /* KNOBS CC said once since power-on (the first knob turned) */
+
 /* KNOBS CC: KNOB1..4 as CC 74, 71, 73, 72 (cutoff, resonance, attack, release: MIDI's sound controllers) on the
  * keys' channel, a value each the host keeps (64 at power-on); a detent one step, turned fast four. The module
- * hears them as MIDI in (LOCAL ON; LOCAL OFF: what comes back from the computer). */
+ * hears them as MIDI in (LOCAL ON; LOCAL OFF: what comes back from the computer). The first turn after power-on says
+ * so on the screen: an option left on (it is kept) took the module's knobs with nothing to show why. */
 static const uint8_t KNOB_CC[4] = {74u, 71u, 73u, 72u};
 static uint8_t knob_v[4] = {64u, 64u, 64u, 64u};
 static uint32_t knob_ms[4];
@@ -651,6 +661,13 @@ static void knobs_cc(const hb_module_t *m, uint32_t ch, uint32_t local)
         int32_t c = fm1_enc_take(ENC_KNOB1 + e), v;
         if (!c)
             continue;
+        if (!knobs_told && !save_note) {
+            knobs_told = 1;
+            note_title = "KNOBS CC IS ON";
+            note_col = C_ACC;
+            save_note = "K1-K4 SEND MIDI: SEE OPTIONS";
+            hb_log_u32("knobs cc: k1-k4 send midi", e);
+        }
         v = (int32_t)knob_v[e] + (fm1_ms - knob_ms[e] < 40u ? 4 * c : c);
         knob_ms[e] = fm1_ms;
         v = v < 0 ? 0 : v > 127 ? 127 : v;
@@ -1064,9 +1081,6 @@ static int h_bank_load(void *p, uint32_t n)
 /* A save that did not reach the flash is said by the host, on the screen and in the log (the main loop draws
  * save_note): a module's own code may show SAVED whatever the host answers, and an autosave shows nothing. Said
  * once, and again after a button: an autosave that tries every pass does not repeat it. */
-static const char *save_note;                   /* its second line (0: no note) */
-static uint32_t save_note_at;
-static uint8_t save_note_on, save_note_armed = 1;
 static const char SAVE_NO_ROOM[] = "NO ROOM FOR PRESETS", SAVE_FLASH[] = "FLASH ERROR";
 static void save_failed(const char *why, uint32_t v)
 {
@@ -1075,6 +1089,8 @@ static void save_failed(const char *why, uint32_t v)
     save_note_armed = 0;
     hb_log_u32(why == SAVE_NO_ROOM ? "bank not saved: no bank free" : "bank not saved: flash", v);
     save_note = why;
+    note_title = "NOT SAVED";
+    note_col = C_BAD;
 }
 static int bank_check(uint32_t at, const uint32_t h[4])   /* the bank in flash is the one sent (its header, its CRC): 0 */
 {
@@ -3556,15 +3572,15 @@ static void app_main(void)
             draw_top(st.oct);
         }
         m = hb_active;                          /* under the picker: the module's loop still (its keys), not seen */
-        if (save_note && !picker && !rx.on) {   /* a save that failed: said for 2.5 s over the module's screen */
+        if (save_note && !picker && !rx.on) {   /* the note (save_failed, knobs_cc): 2.5 s over the module's screen */
             if (!save_note_on) {
                 save_note_on = 1;
                 save_note_at = fm1_ms;
                 lcd_fill(0, 0, 240, 240, C_BLACK);   /* (all of it: the module may have drawn its own SAVED) */
                 cv_begin(240, 56, C_BLACK);
-                cv_rect(0, 0, 240, 2, C_BAD);
-                cv_rect(0, 54, 240, 2, C_BAD);
-                cv_text(120 - text_w(&FONT_S, "NOT SAVED") / 2, 8, &FONT_S, "NOT SAVED", C_BAD);
+                cv_rect(0, 0, 240, 2, note_col);
+                cv_rect(0, 54, 240, 2, note_col);
+                cv_text(120 - text_w(&FONT_S, note_title) / 2, 8, &FONT_S, note_title, note_col);
                 cv_text(120 - text_w(&FONT_S, save_note) / 2, 30, &FONT_S, save_note, C_WHITE);
                 cv_blit(0, 92);
             } else if (fm1_ms - save_note_at > 2500u) {
