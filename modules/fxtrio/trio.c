@@ -87,8 +87,8 @@ static void run(int32_t *o, uint32_t n)
                 y = y1;
             }
             odd ^= 1u;
-            o[2 * i] = sat(q16(l, dry) + q16(y, wet));
-            o[2 * i + 1] = sat(q16(r, dry) + q16(y, wet));
+            o[2 * i] = q16(l, dry) + q16(y, wet);    /* (not clamped: the host does, after MASTER) */
+            o[2 * i + 1] = q16(r, dry) + q16(y, wet);
         }
     } else {
         const int32_t base = c_run.base, depth = c_run.depth;
@@ -106,7 +106,7 @@ static void run(int32_t *o, uint32_t n)
                 s1 = buf[(((w - di - 1u) & SW) << 1) | c];
                 y = s0 + (((s1 - s0) * (int32_t)a) >> 8);
                 buf[((w & SW) << 1) | c] = (int16_t)sat(x + q16(y, fb));
-                o[2 * i + c] = sat(q16(x, dry) + q16(y, wet));
+                o[2 * i + c] = q16(x, dry) + q16(y, wet);
             }
             ph += inc;
         }

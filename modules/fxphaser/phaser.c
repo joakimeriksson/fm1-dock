@@ -63,7 +63,7 @@ static void run(int32_t *lr, uint32_t n)        /* the audio interrupt's */
             }
             last[c] = y;
             y = (int32_t)(((int64_t)x * dg + (int64_t)y * wg + 32768) >> 16);
-            lr[2 * i + c] = y > 32767 ? 32767 : y < -32767 ? -32767 : y;
+            lr[2 * i + c] = y;                      /* (not clamped: the host does, after MASTER) */
         }
     }
     ph = p;
