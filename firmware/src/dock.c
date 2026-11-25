@@ -1191,6 +1191,9 @@ static int h_c1_run(void (*fn)(uint32_t), uint32_t arg) { return in_render && cp
 static int h_c1_wait(void) { return in_render ? cpu1_wait() : 0; }
 static uint32_t mod_key0;                       /* the note a panel module's key 0 plays (key_base), 0: the host's */
 static void h_key_base(uint32_t n) { mod_key0 = n < 128u ? n : 0u; }
+/* the synth's sound now (hb_host_t.sound_name: its own text, kept while it runs); none when another synth starts */
+static const char *mod_sound;
+static void h_sound_name(const char *s) { mod_sound = s; }
 #if BOARD_SMK37
 /* A panel module sends its keys' notes itself, on a channel of its own (MIDI CH is the host's keys'): the outer keys
  * go out on that one too. It is the channel of the note the module sends for a middle key it was just given, which it
@@ -1223,7 +1226,7 @@ static const hb_host_t HOST = {
     h_fill, h_text, h_cv_begin, cv_rect, cv_line, h_cv_pixel, h_cv_text, h_cv_blit,
     h_led, h_rand, mod_load, mod_save, h_midi_send, h_master, h_blit, h_text_w, h_bank_load, h_bank_save,
     h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free, h_c1_run, h_c1_wait,
-    BOARD_SMK37 ? HB_BOARD_SMK37 : HB_BOARD_FM1, h_key_base, h_pack_find,
+    BOARD_SMK37 ? HB_BOARD_SMK37 : HB_BOARD_FM1, h_key_base, h_pack_find, h_sound_name,
 };
 
 /* ---- the sound: the module renders (and the EQ filters), the host measures */
@@ -1288,6 +1291,7 @@ static void app_audio(int32_t *out, uint32_t n)
 static void stop_module(void)
 {
     const hb_module_t *m = hb_active;
+    mod_sound = 0;                              /* (its text goes with it) */
     uint32_t b = hb_blocks, t0 = fm1_ms;
     hb_active = 0;                              /* the ISR renders silence from the next block */
     while (hb_blocks == b && fm1_ms - t0 < 50u) /* the block that may be running ends */

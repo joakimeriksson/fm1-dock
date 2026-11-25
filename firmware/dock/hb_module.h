@@ -159,6 +159,10 @@ typedef struct hb_host {
      * place from flash as the module's own code is, and *size their length; 0: no such pack here. What it returns
      * holds until release(): a pack added or deleted restarts the module playing (a module checks size first) */
     const void *(*pack_find)(const char *name, uint32_t *size);
+    /* the sound playing now, as the synth names it ("B3 ORGAN Gospel PERC": its name and its sound, in memory the module keeps; "" none),
+     * for whoever shows or follows it (FM-1 Big Screen's Rich plays the closest instrument); called when it changes
+     * (a module checks size first) */
+    void (*sound_name)(const char *s);
 } hb_host_t;
 enum { HB_BOARD_FM1 = 0, HB_BOARD_SMK37 = 1 };
 /* the host has field f of hb_host_t (an older one ends before it) */

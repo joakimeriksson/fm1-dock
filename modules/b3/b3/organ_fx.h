@@ -75,11 +75,12 @@ static int32_t bq_run(bq_t *s, const int32_t *c, int32_t x)   /* Q19 in, Q19 out
     return yh >> 8;
 }
 
-/* the sound x lands in a delay line, where the microphone will read it t / 16 samples from now (Q4 samples) */
+/* the sound x lands in a delay line, where the microphone will read it t / 256 samples from now (Q8 samples: with 1/16 the delay moved in steps,
+ * and every step of a sample's fraction is a small error of phase, a noise of about -70 dB at 6 to 12 kHz with the horn turning) */
 static void ls_put(int32_t *buf, int32_t x, int32_t t)
 {
-    uint32_t r = ls_pos + (uint32_t)(t >> 4);
-    int32_t q = (x * (t & 15)) >> 4;
+    uint32_t r = ls_pos + (uint32_t)(t >> 8);
+    int32_t q = (x * (t & 255)) >> 8;                 /* x is Q19, below 2^22 even for a hot signal: x * 255 fits */
     buf[r & LS_M] += x - q;
     buf[(r + 1u) & LS_M] += q;
 }
@@ -106,6 +107,11 @@ static void ls_hist(int32_t *h, int32_t xq)
     h[3] = h[2]; h[2] = h[1]; h[1] = h[0]; h[0] = xq;
 }
 
+/* the speeds (phase step per frame) the Leslie runs up to, and its time constants (Q16 a block): horn slow, horn fast, drum slow, drum fast;
+ * horn up, horn down, drum up, drum down. setBfree's defaults; the main loop changes them (les_set in organ_core.h) */
+static volatile uint32_t ls_tgt[4] = {LES_HORN_SLOW, LES_HORN_FAST, LES_DRUM_SLOW, LES_DRUM_FAST};
+static volatile int32_t ls_k[4] = {LES_HORN_ACC, LES_HORN_DEC, LES_DRUM_ACC, LES_DRUM_DEC};
+
 static uint32_t ls_speed(uint32_t inc, uint32_t target, int32_t acc, int32_t dec)   /* one block of the speed's slow change */
 {
     int32_t diff = (int32_t)target - (int32_t)inc, step;
@@ -125,8 +131,8 @@ static int32_t ls_refl(uint32_t k, int32_t x)     /* the reflection filters: 0.4
 static void leslie_run(const int32_t *in, int32_t *outl, int32_t *outr, uint32_t n, uint32_t speed)   /* speed 0 stop, 1 slow, 2 fast */
 {
     uint32_t i;
-    ls_hinc = ls_speed(ls_hinc, speed == 2u ? LES_HORN_FAST : speed == 1u ? LES_HORN_SLOW : 0u, LES_HORN_ACC, LES_HORN_DEC);
-    ls_dinc = ls_speed(ls_dinc, speed == 2u ? LES_DRUM_FAST : speed == 1u ? LES_DRUM_SLOW : 0u, LES_DRUM_ACC, LES_DRUM_DEC);
+    ls_hinc = ls_speed(ls_hinc, speed == 2u ? ls_tgt[1] : speed == 1u ? ls_tgt[0] : 0u, ls_k[0], ls_k[1]);
+    ls_dinc = ls_speed(ls_dinc, speed == 2u ? ls_tgt[3] : speed == 1u ? ls_tgt[2] : 0u, ls_k[2], ls_k[3]);
     for (i = 0; i < n; i++) {
         int32_t x = in[i] << 4, xh, xq, leak, l, r, y;
         uint32_t o = ls_pos;
