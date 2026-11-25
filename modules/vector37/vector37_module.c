@@ -30,6 +30,7 @@ static void render(int32_t *out, uint32_t n)
 {
     static int32_t blk[2u * CTL];
     uint32_t t0 = H->ticks(), b, i, q;
+    c1_probe();                                 /* (the second core: half the voices, v37_voices.inc) */
     for (b = 0; b + CTL <= n; b += CTL) {
         synth_block(blk, CTL);
         for (i = 0; i < 2u * CTL; i++)
@@ -39,7 +40,12 @@ static void render(int32_t *out, uint32_t n)
     cpu_guard(q);                               /* (Vector37's: too slow, fewer voices; mix.c) */
 }
 
-static void ui_ev(uint32_t ev, int32_t arg) { hbf_event(ev, arg); }
+static void ui_ev(uint32_t ev, int32_t arg)
+{
+    if (HB_EV_KIND(ev) == HB_EV_KEY_DOWN && HB_EV_ID(ev) < 27u)   /* (its velocity: the panel's keys play with it) */
+        v37_vel[HB_EV_ID(ev)] = (uint8_t)(arg > 0 && arg < 128 ? arg : 0);
+    hbf_event(ev, arg);
+}
 static void midi(uint32_t st, uint32_t d1, uint32_t d2) { v37_midi_in(st, d1, d2); }
 static void note(uint32_t ch, uint32_t key, uint32_t vel) { v37_midi_in((vel ? 0x90u : 0x80u) | (ch & 15u), key, vel); }
 static void cc(uint32_t ch, uint32_t num, uint32_t val) { v37_midi_in(0xB0u | (ch & 15u), num, val); }
@@ -75,6 +81,7 @@ static void draw(uint32_t full)
 static int init(const hb_host_t *h)
 {
     H = h;
+    c1_have = HB_HOST_HAS(H, c1_wait);
     wt_state = v37_wt_find();
     persist_boot();                             /* (the settings, the USER bank: the host's store) */
     palette_set(2);

@@ -55,8 +55,13 @@ static const layer_t LAYERS[L_N] = {
     [L_ORBIT] = {"ORBIT", 0xFF, {KG(G_WARPX), KG(G_WARPY), KG(G_ROT), KG(G_SHARP), KG(G_SUBSZ), KG(G_SPIN), KG(G_WIDTH), KG(G_SUBSPD)}},
 #endif
     [L_VOICE] = {"VOICE", B_CHORD, {KG(G_AA), KG(G_AD), KG(G_AS), KG(G_AR), KG(G_DETUNE), KG(G_GLIDE), KV, KG(G_STEREO)}},
+#if V37_NO_DELAY_REVERB   /* fm1-dock: no delay, no reverb: their knobs go (take.py) */
+    [L_FX] = {"MIXER", B_FX, {KG(G_CHMIX), KG(G_CHDEP), KG(G_CHSPD), KG(G_DRIVE), KG(G_DCOL), KG(G_TRIM), {0xFF, 0}, KG(G_VOLUME)}},
+    [L_CORNER] = {"MORE", B_FADERBANK, {KC(CP_T1), KC(CP_TRACK), KC(CP_FTYPE), KG(G_DCOL), KG(G_CHDEP), KG(G_CHSPD), {0xFF, 0}, KG(G_AUDITION)}},
+#else
     [L_FX] = {"MIXER", B_FX, {KG(G_RVMIX), KG(G_DLMIX), KG(G_CHMIX), KG(G_DRIVE), KG(G_RVSIZE), KG(G_DLTIME), KG(G_DLFB), KG(G_VOLUME)}},
     [L_CORNER] = {"MORE", B_FADERBANK, {KC(CP_T1), KC(CP_TRACK), KC(CP_FTYPE), KG(G_DCOL), KG(G_CHDEP), KG(G_CHSPD), KG(G_RVCOL), KG(G_AUDITION)}},
+#endif
 #if BOARD_SMK37
     [L_ARP] = {"ARP", B_ARP, {KG(G_ARP), KG(G_TEMPO), KG(G_OA), KG(G_OD), KG(G_OS), KG(G_OR), KG(G_BEND), KS(S_TRS)}},
 #else   /* (no TRS MIDI OUT on the FM-1) */

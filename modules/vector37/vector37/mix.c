@@ -41,9 +41,8 @@ static void synth_tick(void)
 
 /* a voice: its corners into one buffer, the amplitude, then its place in the stereo field (the gains ramp over the
  * block: the orbit's pan moves without a zipper) */
-static void voice_render(voice_t *v)
-{
-    static int32_t tb[FT_N][CTL];                      /* (the audio ISR's alone) */
+static void voice_render(voice_t *v, int32_t (*tb)[CTL], int32_t *bl, int32_t *br)
+{   /* fm1-dock: its buffers given, one set a core (take.py, ../v37_voices.inc) */
     int32_t x[CTL], i, c, a0 = v->amp, da, gl, gr, dl, dr, tl, tr;
     /* the place: the voices' spread plus the orbit's side x WIDTH (0: the spread alone, as before); 0..1023 -> a
      * quarter sine: constant power (panning only: L + R never cancels) */
@@ -68,25 +67,25 @@ static void voice_render(voice_t *v)
     for (i = 0; i < CTL; i++) {
         int32_t y = (x[i] * (a0 >> 2)) >> 13;
         a0 += da, gl += dl, gr += dr;
-        bus_l[i] += (y * gl) >> 15;
-        bus_r[i] += (y * gr) >> 15;
+        bl[i] += (y * gl) >> 15;
+        br[i] += (y * gr) >> 15;
     }
     v->amp = v->at, v->gl = tl, v->gr = tr;
 }
 
+#include "../v37_voices.inc"   /* fm1-dock: v37_voices (take.py) */
+
 /* one control block: CTL frames into out (L, R interleaved, Q15) */
 static void synth_block(int32_t *out, uint32_t n)
 {
-    uint32_t v, i;
+    uint32_t i;
     static const uint16_t TRIM[13] = {256, 287, 323, 362, 406, 456, 512, 575, 645, 724, 812, 911, 1022};   /* +1 dB steps */
     int32_t vol = (pt.g[G_VOLUME] * pt.g[G_VOLUME] * TRIM[clamp(pt.g[G_TRIM], 0, 12)]) >> 8;   /* (127, no trim: about x 1) */
     (void)n;
     synth_tick();
     for (i = 0; i < CTL; i++)
         bus_l[i] = bus_r[i] = 0;
-    for (v = 0; v < NVOICE; v++)
-        if (vs[v].stage)
-            voice_render(&vs[v]);
+    v37_voices();                                       /* fm1-dock: half of them on the second core (take.py) */
     for (i = 0; i < CTL; i++) {                         /* (eight voices at once: the bus stays in range) */
         bus_l[i] = (bus_l[i] * 23) >> 4;
         bus_r[i] = (bus_r[i] * 23) >> 4;

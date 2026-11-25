@@ -16,7 +16,14 @@ The edits, each asserted (the take fails if Vector37 changed there):
     drive and chorus stay;
   - engine.c: wt_load reads a frame from the pack (v37_wt_*, the platform's) instead of WT_DATA; no pack: silence;
   - scenes.c: the FM-1 build kept no store; here the store is the host's (settings and the USER bank: the shim);
-  - panel_fm1.c: no settling wait on a key scan (the host's keys come settled)."""
+  - panel_fm1.c: no settling wait on a key scan (the host's keys come settled);
+  - mix.c: voice_render gets its buffers, and the voices go through v37_voices (../v37_voices.inc): every other one
+    on the second core;
+  - ui.c, draw.c: without the delay and the reverb, the MIXER set is CHORUS, CH DEPTH, CH SPEED, DRIVE, COLOUR, TRIM,
+    VOLUME, and MORE loses RV COLOUR (their knobs did nothing);
+  - panel_fm1.c (../v37_fm1_ui.inc): SAVE saves the sound into USER (held + PRESETS: the slot), EDIT + SAVE
+    randomizes (held: undo); PRESETS reaches the USER sounds; the keys play with their velocity; a planet's filter
+    row (MODE, CUTOFF, RESO, LEVEL) is page 1, its sources page 2."""
 import argparse
 import re
 import shutil
@@ -157,8 +164,86 @@ sub("scenes.c", """#if !BOARD_SMK37
     return;                                 /* (the FM-1: no store of ours; Felucca's data there stays untouched) */
 #endif
 """, "")
+# the voices on two cores (../v37_voices.inc): voice_render with its buffers given, one set a core
+sub("mix.c", """static void voice_render(voice_t *v)
+{
+    static int32_t tb[FT_N][CTL];                      /* (the audio ISR's alone) */
+""", """static void voice_render(voice_t *v, int32_t (*tb)[CTL], int32_t *bl, int32_t *br)
+{   /* fm1-dock: its buffers given, one set a core (take.py, ../v37_voices.inc) */
+""")
+sub("mix.c", """        bus_l[i] += (y * gl) >> 15;
+        bus_r[i] += (y * gr) >> 15;""", """        bl[i] += (y * gl) >> 15;
+        br[i] += (y * gr) >> 15;""")
+sub("mix.c", "/* one control block: CTL frames into out (L, R interleaved, Q15) */\n",
+    '#include "../v37_voices.inc"   /* fm1-dock: v37_voices (take.py) */\n\n'
+    "/* one control block: CTL frames into out (L, R interleaved, Q15) */\n")
+sub("mix.c", "    uint32_t v, i;\n    static const uint16_t TRIM", "    uint32_t i;\n    static const uint16_t TRIM")
+sub("mix.c", """    for (v = 0; v < NVOICE; v++)
+        if (vs[v].stage)
+            voice_render(&vs[v]);
+""", "    v37_voices();                                       /* fm1-dock: half of them on the second core (take.py) */\n")
 sub("panel_fm1.c", "    if (fm1_in.frames < 100u)                      /* (the first readings settle) */",
     "    if (0)                                         /* fm1-dock: the host's keys come settled (take.py) */")
+
+# the knob sets without the delay and the reverb (they are out): the MIXER set is the chorus, the drive, its colour,
+# the sound's TRIM and the VOLUME; MORE's reverb colour goes
+sub("ui.c", """    [L_FX] = {"MIXER", B_FX, {KG(G_RVMIX), KG(G_DLMIX), KG(G_CHMIX), KG(G_DRIVE), KG(G_RVSIZE), KG(G_DLTIME), KG(G_DLFB), KG(G_VOLUME)}},
+    [L_CORNER] = {"MORE", B_FADERBANK, {KC(CP_T1), KC(CP_TRACK), KC(CP_FTYPE), KG(G_DCOL), KG(G_CHDEP), KG(G_CHSPD), KG(G_RVCOL), KG(G_AUDITION)}},
+""", """#if V37_NO_DELAY_REVERB   /* fm1-dock: no delay, no reverb: their knobs go (take.py) */
+    [L_FX] = {"MIXER", B_FX, {KG(G_CHMIX), KG(G_CHDEP), KG(G_CHSPD), KG(G_DRIVE), KG(G_DCOL), KG(G_TRIM), {0xFF, 0}, KG(G_VOLUME)}},
+    [L_CORNER] = {"MORE", B_FADERBANK, {KC(CP_T1), KC(CP_TRACK), KC(CP_FTYPE), KG(G_DCOL), KG(G_CHDEP), KG(G_CHSPD), {0xFF, 0}, KG(G_AUDITION)}},
+#else
+    [L_FX] = {"MIXER", B_FX, {KG(G_RVMIX), KG(G_DLMIX), KG(G_CHMIX), KG(G_DRIVE), KG(G_RVSIZE), KG(G_DLTIME), KG(G_DLFB), KG(G_VOLUME)}},
+    [L_CORNER] = {"MORE", B_FADERBANK, {KC(CP_T1), KC(CP_TRACK), KC(CP_FTYPE), KG(G_DCOL), KG(G_CHDEP), KG(G_CHSPD), KG(G_RVCOL), KG(G_AUDITION)}},
+#endif
+""")
+sub("draw.c", """    [L_FX] = {"REV", "DLY", "CHO", "DRV", "RVS", "DLT", "DFB", "VOL"},
+    [L_CORNER] = {"T1", "TRK", "FT", "DCL", "CHD", "CHS", "RVC", "AUD"},
+""", """#if V37_NO_DELAY_REVERB   /* fm1-dock (take.py) */
+    [L_FX] = {"CHO", "CHD", "CHS", "DRV", "DCL", "TRM", "", "VOL"},
+    [L_CORNER] = {"T1", "TRK", "FT", "DCL", "CHD", "CHS", "", "AUD"},
+#else
+    [L_FX] = {"REV", "DLY", "CHO", "DRV", "RVS", "DLT", "DFB", "VOL"},
+    [L_CORNER] = {"T1", "TRK", "FT", "DCL", "CHD", "CHS", "RVC", "AUD"},
+#endif
+""")
+
+# the FM-1's panel (../v37_fm1_ui.inc): SAVE saves (EDIT + SAVE randomizes), PRESETS reaches the USER sounds, the keys'
+# velocity, and a planet's filter row (MODE, CUTOFF, RESO, LEVEL) on page 1
+sub("panel_fm1.c", "enum { FP_E_SELECT = 0,",
+    '#include "../v37_fm1_ui.inc"                    /* fm1-dock: SAVE, PRESETS, the velocity (take.py) */\n'
+    "enum { FP_E_SELECT = 0,")
+sub("panel_fm1.c", "    return fp.page == FP_WAVE ? 0 : fp.page;",
+    "    return fp.page == FP_WAVE ? 0 : ui.layer == L_MAIN ? 1 - (int32_t)fp.page : fp.page;   /* fm1-dock: a planet's\n"
+    "                                                    filter row first (take.py) */")
+sub("panel_fm1.c", "    ui_say(FP_PAGE_NAME[fp.page], 0);",
+    "    ui_say(ui.layer == L_MAIN && fp.page < 2u ? (fp.page ? \"PAGE 2: THE SOURCES\" : \"PAGE 1: FILTER, LEVEL\")\n"
+    "           : FP_PAGE_NAME[fp.page], 0);                /* fm1-dock (take.py) */")
+sub("panel_fm1.c", """    if ((s = fm1_enc_take(FP_E_PRESET)) != 0) {    /* PRESETS: the sounds */
+        char nb[24];
+        preset_load((ui.bank == BK_USER ? 0u : sound_fact()) + NFACT * 8u + (uint32_t)s);   /* (all 32 in turn) */
+        fmt_int(nb, sound_fact() + 1);
+        str_cat(nb, " ", sizeof nb);
+        str_cat(nb, PRESET_NAME[sound_fact()], sizeof nb);
+        ui_say(nb, 0);
+    }""", """    if ((s = fm1_enc_take(FP_E_PRESET)) != 0)      /* PRESETS: the sounds, the USER ones too (fm1-dock, take.py) */
+        fp_sound_turn(s);""")
+sub("panel_fm1.c", """    case B_PARA:                                   /* SAVE: randomize (held: undo, below) */
+        randomize();""", """    case B_PARA:                                   /* fm1-dock: SAVE saves; EDIT + SAVE: randomize (take.py) */
+        fs_tap();""")
+sub("panel_fm1.c", """    case B_SEQ:
+        if (edit) {                                /* EDIT + SEQ""", """    case B_PARA:                                   /* fm1-dock (take.py) */
+        fs_press(edit);
+        break;
+    case B_SEQ:
+        if (edit) {                                /* EDIT + SEQ""")
+sub("panel_fm1.c", ">= 600 && !ui.btn_used[B_PARA]) {", ">= 600 && !ui.btn_used[B_PARA] && fs_held_undo()) {")
+sub("panel_fm1.c", """                fp_tap(b);
+            ui.btn_t[b] = 0;""", """                fp_tap(b);
+            if (b == B_PARA)
+                fs_release();                      /* fm1-dock (take.py) */
+            ui.btn_t[b] = 0;""")
+sub("panel_fm1.c", "ev_push(EV_ON, (uint32_t)n, 100u);", "ev_push(EV_ON, (uint32_t)n, v37_key_vel(k));   /* fm1-dock */")
 for f in FILES:
     t = (out / f).read_text()
     (out / f).write_text(f"/* fm1-dock: Vector37 {rev}'s firmware/src/{f}, taken by modules/vector37/take.py: do not edit */\n" + t)

@@ -25,6 +25,7 @@
  * The ids: the FM-1's matrix (ui.c: B_OCTDN 0, B_OCTUP 1, B_FX 2, B_SEL 3, ENV 4 = B_CHORD, LFO 5 = B_FADERBANK,
  * B_EDIT 6, GLO 7 = B_GLOBE, B_HOME 8, SAVE 9 = B_PARA, B_ARP 10, B_SEQ 11, B_PLAY 12, B_REC 13); encoders SELECT 0,
  * ALGORITHM 1, KNOB 1..4 2..5, PRESETS 6, clockwise + */
+#include "../v37_fm1_ui.inc"                    /* fm1-dock: SAVE, PRESETS, the velocity (take.py) */
 enum { FP_E_SELECT = 0, FP_E_ALGO = 1, FP_E_K1 = 2, FP_E_PRESET = 6 };
 enum { FP_PAGE1, FP_PAGE2, FP_PATH, FP_WAVE, FP_NPAGE };
 #define FP_KEY0 14u                                /* (LED ids: the note keys from 14) */
@@ -45,7 +46,8 @@ static int32_t panel_krow(void)
 {
     if (fp.page == FP_PATH)
         return LAYER_HELD(ui.layer) ? 0 : -1;
-    return fp.page == FP_WAVE ? 0 : fp.page;
+    return fp.page == FP_WAVE ? 0 : ui.layer == L_MAIN ? 1 - (int32_t)fp.page : fp.page;   /* fm1-dock: a planet's
+                                                    filter row first (take.py) */
 }
 
 /* ------------------------------------------------------------- LEDs --- */
@@ -123,7 +125,8 @@ static void fp_path_turn(uint32_t i, int32_t s)    /* KNOB i: fader i's paramete
 static void fp_page(int32_t p)
 {
     fp.page = (uint8_t)clamp(p, 0, FP_NPAGE - 1);
-    ui_say(FP_PAGE_NAME[fp.page], 0);
+    ui_say(ui.layer == L_MAIN && fp.page < 2u ? (fp.page ? "PAGE 2: THE SOURCES" : "PAGE 1: FILTER, LEVEL")
+           : FP_PAGE_NAME[fp.page], 0);                /* fm1-dock (take.py) */
 }
 
 /* ------------------------------------------------------------- the encoders --- */
@@ -144,14 +147,8 @@ static void fp_knobs(void)
     }
     if ((s = fm1_enc_take(FP_E_SELECT)) != 0)      /* SELECT: the page */
         fp_page(fp.page + s);
-    if ((s = fm1_enc_take(FP_E_PRESET)) != 0) {    /* PRESETS: the sounds */
-        char nb[24];
-        preset_load((ui.bank == BK_USER ? 0u : sound_fact()) + NFACT * 8u + (uint32_t)s);   /* (all 32 in turn) */
-        fmt_int(nb, sound_fact() + 1);
-        str_cat(nb, " ", sizeof nb);
-        str_cat(nb, PRESET_NAME[sound_fact()], sizeof nb);
-        ui_say(nb, 0);
-    }
+    if ((s = fm1_enc_take(FP_E_PRESET)) != 0)      /* PRESETS: the sounds, the USER ones too (fm1-dock, take.py) */
+        fp_sound_turn(s);
     if ((s = fm1_enc_take(FP_E_ALGO)) != 0) {      /* ALGORITHM: none, planet 1, 2, 3, 4 */
         int32_t cur = ui.sel ? (int32_t)sel_first() + 1 : 0, n = clamp(cur + s, 0, NC);
         char b[28];
@@ -189,8 +186,8 @@ static void fp_tap(uint32_t b)                     /* a button let go without a 
     case B_HOME:                                   /* page 1 */
         fp_page(FP_PAGE1);
         break;
-    case B_PARA:                                   /* SAVE: randomize (held: undo, below) */
-        randomize();
+    case B_PARA:                                   /* fm1-dock: SAVE saves; EDIT + SAVE: randomize (take.py) */
+        fs_tap();
         break;
     default:
         break;
@@ -231,6 +228,9 @@ static void fp_press(uint32_t b)
         } else
             tap_tempo();
         break;
+    case B_PARA:                                   /* fm1-dock (take.py) */
+        fs_press(edit);
+        break;
     case B_SEQ:
         if (edit) {                                /* EDIT + SEQ: all notes off (not FREEZE) */
             ui.btn_used[B_EDIT] = ui.btn_used[B_SEQ] = 1;
@@ -257,6 +257,8 @@ static void fp_buttons(void)
             int32_t held = (int32_t)(fm1_ms - ui.btn_t[b]);
             if (!ui.btn_used[b] && (held < 500 || layer_of_btn(b)))   /* (a set's button: no knob turned, open) */
                 fp_tap(b);
+            if (b == B_PARA)
+                fs_release();                      /* fm1-dock (take.py) */
             ui.btn_t[b] = 0;
         }
     }
@@ -264,7 +266,7 @@ static void fp_buttons(void)
         focus = 0;
         ui_say("FOCUS OFF", 0);
     }
-    if (ui.btn_t[B_PARA] && (int32_t)(fm1_ms - ui.btn_t[B_PARA]) >= 600 && !ui.btn_used[B_PARA]) {
+    if (ui.btn_t[B_PARA] && (int32_t)(fm1_ms - ui.btn_t[B_PARA]) >= 600 && !ui.btn_used[B_PARA] && fs_held_undo()) {
         ui.btn_used[B_PARA] = 1;                   /* SAVE held: UNDO (again: redo) */
         if (ui.has_undo) {
             patch_t t = pt;
@@ -302,7 +304,7 @@ static void fp_keys(void)
                 int32_t n = clamp(FP_NOTE0 + (int32_t)k + 12 * ui.oct, 0, 127);
                 fp.note[k] = (uint8_t)n;
                 fp.note_keys |= bit;
-                ev_push(EV_ON, (uint32_t)n, 100u);
+                ev_push(EV_ON, (uint32_t)n, v37_key_vel(k));   /* fm1-dock */
             }
         } else if (fp.pad_keys & bit) {
             fp.pad_keys &= ~bit;

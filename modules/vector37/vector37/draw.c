@@ -504,8 +504,13 @@ static const char *const KSHORT[L_N][8] = {
     [L_MAIN] = {"G1", "G2", "T2", "BL", "MD", "CUT", "RES", "LVL"},
     [L_ORBIT] = {"WRP", "WY", "ROT", "CON", "DST", "SPN", "WID", "BPM"},
     [L_VOICE] = {"ATK", "DEC", "SUS", "REL", "DET", "GLD", "VCS", "STR"},
+#if V37_NO_DELAY_REVERB   /* fm1-dock (take.py) */
+    [L_FX] = {"CHO", "CHD", "CHS", "DRV", "DCL", "TRM", "", "VOL"},
+    [L_CORNER] = {"T1", "TRK", "FT", "DCL", "CHD", "CHS", "", "AUD"},
+#else
     [L_FX] = {"REV", "DLY", "CHO", "DRV", "RVS", "DLT", "DFB", "VOL"},
     [L_CORNER] = {"T1", "TRK", "FT", "DCL", "CHD", "CHS", "RVC", "AUD"},
+#endif
     [L_ARP] = {"AR", "BPM", "OA", "OD", "OS", "OR", "BND", "TRS"},
     [L_WAVE] = {"POS1", "ORB1", "POS2", "ORB2", "", "", "", ""},
     [L_SETUP] = {"OUT", "IN", "PAD", "SND", "", "", "", ""},
