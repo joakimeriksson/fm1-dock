@@ -422,6 +422,26 @@
   "accent": "#E69F00",
   "alt": "FLAT-20's screen: the modulation generator and envelope generator 1 with their knobs, and the graphs of the MG and EG 1"
  },
+ "jt80x0": {
+  "file": "jt80x0.dock",
+  "version": "3.0",
+  "source": "bk40-home/M-vance v3.0: its release's JT80X0-3.0.dock (SHA-256 d236e8c6...13f5), built by its author",
+  "by": "bk40-home",
+  "songs": "",
+  "title": "JT-80X0",
+  "module": "JT-80X0",
+  "author_url": "https://github.com/bk40-home",
+  "original": "https://github.com/bk40-home/M-vance",
+  "links": [{ "label": "source", "url": "https://github.com/bk40-home/M-vance" }, { "label": "cheat sheet", "url": "https://github.com/bk40-home/M-vance/blob/main/docs/cheatsheet.html" }],
+  "license": "GPL-3.0",
+  "voices": "8 (poly, mono, unison; layer and split)",
+  "description": "A Roland JP-8000/8080-style virtual analog, formerly M-Vance: Super Saw, the JP filter, multi-effects, delay and a plate reverb, an arpeggiator, a two-track sequencer and 64 programs; it loads the JP's own .syx patches.",
+  "tags": ["synth", "poly", "virtual analog", "arpeggiator", "sequencer"],
+  "kind": "analog",
+  "screenshot": "media/screen_jt80x0.png",
+  "accent": "#F08A24",
+  "alt": "JT-80X0's screen: the program Pluck 04, with CUTOFF, RESO, DELAY and REVERB as four knobs"
+ },
  "keys": {
   "file": "keys.dock",
   "version": "2",
