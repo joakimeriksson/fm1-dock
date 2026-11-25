@@ -88,6 +88,10 @@ One firmware, many synths, now with room for them and effects under them.
   same figure as a unit reports) and 744 KiB with the Empty dock; on an SMK-37 448 KiB (it was 416).
 - **28 synths in the catalog**, from CS-1 and Scintilla to PROPHET, FM6, ARP 2600, ESQ-1, ORRERY and the newcomers
   S1VAVE, EMINENT, MINIPOPS, ENSEMBLE and FLAT-20.
+- **Fixes**: newer FM-1s (late 2026) have another display panel, washed out until now: fm1-dock sends M-Vave's own
+  display setup, as the official firmware does (Scintilla 0.3.3 and FM-1 SID 0.3.1 too). Every knob click counts at any
+  speed (#137); with OPTIONS > KNOBS CC on, the first turn of K1-K4 says that they send MIDI. The effects no longer
+  flatten a big chord (#139).
 - **Effects as add-ons** ([#122](https://github.com/joakimeriksson/fm1-dock/issues/122)): one effect under whatever synth
   plays, picked in OPTIONS > EFFECT. Eight are in the catalog: CHORUS, FLANGER, DELAY, TRIO, and new in 1.0 PHASER,
   TREMOLO, DRIVE (overdrive and distortion) and CRUSH (a bit crusher). [Listen to them, add them and write your own](https://joakimeriksson.github.io/fm1-dock/effects.html).
@@ -130,7 +134,7 @@ over USB.
 
 ## New add-ons
 
-On the page now, for 0.8.2 and later; an add-on needs no new firmware:
+On the page now, for fm1-dock 1.0.0 (most run on 0.8.2 and later too); an add-on needs no new firmware:
 
 - **KEYS**: a clavinet, an electric piano and a piano from physical models, 24 voices in 20 KiB. Velocity shapes
   each: a brighter pluck, more of the tine's bark, a harder hammer.
@@ -267,7 +271,7 @@ fm1-dock starts whatever played last. The options, for every module:
 | **AFTERTOUCH** | How the keys' pressure (and an external keyboard's poly or channel aftertouch) reaches the synth: **AS IS** (default) as it comes, per key; **CHANNEL** as channel pressure; **MOD WHL** as CC 1; **FILTER** as CC 74. The last three send the hardest-pressed key's pressure, for synths that do nothing with poly pressure. The MIDI sent out stays poly |
 | **EFFECT** | One effect on whatever synth plays, before the EQ. Effects are add-ons, as synths are: **CHORUS**, **FLANGER**, **DELAY**, **PHASER**, **TREMOLO**, **DRIVE** (overdrive and distortion) and **CRUSH** (bit crusher) are in the catalog. SEL opens its page: SEL there picks the next effect in the dock (or OFF), KNOB1..4 turn its values. A synth that leaves too little time for it drops it (TOO SLOW) and plays on. OFF until one is added |
 | **MIDI THRU** | ON: the TRS MIDI jack's input (not clock or SysEx) goes on to USB-MIDI and BLE-MIDI, and the module plays it too. OFF by default |
-| **ABOUT** | **SEL**: a page with the version (a release's `0.8.2 (abc1234)` with its source; any other build's is its source, git's short hash, `+` with changes not committed), the board and model, 1CPU / 2CPU, the chip, the flash chip's JEDEC id and size, the module RAM, the add-ons' free flash (all and the largest piece), the BLE address, and each module's name, version and KiB. **SELECT / PRESETS** scroll, **HOME** goes back |
+| **ABOUT** | **SEL**: a page with the version (a release's `1.0.0 (abc1234)` with its source; any other build's is its source, git's short hash, `+` with changes not committed), the board and model, 1CPU / 2CPU, the chip, the flash chip's JEDEC id and size, the module RAM, the add-ons' free flash (all and the largest piece), the BLE address, and each module's name, version and KiB. **SELECT / PRESETS** scroll, **HOME** goes back |
 | **BLUETOOTH** | BLE-MIDI, OFF by default (below) |
 
 ### Bluetooth MIDI
