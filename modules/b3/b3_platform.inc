@@ -12,7 +12,7 @@
 #define APP_NAME "B3 ORGAN"
 #endif
 #ifndef APP_VER
-#define APP_VER "0.2"
+#define APP_VER "0.6.1"
 #endif
 #define FS 44100u
 #define HALF_FRAMES 256u
@@ -57,12 +57,67 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "gfx.c"
 
 /* ---- the settings: the host's settings record (240 B; B3 keeps 22) */
-static int settings_load(void *p, uint32_t n) { return n <= 240u ? H->load(p, n) : -1; }
-static int settings_save(const void *p, uint32_t n)
+/* ---- B3's settings (0.6's are bigger than the module's 240-byte record) and the user's programs (data_load / data_save, a
+ * second sector in Dinghy): both in the module's 8 KiB flash bank, kept here and written whole. Older, smaller settings
+ * (up to 240 bytes) still come from the settings record, so an organ set up before keeps its sound. */
+static struct { uint32_t data_n, set_n; uint8_t data[1024], set[512]; } b3_bank;
+static int b3_bank_state = -1;                  /* -1 not read yet, 0 nothing saved, 1 loaded */
+static void b3_bank_get(void)
 {
-    if (n > 240u) return -1;
-    H->save(p, n);
+    if (b3_bank_state < 0)
+        b3_bank_state = H->bank_load(&b3_bank, sizeof b3_bank) == 0 ? 1 : 0;
+}
+static int b3_bank_put(void)
+{
+    b3_bank_state = 1;
+    return H->bank_save(&b3_bank, sizeof b3_bank);
+}
+static int settings_load(void *p, uint32_t n)
+{
+    if (n <= 240u && H->load(p, n) == 0)
+        return 0;
+    b3_bank_get();
+    if (b3_bank_state != 1 || n > sizeof b3_bank.set || b3_bank.set_n != n)
+        return -1;
+    memcpy(p, b3_bank.set, n);
     return 0;
 }
+static int settings_save(const void *p, uint32_t n)
+{
+    if (n <= 240u) {
+        H->save(p, n);
+        return 0;
+    }
+    if (n > sizeof b3_bank.set)
+        return -1;
+    b3_bank_get();
+    memcpy(b3_bank.set, p, n);
+    b3_bank.set_n = n;
+    return b3_bank_put();
+}
+static int data_load(void *p, uint32_t n)
+{
+    b3_bank_get();
+    if (b3_bank_state != 1 || n > sizeof b3_bank.data || b3_bank.data_n != n)
+        return -1;
+    memcpy(p, b3_bank.data, n);
+    return 0;
+}
+static int data_save(const void *p, uint32_t n)
+{
+    if (n > sizeof b3_bank.data)
+        return -1;
+    b3_bank_get();
+    memcpy(b3_bank.data, p, n);
+    b3_bank.data_n = n;
+    return b3_bank_put();
+}
+/* a module runs on one core (the host's), and the host counts MIDI that didn't fit */
+static const uint8_t fm1_c1_on = 0;
+static volatile uint32_t midi_in_overflow;
+/* B3's web editor (F0 7D 42 33 ..): a module can't send SysEx yet, so its answers go nowhere (B3 on its own has it) */
+static int sysex_send(const uint8_t *p, uint32_t n) { (void)p; (void)n; return 0; }
+static int sysex_get(const uint8_t **p, uint32_t *n) { return 0; }   /* (nothing from the editor in the dock) */
+static void sysex_done(void) {}
 
 static void platform_poll(void) {}              /* (the host polls USB, the keys, MIDI) */
