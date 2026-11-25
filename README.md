@@ -217,6 +217,7 @@ RAM needs it. The originals are linked; their manuals apply.
 | **MINIPOPS** | Joakim Eriksson | 14 drum sounds | 10 KiB | The Korg Mini Pops 7 rhythm box of 1973, worked as the machine is: ten rhythm keys that combine, the A / B lever, tambourine, guiro and quijada, and its sounds to strike by hand. |
 | **ENSEMBLE** | Joakim Eriksson, after bonszaimusic's Caravel | 6 | 11 KiB | Fourteen string, choir and dark pads in a stereo three-tap ensemble, with a morph from strings through choir to dark: ORRERY's pads as a synth of their own. |
 | **ORRERY** | Joakim Eriksson | a band: strings, a lead on the keys, bass and drums | 176 KiB | The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview, not yet played on an FM-1. [Its source](https://github.com/joakimeriksson/orrery-fm1). |
+| **VECTOR37** | M. Geisler (genkigenki) | 8 | 190 KiB, and its wavetables: the data pack V37-WT, 103 KiB | An orbiting overtone synth after the Beetlecrab Vector, vector synthesis as the Prophet VS and the Wavestation had it: four corners, each two overtone or wavetable generators, a blend and a filter, mixed by a moon circling a sun along a path you shape; 32 factory sounds, your own in a bank. Its voices run on both cores. Its delay and reverb are out (the dock's EFFECT plays under it). On the FM-1: SAVE stores the sound in your bank (held + PRESETS picks the slot), EDIT + SAVE randomizes, PRESETS steps through your sounds too, and a planet's filter knobs come first. Add it before its pack. Not on the page yet: `tools/dock.py deploy` the two. [The original](https://github.com/genkigenki/Vector37). |
 
 The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas), plus, from 1.0, the room the package's
 built-in synths leave below it: with the Empty dock 744 KiB in all on an FM-1, with Standard 472. The page's meter shows
@@ -391,7 +392,7 @@ Not Track is respected. Adds made with `tools/dock.py` are not counted, so the n
   Vestal (MONK-1's voice: Jonathan Taylor's MonkSynth). FiMba-1, Adam Sowers. GATOR, npi3pak (Plaits and stmlib:
   Emilie Gillet). DUB-1, sbegueria (after AMB-1). ARTIHIVE, KHAV. KEYS, Joakim Eriksson (its string's excitation, filter
   and generator after Plaits and stmlib: Emilie Gillet; its piano's string, bridge and hammer values by key from Shuichi
-  Takano's pico_piano, after Clayton Otey's waveguide piano). reSID: Dag Lem.
+  Takano's pico_piano, after Clayton Otey's waveguide piano). VECTOR37, M. Geisler (genkigenki). reSID: Dag Lem.
 - **The base**: [Dinghy](https://github.com/zvenson/dinghy) (zvenson), on the platform of
   [Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton Instruments) as
   [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) carries it.
