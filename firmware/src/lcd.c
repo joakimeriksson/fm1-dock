@@ -119,16 +119,28 @@ static const uint8_t LCD_SEQ[] = {
     0x13, 0,                     /* NORON */
 };
 #else
-/* ST7789V init: reset, then 16-bit colour, scan direction and IPS inversion;
- * voltage and gamma stay at the defaults. Format: cmd, n, n data bytes;
- * cmd 0x00 = wait (data byte: ~ms). */
+/* ST7789V init: reset, then M-Vave's own table for the FM-1 (m-vave/fm1_open app/board/lcd.inc, GPLv3): the
+ * voltages and both gamma curves too, not the controller's defaults. Newer FM-1s (late 2026, often with the
+ * 0xB36014 flash) have another panel that needs them: with the defaults its blacks were washed out and the pages
+ * hard to read (the older panel looked right either way). Format: cmd, n, n data bytes; cmd 0x00 = wait (~ms). */
 static const uint8_t LCD_SEQ[] = {
     0x01, 0,                     /* SWRESET */
     0x00, 1, 150,
     0x11, 0,                     /* SLPOUT */
     0x00, 1, 120,
-    0x3A, 1, 0x55,               /* COLMOD: RGB565 */
+    0xB2, 5, 0x0C, 0x0C, 0x0C, 0x00, 0x33,   /* PORCTRL */
+    0xB7, 1, 0x56,               /* GCTRL: VGH, VGL */
+    0xBB, 1, 0x18,               /* VCOMS */
+    0xC0, 1, 0x2C,               /* LCMCTRL */
+    0xC2, 1, 0x01,               /* VDVVRHEN */
+    0xC3, 1, 0x1F,               /* VRHS */
+    0xC4, 1, 0x20,               /* VDVS */
+    0xC6, 1, 0x0F,               /* FRCTRL2: 60 Hz */
+    0xD0, 2, 0xA6, 0xA1,         /* PWCTRL1 */
+    0xE0, 14, 0xD0, 0x0D, 0x14, 0x0B, 0x0B, 0x07, 0x3A, 0x44, 0x50, 0x08, 0x13, 0x13, 0x2D, 0x32,   /* PVGAMCTRL */
+    0xE1, 14, 0xD0, 0x0D, 0x14, 0x0B, 0x0B, 0x07, 0x3A, 0x44, 0x50, 0x08, 0x13, 0x13, 0x2D, 0x32,   /* NVGAMCTRL */
     0x36, 1, 0x00,               /* MADCTL: top-left origin, RGB order */
+    0x3A, 1, 0x55,               /* COLMOD: RGB565 */
     0x21, 0,                     /* INVON: IPS panel */
     0x13, 0,                     /* NORON */
 };
