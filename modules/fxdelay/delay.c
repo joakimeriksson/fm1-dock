@@ -56,8 +56,8 @@ static void run(int32_t *o, uint32_t n)
             y = y1;
         }
         d_odd ^= 1u;
-        o[2 * i] = sat(q16(l, dry) + q16(y, wet));
-        o[2 * i + 1] = sat(q16(r, dry) + q16(y, wet));
+        o[2 * i] = q16(l, dry) + q16(y, wet);    /* (not clamped: the host does, after MASTER) */
+        o[2 * i + 1] = q16(r, dry) + q16(y, wet);
     }
     d_w = w; d_lp = lp; d_y0 = y0; d_y1 = y1;
 }

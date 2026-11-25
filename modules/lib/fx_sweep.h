@@ -46,7 +46,7 @@ static void sw_run(int32_t *o, uint32_t n)
             s1 = b[(((w - di - 1u) & (SW_FRAMES - 1u)) << 1) | c];
             y = s0 + (((s1 - s0) * (int32_t)a) >> 8);
             b[((w & (SW_FRAMES - 1u)) << 1) | c] = (int16_t)sw_sat(x + sw_q16(y, fb));
-            o[2 * i + c] = sw_sat(sw_q16(x, dry) + sw_q16(y, wet));
+            o[2 * i + c] = sw_q16(x, dry) + sw_q16(y, wet);   /* (not clamped: the host does, after MASTER) */
         }
         ph += inc;
     }
