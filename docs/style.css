@@ -156,6 +156,12 @@ main section { max-width: 1180px; margin: 0 auto; padding: 72px 24px 24px; }
 .glance a { display: block; height: 100%; padding: 14px 14px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--muted); font-size: 0.82rem; line-height: 1.35; }
 .glance a:hover { text-decoration: none; border-color: var(--acc); }
 .glance b { display: block; margin-bottom: 4px; color: var(--fg); font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+.hero-new { margin: 22px 0 0; max-width: 560px; padding: 16px 18px; border: 1px solid var(--acc-line); border-radius: 14px; background: var(--acc-soft); }
+.hero-new h2 { margin: 0 0 8px; font-size: 1rem; color: var(--acc-text); }
+.hero-new ul { margin: 0 0 10px; padding-left: 18px; color: var(--fg-2); font-size: 0.9rem; line-height: 1.45; }
+.hero-new li { margin: 4px 0; }
+.hero-new b { color: var(--fg); }
+.hero-new > a { font-size: 0.88rem; }
 .screens-cap { margin: 14px 0 0; font-size: 0.9rem; color: var(--muted); max-width: 64ch; }
 .step .n { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
   background: var(--acc-soft); color: var(--acc-text); font: 600 0.85rem var(--mono); border: 1px solid var(--acc-line); }
