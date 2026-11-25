@@ -10,9 +10,11 @@ export const CMD = { HELLO: 0x01, LIST: 0x02, INFO: 0x03, BEGIN: 0x10, DATA: 0x1
 export const STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed",
   "data missing", "not started", "not found", "bad message", "refused"];
 export const STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"];
-export const KIND = ["built in", "image", "deployed", "boot", "effect", "effect (image)"];   // (4, 5: effects, their places 0x80 up)
-// a module the player added (a synth, or an effect: hb_module.h "Effects"): it can be removed, and takes the add-ons' room
-export const isAdded = (m) => m.kind === "deployed" || m.kind === "effect";
+export const KIND = ["built in", "image", "deployed", "boot", "effect", "effect (image)", "pack", "pack (image)"];
+// (4, 5: effects, their places 0x80 up; 6, 7: data packs, theirs 0xC0 up)
+// a module the player added (a synth, an effect or a data pack: hb_module.h "Effects", "Data packs"): it can be
+// removed, and takes the add-ons' room
+export const isAdded = (m) => m.kind === "deployed" || m.kind === "effect" || m.kind === "pack";
 export const PROBE_STATE = ["none", "running", "done", "crashed", "hung"];
 const MAN = [0x7d, 0x48, 0x42];
 const CHUNK = 256;

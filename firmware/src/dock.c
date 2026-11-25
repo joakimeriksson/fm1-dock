@@ -264,6 +264,11 @@ static uint32_t n_fx, fx_cur;                   /* fx_cur: the one running (n_fx
 static const hb_fx_t *volatile fx_act;
 static volatile uint8_t fx_shed;                /* the blocks ran late with it: dropped until it is picked again */
 static uint8_t fx_held;                         /* not run this boot (a safe start, or it crashed) */
+/* the data packs in the dock (hb_module.h "Data packs": files flagged HB_F_PACK): found by name (h_pack_find) */
+#define PK_SLOTS 8u
+typedef struct { const hb_file_t *file; uint32_t key; uint8_t kind; } pk_entry_t;
+static pk_entry_t pkm[PK_SLOTS];
+static uint32_t n_pk;
 /* Code written where code ran: the chip keeps what it fetched from flash (its instruction cache), and the flash
  * driver's flushinv drops the data cache's lines only: after a write there the old code and the new run mixed,
  * until a reset (seen on an FM-1, #87: tests/cache_hw_test.py; iflush, by line or by word, changed nothing:
@@ -307,8 +312,15 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
         return M_BAD_HEAD;
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     img = f->code_size + f->data_size + f->rt_size;
-    if (f->base != sl->at + io || f->code_size > sl->size || img > sl->size - io ||
-        f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : HB_DESC_MIN) > f->code_size || (f->desc & 3u))
+    if (f->base != sl->at + io || f->code_size > sl->size || img > sl->size - io)
+        return M_BAD_HEAD;
+    if (f->flags & HB_F_PACK) {                 /* a data pack: data only, nothing to run or to move */
+        if ((f->flags & HB_F_FX) || f->n_relocs || f->desc || f->data_size || f->bss_size || f->rt_size || !f->code_size)
+            return M_BAD_HEAD;
+        c = crc_upd(0, (const uint8_t *)f, head);
+        return crc_upd(c, (const uint8_t *)f->base, img) == f->crc ? M_OK : M_BAD_CRC;
+    }
+    if (f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : HB_DESC_MIN) > f->code_size || (f->desc & 3u))
         return M_BAD_HEAD;
     if (f->flags & HB_F_FX) {                   /* an effect: its own RAM, no code in RAM */
         if (!fx_fits(f))
@@ -354,6 +366,23 @@ static void add_slot(const hb_slot_t *sl, uint32_t kind, uint32_t lo, uint32_t h
         fxm[i].kind = (uint8_t)kind;
         if (i == n_fx) n_fx++;
         hb_log_u32("effect ok", kind << 16 | i);
+        hb_log(f->name);
+        return;
+    }
+    if (f->flags & HB_F_PACK) {                 /* a data pack: an added one in place of the image's of its name */
+        uint32_t k = name_key(f->name);
+        if (e.state != M_OK) {
+            hb_log_u32("pack refused", kind << 16 | e.state);
+            return;
+        }
+        for (i = 0; i < n_pk && pkm[i].key != k; i++) ;
+        if (i == PK_SLOTS)
+            return;
+        pkm[i].file = f;
+        pkm[i].key = k;
+        pkm[i].kind = (uint8_t)kind;
+        if (i == n_pk) n_pk++;
+        hb_log_u32("pack ok", kind << 16 | i);
         hb_log(f->name);
         return;
     }
@@ -406,6 +435,7 @@ static void scan_slots(void)
     mods[0].key = name_key("(built in)");       /* its own settings, apart from a slot of the same name */
     n_mods = 1;
     n_fx = 0;
+    n_pk = 0;
     dt_load();
     {   /* entries the table should no longer have: a boot firmware's (the boot slot, removed), and an add-on in the
          * image's room that the image now covers (an install by another loader wrote there: it is gone) */
@@ -1162,12 +1192,22 @@ static void mod_ch_learn(uint32_t st_, uint32_t d1, uint32_t d2)
 }
 #endif
 
+static const void *h_pack_find(const char *name, uint32_t *size)   /* a data pack by name: its bytes in flash */
+{
+    uint32_t i, k = name_key(name);
+    for (i = 0; i < n_pk && pkm[i].key != k; i++) ;
+    if (i == n_pk)
+        return 0;
+    if (size) *size = pkm[i].file->code_size;
+    return (const void *)pkm[i].file->base;
+}
+
 static const hb_host_t HOST = {
     HB_ABI, sizeof(hb_host_t), h_ms, h_ticks, hb_log, hb_log_u32,
     h_fill, h_text, h_cv_begin, cv_rect, cv_line, h_cv_pixel, h_cv_text, h_cv_blit,
     h_led, h_rand, mod_load, mod_save, h_midi_send, h_master, h_blit, h_text_w, h_bank_load, h_bank_save,
     h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free, h_c1_run, h_c1_wait,
-    BOARD_SMK37 ? HB_BOARD_SMK37 : HB_BOARD_FM1, h_key_base,
+    BOARD_SMK37 ? HB_BOARD_SMK37 : HB_BOARD_FM1, h_key_base, h_pack_find,
 };
 
 /* ---- the sound: the module renders (and the EQ filters), the host measures */
@@ -2163,10 +2203,18 @@ static uint32_t d_commit(uint32_t *key)
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     isz = f->code_size + f->data_size + f->rt_size;
     total = io + isz;
-    if (total > rx.size || isz < 4u || (f->desc & 3u) ||
-        f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : HB_DESC_MIN) > f->code_size)
+    if (total > rx.size || isz < 4u || (f->desc & 3u))
         return D_BAD_HEAD;
-    if (f->flags & HB_F_FX) {                   /* an effect: its own limits, and a place in their list */
+    if (f->flags & HB_F_PACK) {                 /* a data pack: data only, and a place in their list */
+        uint32_t k = name_key(f->name);
+        if ((f->flags & HB_F_FX) || f->n_relocs || f->desc || f->data_size || f->bss_size || f->rt_size)
+            return D_BAD_HEAD;
+        for (i = 0; i < n_pk && pkm[i].key != k; i++) ;
+        if (i == PK_SLOTS)
+            return D_NO_SPACE;
+    } else if (f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : HB_DESC_MIN) > f->code_size) {
+        return D_BAD_HEAD;
+    } else if (f->flags & HB_F_FX) {            /* an effect: its own limits, and a place in their list */
         uint32_t k = name_key(f->name);
         for (i = 0; i < n_fx && fxm[i].key != k; i++) ;
         if (!fx_fits(f))
@@ -2184,6 +2232,8 @@ static uint32_t d_commit(uint32_t *key)
             return D_BAD_HEAD;
     *key = name_key(f->name);
     old = dt_find(*key);
+    if (old < dt.n && ((((const hb_file_t *)dt.s[old].at)->flags ^ f->flags) & (HB_F_PACK | HB_F_FX)))
+        return D_REFUSED;                       /* (the name is an added one's of another kind: a synth, an effect, a pack) */
     if (old == HB_SLOTS && dt.n >= HB_SLOTS)
         return D_NO_SPACE;
     need = (total + 0xFFFu) & ~0xFFFu;
@@ -2191,6 +2241,12 @@ static uint32_t d_commit(uint32_t *key)
     if (!at && old < dt.n) {                    /* no room beside the old copy: the table without it first */
         for (i = n = 0; i < dt.n; i++)
             if (i != old) e[n++] = dt.s[i];
+        memcpy(dt.s, e, n * sizeof e[0]);       /* (would it fit then? asked of the table in RAM: if not, the old */
+        dt.n = n;                               /* copy stays listed, nothing written; dt_load puts the table back) */
+        at = dp_place(need, &big, &all);
+        dt_load();
+        if (!at)
+            return D_NO_SPACE;
         if ((rc = dt_write(e, n)) != D_OK)
             return rc;
         hb_log("deploy: the old copy dropped first");
@@ -2508,6 +2564,15 @@ static uint32_t deploy_frame(void)
             memcpy(r + 16, fxm[i].file->name, 24);
             d_reply(cmd, seq, r, 40);
         }
+        for (i = 0; i < n_pk; i++) {            /* the data packs: place 0xC0 up, kind 6 (added) or 7 (in the image) */
+            memset(r, 0, sizeof r);
+            r[1] = (uint8_t)(0xC0u | i); r[2] = M_OK; r[3] = pkm[i].kind == K_DEPLOYED ? 6u : 7u;
+            wr32(r + 4, pkm[i].file->version);
+            wr32(r + 8, pkm[i].file->code_size);
+            wr32(r + 12, (uint32_t)pkm[i].file);
+            memcpy(r + 16, pkm[i].file->name, 24);
+            d_reply(cmd, seq, r, 40);
+        }
         memset(r, 0, sizeof r);
         r[0] = D_OK; r[1] = 0xFFu;              /* the end */
         rn = 2;
@@ -2554,6 +2619,8 @@ static uint32_t deploy_frame(void)
         if (rx.on) {
             uint32_t back = st_ == D_OK ? key : rx.prev_key;
             if (st_ == D_OK) hb_log("deploy: done");
+            if (st_ == D_OK && (((const hb_file_t *)RX_BUF)->flags & HB_F_PACK))
+                back = rx.prev_key;             /* a data pack: the module before starts again (it may use the pack) */
             if (st_ == D_OK && (((const hb_file_t *)RX_BUF)->flags & HB_F_FX)) {   /* an effect: it is picked, and
                                                                                     * the module before plays on */
                 back = rx.prev_key;

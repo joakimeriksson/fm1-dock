@@ -155,6 +155,10 @@ typedef struct hb_host {
     /* a panel module (HB_F_PANEL) with its own octave says the note its key 0 (F3) plays, n 0 none (the host's
      * octave): an SMK-37's outer keys, the host's, go on from it (a module checks size first) */
     void (*key_base)(uint32_t n);
+    /* a data pack in the dock (HB_F_PACK, "Data packs" below), found by its name: where its bytes are, read in
+     * place from flash as the module's own code is, and *size their length; 0: no such pack here. What it returns
+     * holds until release(): a pack added or deleted restarts the module playing (a module checks size first) */
+    const void *(*pack_find)(const char *name, uint32_t *size);
 } hb_host_t;
 enum { HB_BOARD_FM1 = 0, HB_BOARD_SMK37 = 1 };
 /* the host has field f of hb_host_t (an older one ends before it) */
@@ -284,6 +288,13 @@ typedef struct hb_probe {
  * the page is drawn:
  *   label()  value k's name now (0: params[k].name)
  *   show()   value k's v as text into out, up to 11 characters and a 0 ("FLANGER", "185 ms") */
+/* Data packs: read-only data a module uses but does not carry (Vector37's wavetables), added, kept and deleted as
+ * a module is (tools/hbmod.py --pack, `needs =` in a module.cfg): an hb_file_t flagged HB_F_PACK whose image is the
+ * data (code_size its length), with no relocations, no descriptor (desc 0) and nothing in RAM. Not in the list of
+ * synths: a module finds one by name (hb_host_t.pack_find) and reads it where it is. One added stands in for the
+ * image's of its name, as a module does. */
+#define HB_F_PACK       0x1000u                 /* hb_file_t.flags */
+
 #define HB_F_FX         0x800u                  /* hb_file_t.flags */
 #define HB_FX_ABI       1u
 #define HB_FX_RAM       0x01C1A000u             /* an effect's .data + .bss */
