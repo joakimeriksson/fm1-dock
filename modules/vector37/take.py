@@ -23,7 +23,7 @@ The edits, each asserted (the take fails if Vector37 changed there):
     VOLUME, and MORE loses RV COLOUR (their knobs did nothing);
   - panel_fm1.c (../v37_fm1_ui.inc): SAVE saves the sound into USER (held + PRESETS: the slot), EDIT + SAVE
     randomizes (held: undo); PRESETS reaches the USER sounds; the keys play with their velocity; a planet's filter
-    row (MODE, CUTOFF, RESO, LEVEL) is page 1, its sources page 2."""
+    row (MODE, CUTOFF, RESO, LEVEL) is page 1, its sources page 2; every button glows, lit while its job is on."""
 import argparse
 import re
 import shutil
@@ -244,6 +244,13 @@ sub("panel_fm1.c", """                fp_tap(b);
                 fs_release();                      /* fm1-dock (take.py) */
             ui.btn_t[b] = 0;""")
 sub("panel_fm1.c", "ev_push(EV_ON, (uint32_t)n, 100u);", "ev_push(EV_ON, (uint32_t)n, v37_key_vel(k));   /* fm1-dock */")
+# the buttons: each glows, lit while its job is on (FP_BTN, ../v37_fm1_ui.inc); HOME glows too
+t = (out / "panel_fm1.c").read_text()
+l0, l1 = "    fm1_led_key(B_ARP,", "    fm1_led_key(B_OCTUP, ui.oct > 0);\n"
+assert t.count(l0) == 1 and t.count(l1) == 1 and t.index(l0) < t.index(l1)
+i, j = t.index(l0), t.index(l1) + len(l1)
+(out / "panel_fm1.c").write_text(t[:i] + t[i:j].replace("fm1_led_key(", "FP_BTN(") +
+                                 "    FP_BTN(B_HOME, 0);                             /* fm1-dock: each button glows (take.py) */\n" + t[j:])
 for f in FILES:
     t = (out / f).read_text()
     (out / f).write_text(f"/* fm1-dock: Vector37 {rev}'s firmware/src/{f}, taken by modules/vector37/take.py: do not edit */\n" + t)

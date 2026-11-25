@@ -335,19 +335,20 @@ static void ui_leds(void)
     } else
         for (k = 0; k < 27u; k++)
             FP_LED(FP_KEY0 + k, (fp.note_keys >> k) & 1u ? 2u : 0u);
-    fm1_led_key(B_ARP, ui.layer == L_ARP || (pt.g[G_ARP] && fm1_ms % 1000u < 500u));   /* (its set lit; running: blinks) */
-    fm1_led_key(B_REC, latch);
-    fm1_led_key(B_GLOBE, focus != 0);
-    fm1_led_key(B_FX, ui.layer == L_FX);
-    fm1_led_key(B_FADERBANK, ui.layer == L_CORNER);
-    fm1_led_key(B_CHORD, ui.layer == L_VOICE);
-    fm1_led_key(B_SEQ, freeze);
-    fm1_led_key(B_EDIT, ui.btn_t[B_EDIT] != 0u);
-    fm1_led_key(B_SEL, fp.page != FP_PAGE1);
-    fm1_led_key(B_PARA, ui.has_undo);
-    fm1_led_key(B_PLAY, fm1_ms % (60000u / (uint32_t)pt.g[G_TEMPO]) < 60u);   /* the beat */
-    fm1_led_key(B_OCTDN, ui.oct < 0);
-    fm1_led_key(B_OCTUP, ui.oct > 0);
+    FP_BTN(B_ARP, ui.layer == L_ARP || (pt.g[G_ARP] && fm1_ms % 1000u < 500u));   /* (its set lit; running: blinks) */
+    FP_BTN(B_REC, latch);
+    FP_BTN(B_GLOBE, focus != 0);
+    FP_BTN(B_FX, ui.layer == L_FX);
+    FP_BTN(B_FADERBANK, ui.layer == L_CORNER);
+    FP_BTN(B_CHORD, ui.layer == L_VOICE);
+    FP_BTN(B_SEQ, freeze);
+    FP_BTN(B_EDIT, ui.btn_t[B_EDIT] != 0u);
+    FP_BTN(B_SEL, fp.page != FP_PAGE1);
+    FP_BTN(B_PARA, ui.has_undo);
+    FP_BTN(B_PLAY, fm1_ms % (60000u / (uint32_t)pt.g[G_TEMPO]) < 60u);   /* the beat */
+    FP_BTN(B_OCTDN, ui.oct < 0);
+    FP_BTN(B_OCTUP, ui.oct > 0);
+    FP_BTN(B_HOME, 0);                             /* fm1-dock: each button glows (take.py) */
 }
 
 static void ui_input(void)

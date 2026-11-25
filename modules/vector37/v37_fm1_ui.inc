@@ -5,7 +5,10 @@
  *                   turned: the USER slot it goes to (shown), saved as SAVE is let go
  *   EDIT + SAVE     RANDOMIZE the selected planets (held: UNDO), SAVE's job in Vector37's FM-1 panel
  *   PRESETS         every sound in turn: FACTORY 1..16, the USER sounds saved, FACTORY 2 17..32
- *   the keys        play with the velocity the host senses (Vector37's FM-1 panel: 100) */
+ *   the keys        play with the velocity the host senses (Vector37's FM-1 panel: 100)
+ *   the buttons     each glows (what it does is there to press), lit while its job is on */
+/* every button with a job glows; lit when its job is on (Vector37's FM-1 panel: lit or dark) */
+#define FP_BTN(id, on) v37_fp_led(id, (on) ? 2u : 1u)
 static uint8_t v37_vel[27];                         /* each key's velocity as it came down (the module's ui()) */
 static uint8_t fs_rnd;                              /* this SAVE press is EDIT + SAVE: randomize / undo */
 static int8_t fs_pick = -1;                         /* the USER slot SAVE held + PRESETS picked, -1 none */
