@@ -442,6 +442,28 @@
   "accent": "#F08A24",
   "alt": "JT-80X0's screen: the program Pluck 04, with CUTOFF, RESO, DELAY and REVERB as four knobs"
  },
+ "vector37": {
+  "file": "vector37.dock",
+  "packs": ["v37-wt.dock"],
+  "version": "1",
+  "source": "modules/vector37: genkigenki/Vector37 08742a4 (modules/vector37/take.py), fm1-dock 1.0; its wavetables the data pack V37-WT (tools/hbmod.py --pack V37-WT modules/vector37/v37wt.bin)",
+  "by": "M. Geisler (genkigenki)",
+  "songs": "",
+  "title": "VECTOR37",
+  "module": "VECTOR37",
+  "author_url": "https://github.com/genkigenki",
+  "original": "https://github.com/genkigenki/Vector37",
+  "links": [{ "label": "source", "url": "https://github.com/joakimeriksson/fm1-dock/tree/main/modules/vector37" }],
+  "license": "GPL-3.0-only",
+  "voices": "8, on both cores",
+  "description": "An orbiting overtone synth after the Beetlecrab Vector, vector synthesis as the Prophet VS and the Wavestation had it: four corners, each two overtone or wavetable generators, a blend and a filter, mixed by a moon circling a sun along a path you shape; 32 factory sounds. Its delay and reverb are out: the dock's EFFECT plays under it.",
+  "save": "Tap SAVE: the sound goes into your USER sounds (a factory sound into the first empty slot); hold SAVE and turn PRESETS to pick the slot, saved as you let go. EDIT + SAVE makes a random sound (held: undo). PRESETS steps through your sounds too.",
+  "tags": ["synth", "poly", "wavetable", "vector"],
+  "kind": "digital",
+  "screenshot": "media/screen_vector37.png",
+  "accent": "#6f9cff",
+  "alt": "VECTOR37's screen: the sound NEBULA PAD, the moon's path around the sun and the four planets at the corners"
+ },
  "keys": {
   "file": "keys.dock",
   "version": "2",

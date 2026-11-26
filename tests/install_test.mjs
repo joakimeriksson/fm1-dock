@@ -547,6 +547,53 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
     ok(after.dock.modules.filter((m) => m.kind === "deployed").map((m) => m.name).join() === "AMB-1,FOMNI",
       `demo: its list says so (free ${after.dock.hello.free} B, largest ${after.dock.hello.largest} B)`);
   }
+  // a synth with its data pack (modules.json "packs"): VECTOR37 and V37-WT, the catalog's own files
+  const V37 = new URL("../docs/modules/vector37.dock", import.meta.url), WT = new URL("../docs/modules/v37-wt.dock", import.meta.url);
+  if (existsSync(V37) && existsSync(WT)) {
+    const load = (u) => { const blob = new Uint8Array(readFileSync(u)); return { blob, info: moduleInfo(blob) }; };
+    const v37 = load(V37), wt = load(WT);
+    const names = (d) => d.deployed.map((m) => `${m.name}:${m.kind}`).join();
+    // the two (300 KiB) are more than the demo's 296 KiB: refused before anything is sent, nothing asked
+    const d1 = new Device(SCENES.fresh, image.length, "0.6", "FM-1_922"), asked1 = [];
+    const e1 = await reject(addModule(d1.access, v37, async (q) => { asked1.push(q); return true; }, () => {}, [wt]));
+    ok(e1 && e1.code === "space" && !asked1.length && !d1.deployed.length && /V37-WT/.test(e1.message),
+      `packs: a synth and its pack that do not fit together: refused up front ("${e1 && e1.message}")`);
+    // smaller stand-ins (their headers, 40 and 20 KB: the demo is slow to send): both go in, the bigger first, after one question
+    const stand = (x, n) => { const blob = Uint8Array.from({ length: n }, (_, i) => (i < 80 ? x.blob[i] : i & 255)); return { blob, info: moduleInfo(blob) }; };
+    const syn = stand(v37, 40960), pk = stand(wt, 20480);
+    const d2 = new Device(SCENES.fresh, image.length, "0.6", "FM-1_922"), asked2 = [], steps = [];
+    const got = await addModule(d2.access, syn, async (q) => { asked2.push(q); return true; }, (x, t) => steps.push([x, t]), [pk]);
+    const s2 = await inspectDevice(d2.access, { log: false });
+    ok(got === "VECTOR37" && names(d2) === "VECTOR37:2,V37-WT:6" && asked2.length === 1 && /VECTOR37 and its data pack V37-WT/.test(asked2[0]),
+      `packs: the synth, then its pack, one question ("${asked2[0]}")`);
+    ok(s2.dock.modules.some((m) => m.name === "V37-WT" && m.kind === "pack") && s2.dock.modules[s2.dock.hello.cur].name === "VECTOR37",
+      "packs: LIST says kind 6 (pack) for it, and the synth plays");
+    ok(steps.every(([x], i) => i === 0 || x >= steps[i - 1][0]) && steps.at(-1)[0] <= 1 && steps.some(([, t]) => /V37-WT \(its data pack\)/.test(t)),
+      "packs: the progress runs once over both");
+    // the pack gone (as with the tools): Add sends only the pack, not the synth again
+    ok(await removeModule(d2.access, "V37-WT", yes) === "done" && names(d2) === "VECTOR37:2", "packs: a pack removed on its own");
+    const asked3 = [], logAt = d2.logBase + d2.logText.length;
+    await addModule(d2.access, syn, async (q) => { asked3.push(q); return true; }, () => {}, [pk]);
+    const since = d2.logText.slice(Math.max(0, logAt - d2.logBase));
+    ok(names(d2) === "VECTOR37:2,V37-WT:6" && /^Add VECTOR37's data pack V37-WT/.test(asked3[0])
+      && (since.match(/receiving/g) || []).length === 1, `packs: the synth there, only its pack goes ("${asked3[0]}")`);
+    // with the pack there, an add sends only the synth
+    const asked4 = [];
+    await addModule(d2.access, syn, async (q) => { asked4.push(q); return true; }, () => {}, [pk]);
+    ok(/^Update VECTOR37 in/.test(asked4[0]) && names(d2).split(",").sort().join() === "V37-WT:6,VECTOR37:2", `packs: the pack there is not sent again ("${asked4[0]}")`);
+    // Remove: the synth and the packs named, one question
+    const asked5 = [];
+    ok(await removeModule(d2.access, "VECTOR37", async (q) => { asked5.push(q); return true; }, ["V37-WT"]) === "done" && !d2.deployed.length
+      && /VECTOR37 and its data pack V37-WT/.test(asked5[0]), `packs: removed with the synth ("${asked5[0]}")`);
+    // a pack the device refuses: the synth this add put in is deleted again
+    const d3 = new Device(SCENES.fresh, image.length, "0.6", "FM-1_922"), orig = d3.dock.bind(d3);
+    d3.dock = (r) => {
+      if (r && r.cmd === CMD.COMMIT && d3.rxd && d3.rxd.name === "V37-WT") { d3.rxd = null; d3.reply(r.cmd, r.seq, [4], 10); return; }
+      orig(r);
+    };
+    const e3 = await reject(addModule(d3.access, syn, yes, () => {}, [pk]));
+    ok(e3 && e3.code === "half" && !d3.deployed.length, `packs: its pack refused, the synth taken out again ("${e3 && e3.message}")`);
+  } else console.log("(no docs/modules/vector37.dock: the data pack checks are skipped)");
   const stock = new Device(SCENES.stock, image.length, "0.6", "FM-1_922");
   const s0 = await inspectDevice(stock.access, { log: false });
   ok(s0.identity === "FM-1_015" && !s0.dock, "demo: stock firmware, no fm1-dock");
@@ -567,6 +614,10 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
   const b = emulatorUrl("http://localhost:8642/fm1-dock/", idx, "cs1", { embed: false });
   ok(b.href === "http://localhost:8642/fm1-emu/?fw=fm1dock&script=%2Ffm1-dock%2Ftryit%2Fcs1.txt", "try it: a built-in has a script only; the full page without embed");
   ok(emulatorUrl(page, idx, "gator") === null && emulatorUrl(page, null, "monk") === null, "try it: none for a module without files");
+  const pk = emulatorUrl(page, { ...idx, package: { file: "../fw/fm1-dock-1.0.0.fwsc", name: "fm1-dock 1.0.0" } }, "monk");
+  ok(pk.searchParams.get("package") === "https://joakimeriksson.github.io/fm1-dock/fw/fm1-dock-1.0.0.fwsc" && !pk.searchParams.has("fw")
+    && pk.searchParams.get("name") === "fm1-dock 1.0.0" && pk.searchParams.get("flash") === "/fm1-dock/tryit/monk.flash",
+    `try it: the package the flash is laid out for (the site's fw/ copy), booted by URL (${pk})`);
   const frameWin = {}, msg = (o) => ({ origin: "https://joakimeriksson.github.io", source: frameWin, data: { source: "fm1-emu", type: "tryout", ...o } });
   ok(tryOutNews(msg({ state: "playing" }), frameWin, "https://joakimeriksson.github.io").state === "playing", "try it: the emulator's news is read");
   ok(tryOutNews({ ...msg({ state: "playing" }), origin: "https://example.com" }, frameWin, "https://joakimeriksson.github.io") === null
@@ -576,12 +627,30 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
     "try it: no tryit/index.json, no Try it");
 
   // the generated files (tools/tryit.py OUT): each script a SELECT (SAFE: the sine) of the module's name; each
-  // add-on's flash the table and the module as a deploy leaves them in an empty deploy area
+  // add-on's flash the tables and the module with its data packs as deploys leave them on an empty unit: a table per
+  // deploy (DT_A seq 1, DT_B seq 2, ...), the first in the plain area's start, the rest after it or in the image's room
+  // (index.json's package: its start and chip key), encrypted there; each one's header, place and CRC as its entry says
   const tdir = process.argv[3];
   if (tdir && existsSync(`${tdir}/index.json`)) {
     const index = JSON.parse(readFileSync(`${tdir}/index.json`, "utf8"));
-    const XIP = (off) => 0x02000000 + off - 0x4000, DP_LO = 0x96000, DT_A = 0x93000;
+    const XIP = (off) => 0x02000000 + off - 0x4000, DP_LO = 0x96000, DP_HI = 0xE0000, DT_A = 0x93000, DT_B = 0x94000, ROOM_HI = 0x93000;
+    const room = index.package && index.package.room ? [index.package.room, index.package.key] : null;
     const dv = (b) => new DataView(b.buffer, b.byteOffset, b.byteLength);
+    const sfc = (b, base, key) => {             // the SFC cipher (its own inverse), base: b's offset in the app area
+      const o = Uint8Array.from(b);
+      for (let i = 0; i < o.length; i += 32)
+        for (let k = (key ^ ((base + i) >> 2)) & 0xffff, j = i; j < Math.min(i + 32, o.length); j++) {
+          o[j] ^= k & 0xff;
+          k = ((k << 1) ^ (k & 0x8000 ? 0x1021 : 0)) & 0xffff;
+        }
+      return o;
+    };
+    const table = (t) => {                      // [seq, [[magic, xip, size, crc]]] of a valid copy, else null
+      const tv = t && dv(t), n = t ? tv.getUint32(8, true) : 0;
+      if (!t || tv.getUint32(0, true) !== 0x54444248 || n > 32 || tv.getUint32(12, true) !== crc32(t.subarray(4, 12 + 4 + 16 * n).filter((_, i) => i < 8 || i >= 12)))
+        return null;
+      return [tv.getUint32(4, true), Array.from({ length: n }, (_, i) => [0, 4, 8, 12].map((k) => tv.getUint32(16 + 16 * i + k, true)))];
+    };
     for (const [id, e] of Object.entries(index.modules)) {
       const sc = readFileSync(`${tdir}/${e.script}`, "utf8").trim();
       const m = /^(\d+):m([0-9a-f]+)$/.exec(sc);
@@ -593,23 +662,31 @@ for (const [f, want] of (process.env.FM1_ROOM_PKGS || "").split(",").filter(Bool
       const raw = new Uint8Array(readFileSync(`${tdir}/${e.flash}`));
       const secs = new Map();
       for (let o = 0; o + 4100 <= raw.length; o += 4100) secs.set(dv(raw).getUint32(o, true), raw.subarray(o + 4, o + 4100));
-      const t = secs.get(DT_A), tv = t && dv(t);
-      const slot = t && t.subarray(16, 32), sv = slot && dv(slot);
-      const tableOk = t && tv.getUint32(0, true) === 0x54444248 && tv.getUint32(4, true) === 1 && tv.getUint32(8, true) === 1
-        && tv.getUint32(12, true) === crc32(Uint8Array.from([...t.subarray(4, 12), ...slot]))
-        && sv.getUint32(0, true) === 0x544f4c53 && sv.getUint32(4, true) === XIP(DP_LO);
-      const size = tableOk ? sv.getUint32(8, true) : 0;
-      const mod = new Uint8Array(Math.ceil(size / 4096) * 4096);
-      let all = tableOk;
-      for (let at = 0; at < mod.length; at += 4096) { const s = secs.get(DP_LO + at); if (s) mod.set(s, at); else all = false; }
-      const head = all && moduleInfo(mod), mv = dv(mod);
-      const n = all ? mv.getUint32(68, true) : 0, io = (80 + 4 * n + 255) & ~255;
-      const isz = head ? head.code + head.data + head.rt : 0;
-      const crcOk = all && crc32(Uint8Array.from([...mod.subarray(0, 76), ...mod.subarray(80, 80 + 4 * n), ...mod.subarray(io, io + isz)])) === mv.getUint32(76, true)
-        && mv.getUint32(76, true) === sv.getUint32(12, true);
-      ok(tableOk && all && head.name === e.module && mv.getUint32(64, true) === XIP(DP_LO) + io && crcOk && io + isz === size
-        && secs.get(0x94000) && secs.get(0x94000).every((x) => x === 0xff),
-        `try it ${id}: ${e.flash}, ${head && head.name} at ${(XIP(DP_LO)).toString(16)}, ${size} B, its table and CRC`);
+      const a = table(secs.get(DT_A)), b = table(secs.get(DT_B));
+      const last = a && (!b || a[0] > b[0]) ? a : b;             // (the copy in force: the higher sequence number)
+      const prev = last && (last === a ? b : a), blank = (s) => s && s.every((x) => x === 0xff);
+      const tablesOk = last && last[1].length === last[0] && (last[0] === 1 ? blank(secs.get(last === a ? DT_B : DT_A))
+        : prev && prev[0] === last[0] - 1 && prev[1].every((s, i) => s.join() === last[1][i].join()));
+      const names = [], places = [];
+      let all = !!tablesOk;
+      for (const [magic, x, size, crc] of tablesOk ? last[1] : []) {
+        const at = x - 0x02000000 + 0x4000, inRoom = room && at >= room[0] && at < ROOM_HI;
+        let mod = new Uint8Array(Math.ceil(size / 4096) * 4096);
+        for (let o = 0; o < mod.length; o += 4096) { const s = secs.get(at + o); if (s) mod.set(s, o); else all = false; }
+        if (!(at >= DP_LO && at + mod.length <= DP_HI) && !inRoom) all = false;
+        if (inRoom) mod = Uint8Array.from([...sfc(mod.subarray(0, size), at - 0x4000, room[1]), ...mod.subarray(size)]);
+        const head = all && moduleInfo(mod), mv = dv(mod);
+        const n = all ? mv.getUint32(68, true) : 0, io = (80 + 4 * n + 255) & ~255;
+        const isz = head ? head.code + head.data + head.rt : 0;
+        all = all && magic === 0x544f4c53 && mv.getUint32(64, true) === x + io && io + isz === size
+          && crc32(Uint8Array.from([...mod.subarray(0, 76), ...mod.subarray(80, 80 + 4 * n), ...mod.subarray(io, io + isz)])) === crc
+          && mv.getUint32(76, true) === crc;
+        names.push(head && head.name);
+        places.push(`${at.toString(16)}${inRoom ? " (room)" : ""}`);
+      }
+      const packs = (e.packs || []).length;
+      ok(tablesOk && all && names.includes(e.module) && last[1][0][1] === XIP(DP_LO) && names.length === 1 + packs,
+        `try it ${id}: ${e.flash}, ${names.join(" + ")} at ${places.join(", ")}, the tables and CRCs`);
     }
   } else console.log("(no tryit dir: its files are not checked)");
 }

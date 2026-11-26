@@ -261,38 +261,96 @@ export async function findDock(midi) {
 }
 
 // a module into the fm1-dock on the FM-1 (ask(text) confirms it first): BEGIN, the data, COMMIT, as the console's
-// Deploy; the modules there and the settings stay. -> the module's name, or null when cancelled
-export async function addModule(midi, mod, ask, progress) {
-  const found = await findDock(midi);
+// Deploy; the modules there and the settings stay. packs: the data packs it uses ({ blob, info } each, as mod): those
+// not on the unit yet (or older there) go in with it, after one question, the bigger first (README "Data packs": the
+// bigger one takes the plain area). The room is asked for all of them before anything is sent; if one after the first
+// fails, what this call added is deleted again, so a synth is not left without its pack.
+// progress(0..1 over all of it, text). -> the module's name, or null when cancelled
+export async function addModule(midi, mod, ask, progress, packs = []) {
+  let found = await findDock(midi);
   if (!found) throw fail("nodock", "");
-  const { dock, hello } = found;
+  const sec = (n) => Math.ceil(n / 4096) * 4096;
+  const kb = (n) => Math.ceil(n / 1024);
+  const added = [];                             // (what this call wrote: deleted again if a later one fails)
   try {
-    if (hello.abi !== mod.info.abi) throw fail("abi", `fm1-dock speaks ABI ${hello.abi}, the module ${mod.info.abi}`);
+    const { hello } = found;
+    for (const x of [mod, ...packs])
+      if (hello.abi !== x.info.abi) throw fail("abi", `fm1-dock speaks ABI ${hello.abi}, ${x.info.name} ${x.info.abi}`);
     if (mod.info.fx && !hello.fx) throw fail("nofx", "");
-    const there = (await dock.modules()).some((m) => m.name === mod.info.name);
-    if (!there && mod.blob.length > hello.largest)    /* (an update takes the old one's place) */
-      throw fail("space", `${mod.info.name} needs ${Math.ceil(mod.blob.length / 1024)} KB, fm1-dock has ${Math.floor(hello.largest / 1024)} KB free.`);
-    if (!await ask(`${there ? "Update" : "Add"} ${mod.info.name} ${there ? "in" : "to"} the fm1-dock on the FM-1?`)) return null;
-    const r = await dock.deploy(mod.blob, progress);
-    if (r.restarting) {                         // (its USB goes away for a moment: not asked before it is back)
-      progress(1, "the device restarts to run it…");
-      await sleep(4000);
+    const list = await found.dock.modules();
+    const old = list.find((m) => m.name === mod.info.name), there = !!old;
+    const need = packs.filter((p) => { const o = list.find((m) => m.name === p.info.name); return !o || o.version < p.info.version; });
+    // (the synth there as it is, a pack of it not: only the pack goes)
+    const only = there && need.length > 0 && old.version === mod.info.version;
+    // (an update of the synth or of a pack takes the old one's place: only new ones need room)
+    const fresh = [...(there ? [] : [mod]), ...need.filter((p) => !list.some((m) => m.name === p.info.name))];
+    const total = fresh.reduce((a, x) => a + sec(x.blob.length), 0);
+    const big = fresh.reduce((a, x) => Math.max(a, sec(x.blob.length)), 0);
+    const pks = `data pack${need.length > 1 ? "s" : ""} ${need.map((p) => p.info.name).join(", ")}`;
+    const what = only ? `${mod.info.name}'s ${pks}` : need.length ? `${mod.info.name} and its ${pks}` : mod.info.name;
+    if (total > hello.free || big > hello.largest)
+      throw fail("space", `${what} need${need.length && !only ? "" : "s"} ${kb(total)} KB${fresh.length > 1 ? ` (the biggest piece ${kb(big)} KB)` : ""}, fm1-dock has ${Math.floor(hello.free / 1024)} KB free, the largest piece ${Math.floor(hello.largest / 1024)} KB.`);
+    const upd = there && !only;
+    if (!await ask(`${upd ? "Update" : "Add"} ${what} ${upd ? "in" : "to"} the fm1-dock on the FM-1?`)) return null;
+    const order = [...(only ? [] : [mod]), ...need].sort((a, b) => b.blob.length - a.blob.length);
+    const sum = order.reduce((a, x) => a + x.blob.length, 0);
+    let done = 0;
+    for (const x of order) {
+      if (!found) {                             // (it restarted to run the last one: found again)
+        found = await findDock(midi);
+        if (!found) throw fail("nodock", "");
+      }
+      const label = x === mod ? x.info.name : `${x.info.name} (its data pack)`;
+      const r = await found.dock.deploy(x.blob, (f, t) => progress((done + f * x.blob.length) / sum, `${label}, ${t}`));
+      if (!(x === mod ? there : list.some((m) => m.name === x.info.name))) added.push(x.info.name);
+      done += x.blob.length;
+      if (r.restarting) {                       // (its USB goes away for a moment: not asked before it is back)
+        progress(done / sum, "the device restarts to run it…");
+        found.dock.close();
+        found = null;
+        await sleep(4000);
+      }
     }
     return mod.info.name;
-  } finally { dock.close(); }
+  } catch (e) {
+    if (added.length) {                         // a part of it went in: taken out again, so nothing is half added
+      let undone = false;
+      try {
+        if (!found) found = await findDock(midi);
+        if (found) {
+          for (const n of added.reverse()) await found.dock.command(CMD.DELETE, n);
+          undone = true;
+        }
+      } catch (_) { /* (said below) */ }
+      throw fail("half", `${added.join(" and ")} went in, the rest did not (${e.message || explain(e)}). `
+        + (undone ? `${added.join(" and ")} ${added.length > 1 ? "were" : "was"} deleted again: nothing changed.` : "Remove it on its card, then add it again."));
+    }
+    throw e;
+  } finally { if (found) found.dock.close(); }
 }
 
 // a module out of the fm1-dock on the FM-1 (ask(text) confirms it first): DELETE, as the console's Delete; its flash is
-// free again, its banks stay. -> "done" (or the status fm1-dock gave), or null when cancelled
-export async function removeModule(midi, name, ask) {
+// free again, its banks stay. packs: the names of data packs to delete after it (the caller leaves out those another
+// synth on the unit uses); those not added on the unit are skipped. -> "done" (or the status fm1-dock gave), or null
+// when cancelled
+export async function removeModule(midi, name, ask, packs = []) {
   const found = await findDock(midi);
   if (!found) throw fail("nodock", "");
   const { dock } = found;
   try {
-    const m = (await dock.modules()).find((x) => x.name === name);
+    const list = await dock.modules();
+    const m = list.find((x) => x.name === name);
     if (!m || !isAdded(m)) throw fail("notadded", name);
-    if (!await ask(`Remove ${name} from the fm1-dock on the FM-1? Its flash is freed; its presets in the banks stay.`)) return null;
-    return await dock.command(CMD.DELETE, name);
+    const pk = packs.filter((p) => list.some((x) => x.name === p && x.kind === "pack"));
+    const what = pk.length ? `${name} and its data pack${pk.length > 1 ? "s" : ""} ${pk.join(", ")}` : name;
+    if (!await ask(`Remove ${what} from the fm1-dock on the FM-1? ${pk.length ? "Their" : "Its"} flash is freed; its presets in the banks stay.`)) return null;
+    const st = await dock.command(CMD.DELETE, name);
+    if (st !== "done") return st;
+    for (const p of pk) {
+      const s = await dock.command(CMD.DELETE, p);
+      if (s !== "done") return `${name} is removed, its data pack ${p} not: ${s}`;
+    }
+    return "done";
   } finally { dock.close(); }
 }
 
@@ -529,6 +587,7 @@ const SAY = {
   bank: "The presets could not be written: ",
   nodock: "No FM-1 running fm1-dock found. Install fm1-dock first (above), plug the FM-1 in with a USB data cable, close other apps that use MIDI, and press again.",
   notadded: "fm1-dock has no added module of that name: ",
+  half: "Not added: ",
   abi: "This fm1-dock is too old or too new for the module: install the latest fm1-dock first. ",
   nosid: "FM-1 SID is not in the fm1-dock on the FM-1: add it first (Add FM-1 SID, above).",
   space: "Not enough room in fm1-dock for it: remove another added synth first (Remove on its card on fm1-dock's page, or the Console's module list). ",
@@ -539,7 +598,7 @@ const SAY = {
   write: "Writing: do not unplug the FM-1", reboot: "Restarting",
 };
 
-const DETAIL = ["badpkg", "badreq", "abi", "space", "select", "refused", "hvsc", "notadded", "addons", "badhbk", "nosynth", "bank", "import"];
+const DETAIL = ["badpkg", "badreq", "abi", "space", "half", "select", "refused", "hvsc", "notadded", "addons", "badhbk", "nosynth", "bank", "import"];
 // an error of the functions above in words for the page
 export function explain(e) {
   if (!SAY[e.code]) return `Error: ${e.message}`;

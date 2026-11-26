@@ -17,7 +17,8 @@ offers them beside the normal package.
 The modules the page adds to an fm1-dock (FM-1 SID, AMB-1, ...): a .dock attached to that firmware's latest release when
 there is one, else DIR's copy (DIR/modules.json says what it is; the page's catalog reads the rest of it). Each is checked
 as tools/hbdeploy.py checks one (its header). An entry "packaged" (in fm1-dock's package) has no file; an entry whose
-.dock is not in DIR yet is left out of index.json, and the page shows it without its button.
+.dock is not in DIR yet is left out of index.json, and the page shows it without its button. A module's data packs (its "packs",
+.docks in DIR) go beside it, listed under index.json's "datapacks" by file, and in its own entry's "packs".
 """
 import hashlib
 import re
@@ -78,6 +79,20 @@ def modules(out, index, mdir, releases):
                                  "source": source, "songs": m.get("songs", ""), "title": m.get("title", h["name"]),
                                  "by": m.get("by", "")}
         print(f"{fid:10} {path.name:28} module, abi {h['abi']}  {index['modules'][fid]['sha256'][:16]}")
+        for pf in m.get("packs", []):           # its data packs (README "Data packs"): the catalog's copies, checked too
+            src = mdir / pf
+            if not src.exists():
+                raise SystemExit(f"{fid}: its data pack {pf} is not in {mdir}")
+            raw = src.read_bytes()
+            ph = module_header(raw, pf)
+            if not ph["flags"] & hbmod.HB_F_PACK:
+                raise SystemExit(f"{fid}: {pf} is not a data pack")
+            (out / pf).write_bytes(raw)
+            index.setdefault("datapacks", {})[pf] = {"name": ph["name"], "version": ph["version"], "file": pf,
+                                                     "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw),
+                                                     "abi": ph["abi"]}
+            index["modules"][fid].setdefault("packs", []).append(pf)
+            print(f"{'':10} {pf:28} data pack {ph['name']}, abi {ph['abi']}  {index['datapacks'][pf]['sha256'][:16]}")
 
 
 def main(argv):

@@ -17,7 +17,10 @@
 //   save: how a player saves a sound in it, in the FM-1's button names (or that it cannot, and what it keeps): the
 //   Presets box lists it for the synths on the device, the guide for all (read from the synth's source);
 //   packaged: true for one in fm1-dock's package (no file, no button; size_kib for the card);
-//   else file (the .dock next to modules.json), version, source, songs; pending: why the file is not here yet.
+//   else file (the .dock next to modules.json), version, source, songs; pending: why the file is not here yet;
+//   packs ["v37-wt.dock", ...]: the data packs it uses (README "Data packs"; .docks next to modules.json, never cards of
+//   their own): Add sends those not on the device with it, Remove takes them out with it unless another synth on the
+//   device lists them too, and the room it needs is the synth's and theirs.
 import { catalog, installButton, tuneButtons, inspectDevice, addModule, removeModule, loadModule, explain,
   backupPresets, restorePresets, deletePresets, importFile } from "./install/fm1install.js";
 import { moduleInfo, isAdded } from "./dock.js";
@@ -107,7 +110,21 @@ async function load() {
   ]);
   S.index = index;
   S.tryit = tryit;
-  S.mods = Object.entries(mods).map(([id, m]) => ({ id, ...m, addon: !m.packaged, tags: m.tags || [] }));
+  S.mods = Object.entries(mods).map(([id, m]) => ({ id, ...m, addon: !m.packaged, tags: m.tags || [], packs: m.packs || [] }));
+  S.packs = new Map();
+  await Promise.all([...new Set(S.mods.flatMap((m) => m.packs))].map(async (file) => {
+    const p = { file, available: false };
+    S.packs.set(file, p);
+    const e = index && index.datapacks && index.datapacks[file];
+    if (e) { Object.assign(p, { entry: e, name: e.name, size: e.size, version: e.version, available: true }); return; }
+    try {                                      // a local copy of the page: its header for its name (and its size)
+      const r = await fetch(`modules/${encodeURIComponent(file)}`, { headers: { Range: "bytes=0-79" }, cache: "no-cache" });
+      if (!r.ok) return;
+      const head = new Uint8Array(await r.arrayBuffer());
+      const total = r.status === 206 ? Number(((r.headers.get("content-range") || "").split("/")[1])) : head.length;
+      Object.assign(p, { name: moduleInfo(head).name, size: total || null, available: !!total });
+    } catch (_) { /* not available */ }
+  }));
   await Promise.all(S.mods.filter((m) => m.addon).map(async (m) => {
     const e = index && index.modules && index.modules[m.id];
     if (e) {                                   // the site's checked copy: its size, version and name
@@ -121,8 +138,20 @@ async function load() {
       if (r.ok) m.size = Number(r.headers.get("content-length")) || null;
     } catch (_) { m.available = false; }
   }));
-  for (const m of S.mods) if (m.addon && m.size && sectors(m.size) > LARGE && !m.tags.includes(LARGE_TAG)) m.tags.push(LARGE_TAG);
+  for (const m of S.mods) {
+    if (m.packs.some((f) => !S.packs.get(f).available)) m.available = false;   // (a synth without its pack: no button)
+    if (m.addon && m.size && roomFor(m).total > LARGE && !m.tags.includes(LARGE_TAG)) m.tags.push(LARGE_TAG);
+  }
 }
+
+// a synth's data packs (S.packs' entries), and the room it needs: all of it, or (now) without the packs on the device;
+// big: its biggest piece (each goes into one free piece of the deploy area)
+const packsOf = (m) => (m.packs || []).map((f) => S.packs.get(f)).filter(Boolean);
+function roomFor(m, now = false) {
+  const parts = [m.size || 0, ...packsOf(m).filter((p) => !(now && packHere(p.name))).map((p) => p.size || 0)].map(sectors);
+  return { total: parts.reduce((a, n) => a + n, 0), big: Math.max(0, ...parts) };
+}
+const packText = (m) => packsOf(m).map((p) => `${p.name || p.file} (${kib(p.size || 0)})`).join(", ");
 
 async function moduleBlob(m) {
   if (m.loaded) return m.loaded;
@@ -144,7 +173,11 @@ const boardOf = () => BOARD[(S.dev && S.dev.board) || "fm1"];
 // the add-on room of the connected fm1-dock: every area's, the image's room too (HELLO's room); an older one: its board's
 const roomOf = (d) => (d && d.hello && d.hello.room) || boardOf().area;
 const devName = () => (S.dev && S.dev.board ? BOARD[S.dev.board].name : "FM-1");
-const onDevice = (m) => { const d = dock(); return d ? d.modules.find((x) => x.name === m.module) : null; };
+const onDevice = (m) => { const d = dock(); return d ? d.modules.find((x) => x.name === m.module && !isPack(x)) : null; };
+const isPack = (x) => x.kind === "pack" || x.kind === "pack (image)";       // (LIST's kinds 6 and 7: data, not a synth)
+const packHere = (name) => { const d = dock(); return !!d && d.modules.some((x) => x.name === name && isPack(x)); };
+// the catalog's synths that list the data pack of this name
+const usersOf = (name) => S.mods.filter((m) => packsOf(m).some((p) => p.name === name));
 
 async function midiAccess() {
   if (S.midi) return S.midi;
@@ -251,8 +284,9 @@ function renderDevice() {
   else if (d.version && rel) state = vcmp(d.version, rel.version) >= 0 ? `<span class="pill ok">up to date</span>`
     : `<span class="pill acc">${esc(rel.version)} is out</span>`;
   else if (!d.version) ver += ` <span class="dim small">(its version is no longer in the log)</span>`;
-  const mods = d.modules.map((m) => `<span class="${isAdded(m) ? "added" : ""}${m.index === d.hello.cur ? " cur" : ""}"
-    title="${esc(m.kind)}${m.at ? ` v${m.version}, ${kib(m.size)}` : ""}${m.index === d.hello.cur ? ", playing" : ""}">${esc(m.name)}</span>`).join("");
+  const packNote = (m) => { const u = usersOf(m.name).map((x) => x.title); return `data pack${u.length ? ` of ${u.join(", ")}` : ""}`; };
+  const mods = d.modules.map((m) => `<span class="${isAdded(m) ? "added" : ""}${m.index === d.hello.cur ? " cur" : ""}${isPack(m) ? " pack" : ""}"
+    title="${isPack(m) ? esc(packNote(m)) : esc(m.kind)}${m.at ? ` v${m.version}, ${kib(m.size)}` : ""}${m.index === d.hello.cur ? ", playing" : ""}">${esc(m.name)}${isPack(m) ? ` <small>(${esc(packNote(m))})</small>` : ""}</span>`).join("");
   pill.textContent = `${name} · fm1-dock`; pill.className = "pill ok";
   info.innerHTML = `${gone}<table class="dev-table">
     <tr><th>Device</th><td>${esc(name)} <span class="dim mono">${esc(dv.identity || "")}</span></td></tr>
@@ -285,8 +319,8 @@ function renderMeter() {
   const ghostOf = (total, free, largest) => {
     const m = S.hover;
     if (!m || !m.size || onDevice(m)) return null;
-    const need = sectors(m.size);
-    return { m, need, fits: largest == null ? need <= total : need <= largest, w: Math.min(need, free) };
+    const r = roomFor(m, true), need = r.total;
+    return { m, need, fits: largest == null ? need <= total : r.big <= largest && need <= free, w: Math.min(need, free) };
   };
   let head, segs = [], free, total, largest = null, legend = [];
   if (!d) {
@@ -294,8 +328,11 @@ function renderMeter() {
     head = `<h3>Room for add-ons</h3><span class="figs"><b>472 KiB</b> on an FM-1 with Standard (<b>744 KiB</b> with the Empty dock) · <b>448 KiB</b> on an SMK-37</span>`;
   } else {
     total = roomOf(d); free = d.hello.free; largest = d.hello.largest;
-    const sizeOf = (x) => { const c = S.mods.find((m) => m.module === x.name && m.size); return sectors(c ? c.size : x.size); };
-    segs = d.modules.filter(isAdded).map((x) => ({ name: x.name, n: sizeOf(x) }));
+    const sizeOf = (x) => {
+      const c = isPack(x) ? [...S.packs.values()].find((p) => p.name === x.name && p.size) : S.mods.find((m) => m.module === x.name && m.size);
+      return sectors(c ? c.size : x.size);
+    };
+    segs = d.modules.filter(isAdded).map((x) => ({ name: x.name, n: sizeOf(x), pack: isPack(x) }));
     const used = Math.max(0, total - free), sum = segs.reduce((a, s) => a + s.n, 0);
     if (sum > used && sum) segs.forEach((s) => { s.n = s.n * used / sum; });
     else if (used - sum > 8 * 1024) segs.push({ name: "other", n: used - sum, other: true });
@@ -308,11 +345,15 @@ function renderMeter() {
     + (g ? `<div class="seg ghost${g.fits ? "" : " nofit"}" style="width:${pct(Math.max(g.w, total * 0.02))}" title="${esc(g.m.title)}: ${kib(g.need)}">${esc(g.m.title)}</div>` : "");
   legend = segs.map((s) => {
     if (s.other) return `<li><i class="other"></i>${esc(s.name)} <b>${kib(s.n)}</b></li>`;
+    if (s.pack) {                               // a data pack: removed with its synth; on its own only if none on the device lists it
+      const u = usersOf(s.name).filter((m) => onDevice(m));
+      if (u.length) return `<li><i></i>${esc(s.name)} <b>${kib(s.n)}</b> <span class="dim">${esc(list(u.map((m) => m.title)))}'s data pack</span></li>`;
+    }
     const m = meterMod(s.name), busy = S.busy === m.id;
-    return `<li><i></i>${esc(s.name)} <b>${kib(s.n)}</b> <button type="button" class="btn small danger meter-rm" data-remove="${esc(s.name)}"`
+    return `<li><i></i>${esc(s.name)}${s.pack ? ` <span class="dim">(a data pack)</span>` : ""} <b>${kib(s.n)}</b> <button type="button" class="btn small danger meter-rm" data-remove="${esc(s.name)}"`
       + `${S.busy ? " disabled" : ""} aria-label="Remove ${esc(s.name)}">${busy ? "Removing…" : "Remove"}</button></li>`;
   });
-  if (g) legend.push(`<li><i class="ghost"></i>${esc(g.m.title)} would take <b>${kib(g.need)}</b>${g.fits ? "" : ": it does not fit"}</li>`);
+  if (g) legend.push(`<li><i class="ghost"></i>${esc(g.m.title)} would take <b>${kib(g.need)}</b>${packsOf(g.m).length ? ", with its data pack" : ""}${g.fits ? "" : ": it does not fit"}</li>`);
   const crowded = noRoom(g, free, largest, total);
   if (crowded) legend.push(`<li class="crowd">${crowded}</li>`);
   if (d) legend.push(`<li><i class="free"></i>free <b>${kib(free)}</b></li>`);
@@ -428,7 +469,7 @@ function meterMod(name) {
 function noRoom(g, free, largest, total) {
   const room = largest == null ? total : largest;
   const out = (left) => S.mods.filter((m) => m.addon && m.available && m.size && !onDevice(m) && (!g || m !== g.m)
-    && sectors(m.size) > left).map((m) => m.title);
+    && roomFor(m, true).big > left).map((m) => m.title);
   const names = (l) => l.length > 4 ? `${l.slice(0, 4).map(esc).join(", ")} and ${l.length - 4} more` : l.map(esc).join(", ");
   if (g && g.fits) {
     const now = new Set(out(room)), after = out(room - g.need).filter((x) => !now.has(x));
@@ -473,9 +514,10 @@ function card(m) {
   const links = [m.original && `<a href="${url(m.original)}">original</a>`,
     m.hub && `<a href="https://thefirmwarehub.com/#fw-${encodeURIComponent(m.hub)}" title="its own firmware on the FM-1 Firmware Hub">the Hub</a>`,
     ...(m.links || []).map((l) => url(l.url) && `<a href="${url(l.url)}">${esc(l.label)}</a>`)].filter(Boolean);
-  const size = m.addon ? (m.size ? kib(m.size) : "—") : m.builtin ? "in the host" : m.size_kib ? `${m.size_kib} KiB, in the package` : "in the package";
-  const big = m.addon && m.size && sectors(m.size) > LARGE;
-  const badges = [m.addon && m.size && `<span class="badge size${big ? " big" : ""}" title="${big ? esc(largeNote(m)) : "Its room in the add-on area"}">${kib(sectors(m.size))}${big ? " · big" : ""}</span>`,
+  const size = m.addon ? (m.size ? kib(m.size) + (packsOf(m).length ? `, and its data pack ${packText(m)}` : "") : "—") : m.builtin ? "in the host" : m.size_kib ? `${m.size_kib} KiB, in the package` : "in the package";
+  const big = m.addon && m.size && roomFor(m).total > LARGE, withPack = packsOf(m).length > 0;
+  const badges = [m.addon && m.size && `<span class="badge size${big ? " big" : ""}" title="${big ? esc(largeNote(m)) : withPack ? "Its room in the add-on area, its data pack's too" : "Its room in the add-on area"}">${kib(roomFor(m).total)}${big ? " · big" : ""}</span>`,
+    withPack && `<span class="badge pack" title="It comes with read-only data it needs (${esc(packText(m))}): added and removed with it">+ data pack</span>`,
     m.untested && `<span class="badge untested" title="Runs in the emulator and its tests; not yet played on a real FM-1">Not yet tried on hardware</span>`].filter(Boolean);
   const a = document.createElement("article");
   a.className = `mod ${m.addon ? "addon" : "builtin"}`;
@@ -492,7 +534,7 @@ function card(m) {
       <p class="by">by ${by}</p>
       <ul class="tags" aria-label="Tags">${m.tags.map((t) => `<li${t === LARGE_TAG ? ` class="large" title="${esc(largeNote(m))}"` : ""}>${esc(t)}</li>`).join("")}</ul>
       <p class="desc">${esc(m.description)}</p>
-      <dl class="facts"><dt>Voices</dt><dd>${esc(m.voices || "—")}</dd><dt>Size</dt><dd>${size}</dd><dt>Licence</dt><dd>${esc(m.license || "—")}</dd>${m.addon && S.counts && S.counts[m.id] ? `<dt>Added</dt><dd title="How many times it was added from this page (approximate; adds with the tools are not counted)">${S.counts[m.id]}×</dd>` : ""}</dl>
+      <dl class="facts"><dt>Voices</dt><dd>${esc(m.voices || "—")}</dd><dt>Size</dt><dd>${esc(size)}</dd><dt>Licence</dt><dd>${esc(m.license || "—")}</dd>${m.addon && S.counts && S.counts[m.id] ? `<dt>Installed</dt><dd title="How many times it was installed from this page (approximate; installs with the tools are not counted)">${S.counts[m.id]} time${S.counts[m.id] === 1 ? "" : "s"}</dd>` : ""}</dl>
       ${links.length ? `<p class="links">${links.join("")}</p>` : ""}
       <div class="act"></div>
     </div>`;
@@ -507,8 +549,9 @@ function card(m) {
 
 // what a large add-on costs: much of an FM-1's room (296 KiB and what its package's image leaves), so little else fits beside it
 function largeNote(m) {
-  if (!dock()) return `A big one: it takes ${kib(sectors(m.size))}, a third to a half of an FM-1's room for add-ons, so only smaller ones fit beside it.`;
-  return `A big one: it takes ${kib(sectors(m.size))} of the FM-1's ${kib(roomOf(dock()))} for add-ons on its own, so only smaller ones fit beside it.`;
+  const n = kib(roomFor(m).total), w = packsOf(m).length ? " with its data pack" : "";
+  if (!dock()) return `A big one: it takes ${n}${w}, a third to a half of an FM-1's room for add-ons, so only smaller ones fit beside it.`;
+  return `A big one: it takes ${n}${w} of the FM-1's ${kib(roomOf(dock()))} for add-ons on its own, so only smaller ones fit beside it.`;
 }
 
 function button(text, cls, fn, disabled = false) {
@@ -537,23 +580,28 @@ function actions(m) {
     out.push(row, node("p", "note", "Coming soon to the catalog; until then, tools/dock.py deploy with its .dock."));
   } else {
     const busy = S.busy === m.id, other = S.busy && !busy;
+    const missing = here ? packsOf(m).filter((p) => !packHere(p.name)) : [];
     if (here && isAdded(here)) {
-      row.append(node("span", "state ok", "✓ Installed"), button(busy && S.doing !== "import" ? "Removing…" : "Remove", "danger", () => remove(m), !!S.busy));
+      row.append(node("span", "state ok", "✓ Installed"), button(busy && !S.doing ? "Removing…" : "Remove", "danger", () => remove(m), !!S.busy));
+      if (missing.length) row.append(button(busy && S.doing === "pack" ? "Adding…" : `Add its data pack`, "primary", () => add(m), !!S.busy));
       if (canTry) row.append(tryBtn());
+      if (missing.length && !msg) out.push(node("p", "note warn", `Its data pack ${missing.map((p) => p.name).join(", ")} is not on your ${name}: it plays nothing without it.`));
     } else if (here) {
       row.append(node("span", "state ok", `✓ On your ${name} (in its package)`));
       if (canTry) row.append(tryBtn());
     } else {
-      const fits = !d || !m.size || sectors(m.size) <= d.hello.largest;
+      const r = roomFor(m, true), fits = !d || !m.size || fitsNow(m), pk = packsOf(m).filter((p) => !packHere(p.name));
+      const withPk = pk.length ? `, with its data pack ${pk.map((p) => `${p.name} (${kib(sectors(p.size || 0))})`).join(", ")}` : "";
       const blocked = !navigator.requestMIDIAccess || (S.dev && !d) || !fits || other || busy;
       row.append(button(busy ? "Adding…" : `Add to my ${name}`, "primary wide", () => add(m), blocked));
       if (canTry) row.append(tryBtn());
       if (!msg) {
         const large = m.tags.includes(LARGE_TAG);
         if (S.dev && !d) out.push(node("p", "note", "Install fm1-dock first (above)."));
-        else if (!fits) out.push(node("p", "note bad", `Needs ${kib(sectors(m.size))}; the largest free piece is ${kib(d.hello.largest)}. Remove another add-on first.`));
-        else if (d && m.size) out.push(node("p", `note${large ? " warn" : ""}`, `Takes ${kib(sectors(m.size))} of the ${kib(d.hello.free)} free.`
-          + (large && boardOf() === BOARD.fm1 ? ` A big one: ${kib(sectors(m.size))} of the FM-1's ${kib(roomOf(d))} on its own.` : "")));
+        else if (!fits) out.push(node("p", "note bad", `Needs ${kib(r.total)}${withPk.replace(/^,/, "")}; ${kib(d.hello.free)} are free, the largest piece ${kib(d.hello.largest)}. Remove another add-on first.`));
+        else if (d && m.size) out.push(node("p", `note${large ? " warn" : ""}`, `Takes ${kib(r.total)} of the ${kib(d.hello.free)} free${withPk}.`
+          + (large && boardOf() === BOARD.fm1 ? ` A big one: ${kib(r.total)} of the FM-1's ${kib(roomOf(d))} on its own.` : "")));
+        else if (pk.length && !large) out.push(node("p", "note", `Comes with its data pack ${packText(m)}: added with it.`));
         else if (large) out.push(node("p", "note warn", largeNote(m)));
       }
     }
@@ -604,29 +652,52 @@ async function add(m) {
     await connect();
     const no = !dock() ? S.devErr || "No fm1-dock answered: see Your device, above." : onDevice(m) ? `Already on your ${devName()}.` : null;
     if (no) S.msg[m.id] = { text: no, cls: onDevice(m) ? "ok" : "bad" };
-    if (no || (m.size && sectors(m.size) > dock().hello.largest)) { renderCatalog(); return; }
+    if (no || (m.size && !fitsNow(m))) { renderCatalog(); return; }
   }
   S.busy = m.id;
+  S.doing = onDevice(m) ? "pack" : null;
   S.msg[m.id] = { text: "Fetching the module…" };
   renderCatalog();
   renderDevice();
   try {
     const mod = await moduleBlob(m);
+    const packs = await Promise.all(packsOf(m).map(packBlob));
     const midi = await midiAccess();
     say(m, `Looking for fm1-dock on the ${devName()}…`);
     const got = await addModule(midi, mod, (q) => ask(q, /^Update/.test(q) ? "Update" : "Add"),
-      (x, t) => say(m, `Sending: ${t}`, "", x));
+      (x, t) => say(m, `Sending: ${t}`, "", x), packs);
     if (got === null) say(m, "Cancelled: nothing was sent.");
     else {
-      say(m, `Done: ${got} is in fm1-dock. Hold HOME on the ${devName()} and pick it.`, "ok");
-      countAdd(m);
+      say(m, `Done: ${got}${packs.length ? " and its data pack are" : " is"} in fm1-dock. Hold HOME on the ${devName()} and pick it.`, "ok");
+      if (S.doing !== "pack") countAdd(m);      // (the synth once, never its pack)
     }
   } catch (e) {
     say(m, ACCESS[e.code] || explain(e), "bad");
     console.error(e);
   }
   S.busy = null;
+  S.doing = null;
   await connect({ log: !(dock() && dock().version) });
+}
+
+// fits in the free room now: its biggest piece in the largest free one, and all of it (the packs on the device not
+// counted) in what is free. (The pieces go first-fit, so a pair can still find no room for the second: the add then
+// deletes what it added and says so.)
+function fitsNow(m) {
+  const d = dock(), r = roomFor(m, true);
+  return !d || (r.big <= d.hello.largest && r.total <= d.hello.free);
+}
+
+async function packBlob(p) {
+  if (p.loaded) return p.loaded;
+  if (p.entry) p.loaded = await loadModule(p.entry);     // checked against the SHA-256 and ABI of index.json
+  else {
+    const r = await fetch(`modules/${encodeURIComponent(p.file)}`);
+    if (!r.ok) throw new Error(`${p.file}: HTTP ${r.status}`);
+    const blob = new Uint8Array(await r.arrayBuffer());
+    p.loaded = { blob, info: moduleInfo(blob) };
+  }
+  return p.loaded;
 }
 
 async function importInto(m, file) {
@@ -658,9 +729,13 @@ async function remove(m) {
   renderCatalog();
   renderDevice();
   try {
-    const st = await removeModule(await midiAccess(), m.module, (q) => ask(q, "Remove"));
+    // its data packs go with it, but not one another synth on the device lists too
+    const pk = packsOf(m).filter((p) => p.name && packHere(p.name)
+      && !usersOf(p.name).some((o) => o !== m && onDevice(o)));
+    const st = await removeModule(await midiAccess(), m.module, (q) => ask(q, "Remove"), pk.map((p) => p.name));
+    const freed = sectors(m.size || 0) + pk.reduce((a, p) => a + sectors(p.size || 0), 0);
     if (st === null) say(m, "Cancelled: nothing was changed.");
-    else if (st === "done") say(m, `Removed: its ${kib(sectors(m.size || 0))} are free again.`, "ok");
+    else if (st === "done") say(m, `Removed${pk.length ? `, with its data pack ${pk.map((p) => p.name).join(", ")}` : ""}: its ${kib(freed)} are free again.`, "ok");
     else say(m, `fm1-dock said: ${st}`, "bad");
   } catch (e) {
     say(m, ACCESS[e.code] || explain(e), "bad");
