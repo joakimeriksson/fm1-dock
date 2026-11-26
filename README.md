@@ -86,8 +86,8 @@ One firmware, many synths, now with room for them and effects under them.
   built-ins no longer fill, and the boot slot is gone ([#115](https://github.com/joakimeriksson/fm1-dock/issues/115),
   [#107](https://github.com/joakimeriksson/fm1-dock/issues/107)): on an FM-1 472 KiB with Standard (it was 296; the
   same figure as a unit reports) and 744 KiB with the Empty dock; on an SMK-37 448 KiB (it was 416).
-- **28 synths in the catalog**, from CS-1 and Scintilla to PROPHET, FM6, ARP 2600, ESQ-1, ORRERY and the newcomers
-  S1VAVE, EMINENT, MINIPOPS, ENSEMBLE and FLAT-20.
+- **29 synths in the catalog**, from CS-1 and Scintilla to PROPHET, FM6, ARP 2600, ESQ-1, ORRERY and the newcomers
+  S1VAVE, EMINENT, MINIPOPS, ENSEMBLE, FLAT-20 and JT-80X0.
 - **Fixes**: newer FM-1s (late 2026) have another display panel, washed out until now: fm1-dock sends M-Vave's own
   display setup, as the official firmware does (Scintilla 0.3.3 and FM-1 SID 0.3.1 too). Every knob click counts at any
   speed (#137); with OPTIONS > KNOBS CC on, the first turn of K1-K4 says that they send MIDI. The effects no longer
@@ -325,7 +325,7 @@ uv run --with python-rtmidi tools/dock.py bank-get [NAME] [-o FILE.hbk]       # 
 uv run --with python-rtmidi tools/dock.py bank-put FILE.hbk [NAME]            # a file's presets onto the unit
 ```
 
-**Data packs** (after 1.0): read-only data a synth uses but does not carry, such as wavetables or samples, added and
+**Data packs** (from 1.0): read-only data a synth uses but does not carry, such as wavetables or samples, added and
 deleted as a synth is. `tools/hbmod.py --pack NAME FILE` makes one; the module finds it by name
 (`hb_host_t.pack_find`, on a host that has it) and reads it in place from flash. A pack is never played and is not in
 the list of synths; adding or deleting one restarts the synth playing, so it looks again. Its file, like a synth's, is
