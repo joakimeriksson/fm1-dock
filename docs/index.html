@@ -440,11 +440,12 @@ uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock
         <tr><td>module RAM (<code>.data</code> + <code>.bss</code>)</td><td>272 KiB at 0x01C30000</td></tr>
         <tr><td><code>.ram_text</code> (code in RAM)</td><td>16 KiB, call it through <code>HB_FAR</code></td></tr>
         <tr><td>a deploy file</td><td>up to 272 KiB</td></tr>
-        <tr><td>deploy area</td><td>296 KiB, and from 1.0 the room the package's image leaves below 0x93000 (448 KiB with the Empty dock)</td></tr>
+        <tr><td>deploy area</td><td>296 KiB, and from 1.0 the room the package's image leaves below 0x93000: 472 KiB in all with Standard, 744 KiB with the Empty dock (448 of it the room). One add-on is in one area</td></tr>
+        <tr><td>a data pack</td><td>read-only data a module finds by name (<code>pack_find</code>), in flash as an add-on is, up to 272 KiB</td></tr>
         <tr><td>settings record</td><td>240 B per module</td></tr>
         <tr><td>banks</td><td>9 × 8 KiB, shared by all modules</td></tr>
         <tr><td>audio block</td><td>256 frames at 44.1 kHz: 5.8 ms</td></tr>
-        <tr><td>CPU</td><td>one core at 240 MHz, integers only, no 64-bit division</td></tr>
+        <tr><td>CPU</td><td>two cores at 240 MHz: render() on the first, a job on the second with <code>c1_run</code> / <code>c1_wait</code> (from render() only); integers only, no 64-bit division</td></tr>
         <tr><td>a probe</td><td>192 KiB file, 80 KiB RAM, 8 KiB output; watchdog 8 s</td></tr>
       </table>
       <h3>Flash</h3>
