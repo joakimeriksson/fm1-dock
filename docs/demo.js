@@ -8,6 +8,7 @@
 //   ?demo=fresh        an FM-1 running fm1-dock, nothing added
 //   ?demo=smk          an SMK-37 Pro running fm1-dock, FM-1 SID and AMB-1 added
 //   ?demo=presets      an FM-1 running fm1-dock 1.0 with saved presets: the page's Presets (the bank commands)
+//   ?demo=room         an FM-1 running fm1-dock 1.0 with Standard's room (472 KiB: the image's room too), nothing added
 //   ?demo=stock        an FM-1 with M-VAVE's firmware: no fm1-dock
 //   ?demo=none         nothing plugged in
 import { frame, parse, crc32, CMD } from "./dock.js";
@@ -23,6 +24,7 @@ const SCENES = {
   smk: { model: "SMK-37 Pro", identity: "SMK-37 Pro_921", dock: "0.6", added: [["FM-1 SID", 272640], ["AMB-1", 77764]] },
   presets: { model: "FM-1", identity: "FM-1_921", dock: "1.0", added: [["FM-106", 110000], ["FM6", 43000]],
     banks: [["CS-1", 0, 4096], ["FM-106", 1, 8176], ["FM-106", 2, 3000], ["B3 ORGAN", 0, 200]] },
+  room: { model: "FM-1", identity: "FM-1_921", dock: "1.0", added: [], areas: [[0x96000, 0xE0000], [0x67000, 0x93000]] },
   stock: { model: "FM-1", identity: "FM-1_015", dock: null, added: [] },
   none: null,
 };
@@ -69,6 +71,7 @@ class Device {
   constructor(scene, imageLen, latest, product) {
     this.scene = scene; this.access = new Access(); this.imageLen = imageLen; this.latest = latest; this.product = product;
     this.board = /^SMK/.test(scene.model) ? "smk37" : "fm1";
+    this.areas = scene.areas || AREAS[this.board];
     this.deployed = [];
     for (const [name, size] of scene.added) {
       const gap = this.gaps().find((x) => x[1] >= Math.ceil(size / 4096) * 4096);
@@ -103,12 +106,12 @@ class Device {
 
   modules() {
     return [...PACKAGE.map(([name, kind, size], i) => ({ name, kind, size, at: kind ? 0x02035000 + i * 0x10000 : 0 })),
-      ...this.deployed.map((m) => ({ name: m.name, kind: 2, size: m.size, at: 0x02000000 + m.at }))];
+      ...this.deployed.map((m) => ({ name: m.name, kind: m.kind || 2, size: m.size, at: 0x02000000 + m.at }))];
   }
 
   gaps() {                                      // dock.c's dp_place: the free pieces of the deploy areas
     const out = [];
-    for (const [lo, hi] of AREAS[this.board]) {
+    for (const [lo, hi] of this.areas) {
       const mods = this.deployed.filter((m) => m.at >= lo && m.at < hi).sort((a, b) => a.at - b.at);
       let at = lo;
       for (const m of mods) { if (m.at > at) out.push([at, m.at - at]); at = m.at + Math.ceil(m.size / 4096) * 4096; }
@@ -175,7 +178,8 @@ class Device {
         const g = this.gaps(), free = g.reduce((a, x) => a + x[1], 0), largest = Math.max(0, ...g.map((x) => x[1]));
         const logW = this.logBase + this.logText.length;
         this.reply(cmd, seq, [0, 1, 2, mods.length, this.cur, this.rxd ? 1 : 0, 0, 0, ...u32(largest), ...u32(free), ...u32(272 * 1024),
-          ...u32(0), ...u32(0), ...u32(61000), ...u32(0), ...u32(logW), ...u32(139296), ...new Array(16).fill(0)]);
+          ...u32(0), ...u32(0), ...u32(61000), ...u32(0), ...u32(logW), ...u32(139296), ...new Array(16).fill(0),
+          ...(this.scene.areas ? [...u32(this.areas.reduce((n, [lo, hi]) => n + hi - lo, 0)), ...u32(this.areas[1][0])] : [])]);
         break;
       }
       case CMD.LIST:
@@ -213,9 +217,12 @@ class Device {
         if (old >= 0) this.deployed.splice(old, 1);   // (an update takes the old one's place)
         const need = Math.ceil(rx.size / 4096) * 4096, gap = this.gaps().find((x) => x[1] >= need);
         if (!gap) { this.reply(cmd, seq, [4], 300); this.log("deploy: no space"); break; }
-        this.deployed.push({ name: rx.name, size: rx.size, at: gap[0] });
-        this.cur = this.modules().findIndex((m) => m.name === rx.name);
-        this.log("deploy: done", `started ${rx.name}`);
+        const pack = !!(rd32(rx.got, 8) & 0x1000);     // (HB_F_PACK: a data pack, LIST's kind 6; the synth playing goes on)
+        const playing = mods[this.cur] && mods[this.cur].name;
+        this.deployed.push({ name: rx.name, size: rx.size, at: gap[0], kind: pack ? 6 : 2 });
+        this.cur = this.modules().findIndex((m) => m.name === (pack ? playing : rx.name));
+        if (this.cur < 0) this.cur = 0;
+        this.log("deploy: done", `started ${pack ? playing : rx.name}`);
         this.reply(cmd, seq, [0, 0, 0, 0, ...u32(0x02000000 + gap[0])], 900);
         break;
       }

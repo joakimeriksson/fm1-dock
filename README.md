@@ -86,8 +86,8 @@ One firmware, many synths, now with room for them and effects under them.
   built-ins no longer fill, and the boot slot is gone ([#115](https://github.com/joakimeriksson/fm1-dock/issues/115),
   [#107](https://github.com/joakimeriksson/fm1-dock/issues/107)): on an FM-1 472 KiB with Standard (it was 296; the
   same figure as a unit reports) and 744 KiB with the Empty dock; on an SMK-37 448 KiB (it was 416).
-- **29 synths in the catalog**, from CS-1 and Scintilla to PROPHET, FM6, ARP 2600, ESQ-1, ORRERY and the newcomers
-  S1VAVE, EMINENT, MINIPOPS, ENSEMBLE, FLAT-20 and JT-80X0.
+- **30 synths in the catalog**, from CS-1 and Scintilla to PROPHET, FM6, ARP 2600, ESQ-1, ORRERY and the newcomers
+  S1VAVE, EMINENT, MINIPOPS, ENSEMBLE, FLAT-20, JT-80X0 and VECTOR37 (with its wavetables as a data pack).
 - **Fixes**: newer FM-1s (late 2026) have another display panel, washed out until now: fm1-dock sends M-Vave's own
   display setup, as the official firmware does (Scintilla 0.3.3 and FM-1 SID 0.3.1 too). Every knob click counts at any
   speed (#137); with OPTIONS > KNOBS CC on, the first turn of K1-K4 says that they send MIDI. The effects no longer
@@ -104,7 +104,7 @@ One firmware, many synths, now with room for them and effects under them.
   the pads in OPTIONS > PADS as NOTES, OFF or CHORDS in a major key (#124).
 - **MIDI clock and transport** reach the synth on time, from the TRS jack too (#110).
 - **A safer restart**: a module written where code ran is started after the restart, not before (#126, #87).
-- **An add counter on the page**: the page counts how many times each add-on is added ([below](#the-add-counter)).
+- **An add counter on the page**: each card says how many times the add-on was installed from the page ([below](#the-add-counter)).
 - **Guides** for players and for anyone adding a synth or an effect, and `tests/level_test.py`, which plays big chords
   through every add-on and fails on clipping (#97, #109).
 
@@ -224,7 +224,7 @@ RAM needs it. The originals are linked; their manuals apply.
 | **MINIPOPS** | Joakim Eriksson | 14 drum sounds | 10 KiB | The Korg Mini Pops 7 rhythm box of 1973, worked as the machine is: ten rhythm keys that combine, the A / B lever, tambourine, guiro and quijada, and its sounds to strike by hand. |
 | **ENSEMBLE** | Joakim Eriksson, after bonszaimusic's Caravel | 6 | 11 KiB | Fourteen string, choir and dark pads in a stereo three-tap ensemble, with a morph from strings through choir to dark: ORRERY's pads as a synth of their own. |
 | **ORRERY** | Joakim Eriksson | a band: strings, a lead on the keys, bass and drums | 176 KiB | The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview, not yet played on an FM-1. [Its source](https://github.com/joakimeriksson/orrery-fm1). |
-| **VECTOR37** | M. Geisler (genkigenki) | 8 | 190 KiB, and its wavetables: the data pack V37-WT, 103 KiB | An orbiting overtone synth after the Beetlecrab Vector, vector synthesis as the Prophet VS and the Wavestation had it: four corners, each two overtone or wavetable generators, a blend and a filter, mixed by a moon circling a sun along a path you shape; 32 factory sounds, your own in a bank. Its voices run on both cores. Its delay and reverb are out (the dock's EFFECT plays under it). On the FM-1: SAVE stores the sound in your bank (held + PRESETS picks the slot), EDIT + SAVE randomizes, PRESETS steps through your sounds too, and a planet's filter knobs come first. Add it before its pack. Not on the page yet: `tools/dock.py deploy` the two. [The original](https://github.com/genkigenki/Vector37). |
+| **VECTOR37** | M. Geisler (genkigenki) | 8 | 196 KiB, and its wavetables: the data pack V37-WT, 103 KiB | An orbiting overtone synth after the Beetlecrab Vector, vector synthesis as the Prophet VS and the Wavestation had it: four corners, each two overtone or wavetable generators, a blend and a filter, mixed by a moon circling a sun along a path you shape; 32 factory sounds, your own in a bank. Its voices run on both cores. Its delay and reverb are out (the dock's EFFECT plays under it). On the FM-1: SAVE stores the sound in your bank (held + PRESETS picks the slot), EDIT + SAVE randomizes, PRESETS steps through your sounds too, and a planet's filter knobs come first. The page adds it with its pack and removes the two together; with the tools, `tools/dock.py deploy` it before its pack. [The original](https://github.com/genkigenki/Vector37). |
 
 The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas), plus, from 1.0, the room the package's
 built-in synths leave below it: with the Empty dock 744 KiB in all on an FM-1, with Standard 472. The page's meter shows
@@ -329,7 +329,11 @@ uv run --with python-rtmidi tools/dock.py bank-put FILE.hbk [NAME]            # 
 deleted as a synth is. `tools/hbmod.py --pack NAME FILE` makes one; the module finds it by name
 (`hb_host_t.pack_find`, on a host that has it) and reads it in place from flash. A pack is never played and is not in
 the list of synths; adding or deleting one restarts the synth playing, so it looks again. Its file, like a synth's, is
-up to 272 KiB. Add the bigger of a synth and its pack first: the bigger one takes the plain area.
+up to 272 KiB. Add the bigger of a synth and its pack first: the bigger one takes the plain area. The page does this
+itself: a catalog entry names its packs (`"packs": ["v37-wt.dock"]` in `docs/modules/modules.json`), its card shows them
+and counts their room, Add sends the synth and then the packs not on the unit yet (the bigger first, after one question;
+if a pack does not go in, the synth it just added is deleted again), and Remove deletes the packs with the synth unless
+another synth on the unit lists them too.
 
 **Presets in a file** (from 1.0): what the synths saved lies in nine banks that all of them share. The page's
 **Presets** box (under the room meter) and `tools/dock.py` back all of it up into a `.hbk` file, export one synth's
@@ -387,9 +391,9 @@ The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `pla
 
 ## The add counter
 
-The page counts how many times each add-on is added from it (the "Added" line on a card). A small Cloudflare Worker,
+The page counts how many times each add-on is installed from it (the "Installed" line on a card). A small Cloudflare Worker,
 [counter/](counter/), keeps one number per add-on and day: no address, no cookie, nothing about you or your unit. Do
-Not Track is respected. Adds made with `tools/dock.py` are not counted, so the numbers are approximate.
+Not Track is respected. Installs made with `tools/dock.py` are not counted, so the numbers are approximate.
 
 ## Credits
 

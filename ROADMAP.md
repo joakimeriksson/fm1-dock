@@ -5,7 +5,7 @@ Where fm1-dock is going, in the order it is planned. What is done is in the
 
 ## Now: 1.0 (released 2026-11-25)
 
-Every synth is an add-on: 29 in the catalog and eight effects, with up to 744 KiB for add-ons on an FM-1 (the
+Every synth is an add-on: 30 in the catalog and eight effects, with up to 744 KiB for add-ons on an FM-1 (the
 Empty dock). Presets in a file, `.syx` for FM6 and PROPHET, data packs, the SMK-37's own keys and pads, MIDI clock
 and transport, and the newer FM-1s' display. Played on a real FM-1 and SMK-37. The plans of 0.8 and 0.9 (the open
 dock, the packs, the room) are done; the [releases](https://github.com/joakimeriksson/fm1-dock/releases) say what
@@ -13,8 +13,6 @@ each version brought.
 
 ## Next: 1.0.x
 
-- **VECTOR37 on the page**: the module and its wavetable pack (V37-WT) work with 1.0 (`dock.py deploy`, the pack
-  first), but the page cannot yet add a synth together with its pack, so VECTOR37 has no card yet.
 - **The newer FM-1s' display**: 1.0 sends M-Vave's own display setup; still to be seen on a late-2026 unit.
 - **The SMK-37 Elite and MKE-P37, and the newer flash chip** ([#99](https://github.com/joakimeriksson/fm1-dock/issues/99),
   [#112](https://github.com/joakimeriksson/fm1-dock/issues/112)): the installer accepts them; nobody has run 1.0 on

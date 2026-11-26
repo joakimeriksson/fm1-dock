@@ -12,7 +12,8 @@ tools/dock.py select sends it, into the DIN jack once fm1-dock has booted. For a
 deployed table and the module as fm1-dock's deploy leaves them on an FM-1 with nothing deployed yet (dock.c's
 d_commit: the module relocated to the deploy area's start, as tools/hbmod.py moves one, its table entry in DT_A with
 seq 1; DT_B erased), so even a module of 266 KiB is there at boot instead of 100 s of SysEx through the 31250-baud
-jack. OUT/index.json lists them for the page.
+jack. A module's data packs (its "packs" in modules.json) are laid after it, as deploys of them after it leave them.
+OUT/index.json lists them for the page.
 
   tools/tryit.py OUT_DIR [--modules docs/modules] [--fw DIR]    (--fw: the site's fw/, tools/site_packages.py's:
                                                                 its index.json says which .dock the site serves)
@@ -41,23 +42,26 @@ def xip(off):
     return 0x02000000 + off - 0x4000            # hal/fm1_xip.h FM1_XIP
 
 
-def sectors_for(blob):
-    """{flash offset: 4096 bytes}: what fm1-dock's deploy of blob into an empty deploy area writes (d_commit)"""
-    h, _, _ = hbmod.parse(blob)
-    if h["abi"] != hbmod.HB_ABI:
-        raise ValueError(f"{h['name']}: built for ABI {h['abi']}, fm1-dock has {hbmod.HB_ABI}")
-    at = DP_LO                                  # first fit, nothing deployed
-    moved = hbmod.move(blob, xip(at))           # header + relocations + image, relocated to run there
-    need = (len(moved) + SECTOR - 1) // SECTOR * SECTOR
-    if at + need > DP_HI:
-        raise ValueError(f"{h['name']}: {len(moved)} B, larger than the deploy area")
-    crc = hbmod.parse(moved)[0]["crc"]
-    padded = moved + b"\xff" * (need - len(moved))
-    out = {at + o: padded[o:o + SECTOR] for o in range(0, need, SECTOR)}
-    slot = struct.pack("<4I", SLOT_MAGIC, xip(at), len(moved), crc)
-    seq, n = 1, 1
-    head = struct.pack("<4I", DT_MAGIC, seq, n, zlib.crc32(struct.pack("<2I", seq, n) + slot))
-    out[DT_A] = (head + slot).ljust(SECTOR, b"\xff")
+def sectors_for(blob, packs=()):
+    """{flash offset: 4096 bytes}: what fm1-dock's deploys of blob into an empty deploy area, then of its data packs
+    (README "Data packs"), write (d_commit: each first fit after the one before, a slot each in the table)"""
+    at, slots, out = DP_LO, [], {}
+    for b in (blob, *packs):
+        h, _, _ = hbmod.parse(b)
+        if h["abi"] != hbmod.HB_ABI:
+            raise ValueError(f"{h['name']}: built for ABI {h['abi']}, fm1-dock has {hbmod.HB_ABI}")
+        moved = hbmod.move(b, xip(at))          # header + relocations + image, relocated to run there
+        need = (len(moved) + SECTOR - 1) // SECTOR * SECTOR
+        if at + need > DP_HI:
+            raise ValueError(f"{h['name']}: {len(moved)} B, no room left for it in the deploy area")
+        crc = hbmod.parse(moved)[0]["crc"]
+        padded = moved + b"\xff" * (need - len(moved))
+        out.update({at + o: padded[o:o + SECTOR] for o in range(0, need, SECTOR)})
+        slots.append(struct.pack("<4I", SLOT_MAGIC, xip(at), len(moved), crc))
+        at += need
+    seq, n = 1, len(slots)
+    head = struct.pack("<4I", DT_MAGIC, seq, n, zlib.crc32(struct.pack("<2I", seq, n) + b"".join(slots)))
+    out[DT_A] = (head + b"".join(slots)).ljust(SECTOR, b"\xff")
     out[DT_B] = b"\xff" * SECTOR
     return out
 
@@ -102,8 +106,12 @@ def main(argv):
                 print(f"{fid:10} no .dock here: no Try it")
                 continue
             blob = dock.read_bytes()
+            packs = [mdir / f for f in m.get("packs", [])]
+            if not all(p.exists() for p in packs):
+                print(f"{fid:10} its data pack is not here: no Try it")
+                continue
             try:
-                secs = sectors_for(blob)
+                secs = sectors_for(blob, [p.read_bytes() for p in packs])
             except ValueError as e:
                 print(f"{fid:10} {e}: no Try it")
                 continue
