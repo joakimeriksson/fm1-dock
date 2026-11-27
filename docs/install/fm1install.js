@@ -346,6 +346,8 @@ export async function removeModule(midi, name, ask, packs = []) {
     if (!await ask(`Remove ${what} from the fm1-dock on the FM-1? ${pk.length ? "Their" : "Its"} flash is freed; its presets in the banks stay.`)) return null;
     const st = await dock.command(CMD.DELETE, name);
     if (st !== "done") return st;
+    if (m.kind === "bluetooth")                 // (the unit restarts without it: dock.c D_DELETE; back in ~2 s)
+      await new Promise((r) => setTimeout(r, 3500));
     for (const p of pk) {
       const s = await dock.command(CMD.DELETE, p);
       if (s !== "done") return `${name} is removed, its data pack ${p} not: ${s}`;

@@ -872,5 +872,25 @@
   "untested": true,
   "accent": "#b48cff",
   "alt": "CRUSH, an effect"
+ },
+ "ble": {
+  "file": "ble.dock",
+  "version": "1",
+  "source": "modules/ble: firmware/src/ble (Optimist's BLE stack, w0ts/optimist 2b559c1d, as HX), fm1-dock 1.1",
+  "by": "w0ts (Optimist), Joakim Eriksson",
+  "songs": "",
+  "title": "BLUETOOTH",
+  "module": "BLUETOOTH",
+  "author_url": "https://github.com/w0ts",
+  "original": "https://github.com/w0ts/optimist",
+  "links": [{"label": "source", "url": "https://github.com/joakimeriksson/fm1-dock/tree/main/firmware/src/ble"}],
+  "license": "GPL-3.0-only",
+  "voices": "Bluetooth MIDI: not a synth",
+  "description": "Bluetooth MIDI, in and out, beside whatever synth plays: a computer, phone or iPad connects to the unit as to any BLE-MIDI device, and the unit connects by itself to another one (an SMK-37 or another FM-1 running fm1-dock, a BLE keyboard or controller that needs no pairing). OPTIONS > BLUETOOTH: ON / OFF and the devices nearby; the last one picked is found again by itself. Before 1.1 it was in every image; now only who uses it gives it room. 8 KiB of the host's RAM; the unit restarts when it is added or removed.",
+  "save": "Nothing to save: fm1-dock keeps BLUETOOTH ON / OFF and the last device.",
+  "tags": ["bluetooth", "midi"],
+  "kind": "bluetooth",
+  "accent": "#5aa0ff",
+  "alt": "BLUETOOTH, Bluetooth MIDI as an add-on"
  }
 }

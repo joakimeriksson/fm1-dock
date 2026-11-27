@@ -10,11 +10,12 @@ export const CMD = { HELLO: 0x01, LIST: 0x02, INFO: 0x03, BEGIN: 0x10, DATA: 0x1
 export const STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed",
   "data missing", "not started", "not found", "bad message", "refused"];
 export const STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"];
-export const KIND = ["built in", "image", "deployed", "boot", "effect", "effect (image)", "pack", "pack (image)"];
-// (4, 5: effects, their places 0x80 up; 6, 7: data packs, theirs 0xC0 up)
+export const KIND = ["built in", "image", "deployed", "boot", "effect", "effect (image)", "pack", "pack (image)",
+  "bluetooth", "bluetooth (image)"];
+// (4, 5: effects, their places 0x80 up; 6, 7: data packs, theirs 0xC0 up; 8, 9: BLUETOOTH, 0xE0, from 1.1)
 // a module the player added (a synth, an effect or a data pack: hb_module.h "Effects", "Data packs"): it can be
 // removed, and takes the add-ons' room
-export const isAdded = (m) => m.kind === "deployed" || m.kind === "effect" || m.kind === "pack";
+export const isAdded = (m) => m.kind === "deployed" || m.kind === "effect" || m.kind === "pack" || m.kind === "bluetooth";
 export const PROBE_STATE = ["none", "running", "done", "crashed", "hung"];
 const MAN = [0x7d, 0x48, 0x42];
 const CHUNK = 256;
@@ -206,7 +207,9 @@ export class Dock {
     if (d.length < 88 || d[0] !== 0 || d[1] < 1) return null;
     const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, "0"), fl = rd32(d, 12), log2 = fl & 255;
     return { format: d[1], board: d[2] ? "smk37" : "fm1", cpu1: d[3], cores: d[3] === 3 || d[3] === 5 ? 2 : 1, reset: d[4],
-      bleAddr: d[5] ? [...d.slice(6, 12)].reverse().map((x) => hex(x, 2)).join(":") : null,
+      bleAddr: d[5] & 1 ? [...d.slice(6, 12)].reverse().map((x) => hex(x, 2)).join(":") : null,
+      // (1.1) BLUETOOTH saved ON, and whether its add-on is there (null: an fm1-dock before 1.1, BLE in its image)
+      bleOn: !!(d[5] & 2), bleAdded: d[5] & 6 ? !!(d[5] & 4) : null,
       flashId: hex(fl, 6), flashSize: log2 >= 16 && log2 <= 26 ? 2 ** log2 : null, free: rd32(d, 16), largest: rd32(d, 20),
       modRam: rd32(d, 24), modRamUsed: rd32(d, 28), mhz: rd32(d, 32), soc: cstr(d, 36, 44), version: cstr(d, 44, 60),
       build: cstr(d, 60, 72), model: cstr(d, 72, 88), room: d.length >= 96 ? rd32(d, 88) : null,

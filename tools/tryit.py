@@ -219,7 +219,7 @@ def main(argv):
     print(f"package {pkg.name if pkg else '(none: the plain area only)'}" +
           (f": the image's room {room[1]:#x}..{HB_AREA_HI:#x}, chip key {room[0]:#06x}" if room else ""))
     for fid, m in json.loads((mdir / "modules.json").read_text()).items():
-        if m.get("kind") in ("effect", "pack"):   # (not in the list of synths: nothing to pick)
+        if m.get("kind") in ("effect", "pack", "bluetooth"):   # (not in the list of synths: nothing to pick)
             continue
         entry = {"script": f"{fid}.txt"}
         name = m.get("module") or m.get("title")

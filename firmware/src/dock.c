@@ -276,6 +276,7 @@ static pk_entry_t pkm[PK_SLOTS];
 static uint32_t n_pk;
 /* BLUETOOTH (hb_module.h "BLUETOOTH": the file flagged HB_F_BLE, at most one): HX, set up and started at boot */
 static const hb_file_t *ble_file;
+static uint8_t ble_kind;                        /* K_DEPLOYED (added) or K_IMAGE */
 /* Code written where code ran: the chip keeps what it fetched from flash (its instruction cache), and the flash
  * driver's flushinv drops the data cache's lines only: after a write there the old code and the new run mixed,
  * until a reset (seen on an FM-1, #87: tests/cache_hw_test.py; iflush, by line or by word, changed nothing:
@@ -398,8 +399,10 @@ static void add_slot(const hb_slot_t *sl, uint32_t kind, uint32_t lo, uint32_t h
             hb_log_u32("bluetooth refused", kind << 16 | e.state);
             return;
         }
-        if (!ble_file || kind == K_DEPLOYED)
+        if (!ble_file || kind == K_DEPLOYED) {
             ble_file = f;
+            ble_kind = (uint8_t)kind;
+        }
         hb_log_u32("bluetooth ok", kind << 16);
         return;
     }
@@ -2266,6 +2269,10 @@ static void info_fill(uint8_t *b)               /* [0] the status, then the reco
         b[IN_BT] = 1;
         memcpy(b + IN_ADDR, ble_rec + 4, 6);
     }
+    if (ble_rec[0])                             /* (1.1) BLUETOOTH saved ON; 4: the BLUETOOTH add-on is here */
+        b[IN_BT] |= 2u;
+    if (ble_file)
+        b[IN_BT] |= 4u;
     wr32(b + IN_FLASH, flash_id);
     wr32(b + IN_FREE, all);
     wr32(b + IN_BIG, big);
@@ -2313,7 +2320,7 @@ static void draw_about(uint32_t top)
         case 5: put_s(put_kib(put_s(put_kib(p, "add-ons ", rd32(in + IN_FREE)), " KiB free, "), "", rd32(in + IN_BIG)), " max"); break;
         case 6:
             p = put_s(p, "BT ");
-            if (!in[IN_BT]) { put_s(p, "-"); break; }
+            if (!(in[IN_BT] & 1u)) { put_s(p, "-"); break; }
             for (k = 6; k--; ) {
                 p = put_x(p, in[IN_ADDR + k], 2);
                 if (k) *p++ = ':';
@@ -2750,6 +2757,15 @@ static uint32_t deploy_frame(void)
             wr32(r + 8, pkm[i].file->code_size);
             wr32(r + 12, (uint32_t)pkm[i].file);
             memcpy(r + 16, pkm[i].file->name, 24);
+            d_reply(cmd, seq, r, 40);
+        }
+        if (ble_file) {                         /* BLUETOOTH: place 0xE0, kind 8 (added) or 9 (in the image) */
+            memset(r, 0, sizeof r);
+            r[1] = 0xE0u; r[2] = M_OK; r[3] = ble_kind == K_DEPLOYED ? 8u : 9u;
+            wr32(r + 4, ble_file->version);
+            wr32(r + 8, ble_file->code_size + ble_file->data_size + ble_file->rt_size);
+            wr32(r + 12, (uint32_t)ble_file);
+            memcpy(r + 16, ble_file->name, 24);
             d_reply(cmd, seq, r, 40);
         }
         memset(r, 0, sizeof r);
