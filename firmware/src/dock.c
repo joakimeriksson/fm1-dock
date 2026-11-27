@@ -88,6 +88,7 @@ static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #include "smk_midi_out.h"                    /* the 3.5 mm jack: MIDI out (Vector37's), the same stream as USB and BLE */
 #endif
 #include "hb_module.h"
+#include "ble/hx.h"                             /* BLUETOOTH's interface (the add-on, hb_module.h "BLUETOOTH") */
 #include "sense.c"
 #include "eq.c"
 
@@ -273,6 +274,8 @@ static uint8_t fx_held;                         /* not run this boot (a safe sta
 typedef struct { const hb_file_t *file; uint32_t key; uint8_t kind; } pk_entry_t;
 static pk_entry_t pkm[PK_SLOTS];
 static uint32_t n_pk;
+/* BLUETOOTH (hb_module.h "BLUETOOTH": the file flagged HB_F_BLE, at most one): HX, set up and started at boot */
+static const hb_file_t *ble_file;
 /* Code written where code ran: the chip keeps what it fetched from flash (its instruction cache), and the flash
  * driver's flushinv drops the data cache's lines only: after a write there the old code and the new run mixed,
  * until a reset (seen on an FM-1, #87: tests/cache_hw_test.py; iflush, by line or by word, changed nothing:
@@ -306,6 +309,10 @@ static int fx_fits(const hb_file_t *f)           /* an effect's RAM, and no code
 {
     return f->data_size <= HB_FX_RAM_SIZE && f->bss_size <= HB_FX_RAM_SIZE - f->data_size && !f->rt_size;
 }
+static int ble_fits(const hb_file_t *f)          /* BLUETOOTH's RAM and RAM for code */
+{
+    return f->data_size <= HB_BLE_RAM_SIZE && f->bss_size <= HB_BLE_RAM_SIZE - f->data_size && f->rt_size <= HB_BLE_RT_SIZE;
+}
 static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /* in flash [lo, hi) */
 {
     const hb_file_t *f = (const hb_file_t *)sl->at;
@@ -324,10 +331,14 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
         c = crc_upd(0, (const uint8_t *)f, head);
         return crc_upd(c, (const uint8_t *)f->base, img) == f->crc ? M_OK : M_BAD_CRC;
     }
-    if (f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : HB_DESC_MIN) > f->code_size || (f->desc & 3u))
+    if (f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : (f->flags & HB_F_BLE) ? (uint32_t)sizeof(hx_api_t)
+                   : HB_DESC_MIN) > f->code_size || (f->desc & 3u))
         return M_BAD_HEAD;
     if (f->flags & HB_F_FX) {                   /* an effect: its own RAM, no code in RAM */
         if (!fx_fits(f))
+            return M_TOO_BIG;
+    } else if (f->flags & HB_F_BLE) {           /* BLUETOOTH: its own RAM and RAM for code */
+        if (!ble_fits(f))
             return M_TOO_BIG;
     } else if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
         return M_TOO_BIG;
@@ -336,6 +347,15 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
     c = crc_upd(c, (const uint8_t *)f->base, img);
     if (c != f->crc)
         return M_BAD_CRC;
+    if (f->flags & HB_F_BLE) {                  /* HX's header: its magic and ABI, every call in its code */
+        const hx_api_t *x = (const hx_api_t *)(f->base + f->desc);
+        uint32_t lo = f->base, hi = f->base + f->code_size;
+#define BX_IN(p) ((uint32_t)(p) >= lo && (uint32_t)(p) < hi)
+        return x->magic == HX_MAGIC && x->abi == HX_ABI && BX_IN(x->init) && BX_IN(x->set) && BX_IN(x->poll) &&
+               BX_IN(x->out) && BX_IN(x->state) && BX_IN(x->kept) && BX_IN(x->stop) && BX_IN(x->diag) && BX_IN(x->tick) &&
+               BX_IN(x->scan) && BX_IN(x->list) && BX_IN(x->pick) && BX_IN(x->cstatus) && BX_IN(x->rec) ? M_OK : M_BAD_HEAD;
+#undef BX_IN
+    }
     if (f->flags & HB_F_FX) {
         const hb_fx_t *x = (const hb_fx_t *)(f->base + f->desc);
         uint32_t lo = f->base, hi = f->base + f->code_size, pa = (uint32_t)x->params;
@@ -371,6 +391,16 @@ static void add_slot(const hb_slot_t *sl, uint32_t kind, uint32_t lo, uint32_t h
         if (i == n_fx) n_fx++;
         hb_log_u32("effect ok", kind << 16 | i);
         hb_log(f->name);
+        return;
+    }
+    if (f->flags & HB_F_BLE) {                  /* BLUETOOTH: the add-on (the deployed one before one in the image) */
+        if (e.state != M_OK) {
+            hb_log_u32("bluetooth refused", kind << 16 | e.state);
+            return;
+        }
+        if (!ble_file || kind == K_DEPLOYED)
+            ble_file = f;
+        hb_log_u32("bluetooth ok", kind << 16);
         return;
     }
     if (f->flags & HB_F_PACK) {                 /* a data pack: an added one in place of the image's of its name */
@@ -727,7 +757,6 @@ static void mod_save(const void *p, uint32_t n) { rec_save(mods[cur].key, p, n);
  * header and only once that header's CRC is good (a boot firmware may have written over it). OFF by
  * default; ON in the module list's BLUETOOTH line. BLE in goes into the USB-MIDI ring (TIMER5, as USB's
  * own), so a module gets it as it gets USB; what the host sends out goes to BLE too. */
-#include "ble/hx.h"
 #define HX_S_MISSING 0xFFu                      /* (no HX) */
 static const hx_api_t *hx;
 static volatile uint8_t hx_live;                /* its TIMER5 and audio ISR parts may run */
@@ -748,7 +777,7 @@ static int ble_midi_in(uint32_t pkt)            /* TIMER5: the USB-MIDI ring's o
     mi_w++;
     return 1;
 }
-static const hx_host_t hx_host = {ble_flash_read, ble_midi_in};
+static const hx_host_t hx_host = {ble_flash_read, ble_midi_in, BOARD_SMK37 ? HB_BOARD_SMK37 : HB_BOARD_FM1};
 static void ble_out(uint32_t pkt)
 {
 #if BOARD_SMK37
@@ -816,14 +845,19 @@ static void ble_capture(void)                   /* after the settings, before an
 
 static void ble_boot(uint32_t safe)             /* after the settings, the module table and the boot guard */
 {
-    const hx_api_t *h = (const hx_api_t *)HX_XIP;
-    if (h->magic != HX_MAGIC || h->abi != HX_ABI || h->size < sizeof *h || h->size > HX_SIZE ||
-        crc_fast(0, (const uint8_t *)h + 16, h->size - 16u) != h->crc) {
-        hb_log(h->magic != HX_MAGIC ? "BLE: not in this build" : "BLE: HX damaged (written over?)");
-        hx_built = h->magic == HX_MAGIC;        /* (damaged: the line says MISSING; none: no line) */
+    const hb_file_t *f = ble_file;
+    const hx_api_t *h;
+    hx_built = 1;                               /* (the line is always there: without the add-on it says so) */
+    if (!f) {                                   /* (checked as the slots were read: check_module) */
+        hb_log("BLE: no BLUETOOTH add-on");
         return;
     }
-    hx_built = 1;
+    h = (const hx_api_t *)(f->base + f->desc);
+    ran_mark(FL_OF((uint32_t)f), (uint32_t)((const uint8_t *)f->base - (const uint8_t *)f) + f->code_size + f->data_size +
+             f->rt_size);                       /* (its code runs from there: a deploy over it restarts, ran_map) */
+    memcpy((void *)HB_BLE_RAM, (const uint8_t *)f->base + f->code_size, f->data_size);
+    memset((uint8_t *)HB_BLE_RAM + f->data_size, 0, f->bss_size);
+    memcpy((void *)HB_BLE_RT, (const uint8_t *)f->base + f->code_size + f->data_size, f->rt_size);
     if (rec_load(BLE_KEY, ble_rec, sizeof ble_rec))
         memset(ble_rec, 0, sizeof ble_rec);
     hx = h;
@@ -1674,7 +1708,7 @@ static void draw_opt_line(uint32_t o, uint32_t y, uint32_t on_it)
     if (o >= N_OPTS_HOST) {                     /* BLUETOOTH and HX's state */
         uint32_t b = ble_state();
         cv_text(12, 2, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
-        cv_text(150, 2, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
+        cv_text(150, 2, &FONT_S, b == HX_S_MISSING ? "NOT ADDED" : BLE_ST[b],
                 b == HX_S_MISSING || b == HX_S_NOCAL || b == HX_S_HELD ? C_BAD : b >= HX_S_LINK ? C_ACC : C_OFF);
         cv_blit(0, y);
         return;
@@ -1916,7 +1950,7 @@ static void draw_bt_page(uint32_t row)
         cv_begin(240, 20, r == row ? RGB(40, 30, 60) : C_BLACK);
         if (r == 0) {
             cv_text(12, 3, &FONT_S, "BLUETOOTH", r == row ? C_ACC : C_WHITE);
-            cv_text(150, 3, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
+            cv_text(150, 3, &FONT_S, b == HX_S_MISSING ? "NOT ADDED" : BLE_ST[b],
                     b == HX_S_MISSING || b == HX_S_NOCAL || b == HX_S_HELD ? C_BAD : b >= HX_S_LINK ? C_ACC : C_OFF);
         } else {
             const hx_dev_t *d = &bt_dev[r - 1u];
@@ -1930,7 +1964,10 @@ static void draw_bt_page(uint32_t row)
         }
         cv_blit(0, 50u + (r - first) * 21u);
     }
-    if (b == HX_S_OFF || b == HX_S_MISSING)
+    if (b == HX_S_MISSING) {
+        draw_text_box(0, 100, 240, &FONT_S, "BLUETOOTH IS AN ADD-ON:", C_OFF, 1);
+        draw_text_box(0, 120, 240, &FONT_S, "ADD IT ON THE PAGE", C_OFF, 1);
+    } else if (b == HX_S_OFF)
         draw_text_box(0, 100, 240, &FONT_S, "SEL: ON, THEN THE DEVICES", C_OFF, 1);
     else if (bt_n <= 2u && hx_live)
         draw_text_box(0, 50u + (1u + bt_n) * 21u, 240, &FONT_S, "SEARCHING...", C_OFF, 1);
@@ -2350,8 +2387,12 @@ static uint32_t d_commit(uint32_t *key)
         for (i = 0; i < n_pk && pkm[i].key != k; i++) ;
         if (i == PK_SLOTS)
             return D_NO_SPACE;
-    } else if (f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : HB_DESC_MIN) > f->code_size) {
+    } else if (f->desc + ((f->flags & HB_F_FX) ? (uint32_t)sizeof(hb_fx_t) : (f->flags & HB_F_BLE) ?
+                          (uint32_t)sizeof(hx_api_t) : HB_DESC_MIN) > f->code_size) {
         return D_BAD_HEAD;
+    } else if (f->flags & HB_F_BLE) {           /* BLUETOOTH: its own RAM */
+        if (!ble_fits(f))
+            return D_TOO_BIG;
     } else if (f->flags & HB_F_FX) {            /* an effect: its own limits, and a place in their list */
         uint32_t k = name_key(f->name);
         for (i = 0; i < n_fx && fxm[i].key != k; i++) ;
@@ -2370,7 +2411,7 @@ static uint32_t d_commit(uint32_t *key)
             return D_BAD_HEAD;
     *key = name_key(f->name);
     old = dt_find(*key);
-    if (old < dt.n && ((((const hb_file_t *)dt.s[old].at)->flags ^ f->flags) & (HB_F_PACK | HB_F_FX)))
+    if (old < dt.n && ((((const hb_file_t *)dt.s[old].at)->flags ^ f->flags) & (HB_F_PACK | HB_F_FX | HB_F_BLE)))
         return D_REFUSED;                       /* (the name is an added one's of another kind: a synth, an effect, a pack) */
     if (old == HB_SLOTS && dt.n >= HB_SLOTS)
         return D_NO_SPACE;
@@ -2768,6 +2809,10 @@ static uint32_t deploy_frame(void)
                 hfx_keep();
             }
             rx_end(st_);
+            if (st_ == D_OK && (((const hb_file_t *)RX_BUF)->flags & HB_F_BLE)) {
+                back = rx.prev_key;             /* BLUETOOTH: set up and started at boot (its RAM, its interrupts) */
+                restart_on = 1;
+            }
             if (st_ == D_OK && restart_on) {    /* written where code ran: started after a restart, not now (ran_map) */
                 hb_log("deploy: code ran from that flash: restarting");
                 st.sel_key = back;              /* (an effect: the module before it) */
@@ -2805,10 +2850,22 @@ static uint32_t deploy_frame(void)
             uint32_t m, keep = mods[cur].key;
             for (i = m = 0; i < dt.n; i++)
                 if (i != k) e[m++] = dt.s[i];
+            int ble = (((const hb_file_t *)dt.s[k].at)->flags & HB_F_BLE) != 0;
+            if (ble)
+                ble_stop();                     /* (BLUETOOTH: nothing of it runs from that flash again) */
             stop_module();
             r[0] = (uint8_t)dt_write(e, m);
             hb_log("deploy: deleted");
             hb_log(name);
+            if (ble && r[0] == D_OK) {          /* the unit restarts without it */
+                st.sel_key = keep;
+                store_flush();
+                restart_on = 1;
+                restart_at = fm1_ms;
+                r[2] = 1;                       /* (the computer waits for the unit to come back) */
+                rn = 8;
+                break;
+            }
             d_restart(keep);
             ch = 1;
         }
@@ -3580,7 +3637,7 @@ static void app_main(void)
                 eqp = 2;                        /* ABOUT */
                 eq_row = 0;
                 draw_about(0);
-            } else if (hx && sel == n_mods + N_OPTS_HOST && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {
+            } else if (hx_built && sel == n_mods + N_OPTS_HOST && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {
                 eqp = 4;                        /* BLUETOOTH: ON / OFF and DEVICES */
                 eq_row = 0;
                 bt_page_open(1);

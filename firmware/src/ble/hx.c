@@ -243,20 +243,29 @@ static void hx_diag(uint32_t d[HX_DIAG_N])      /* the main loop (reads only) */
 #endif
 }
 
+#ifndef HX_MODULE
+#define HX_MODULE 0                             /* 1: BLUETOOTH, the add-on (modules/ble); 0: in the image (before 1.1) */
+#endif
+#if !HX_MODULE
 extern uint32_t _hx_data_start[], _hx_data_end[], _hx_data_load[];
+#endif
 static uint32_t hx_init(const hx_host_t *h, const uint8_t rec[HX_KEPT], uint32_t want, uint32_t failed)
 {
     struct ble_vm_info info;
     struct ble_rf_trims vm;
-    uint32_t *d = _hx_data_start, i;
-    const uint32_t *s = _hx_data_load;
+    uint32_t i;
     int complete, save;
+#if !HX_MODULE
+    uint32_t *d = _hx_data_start;
+    const uint32_t *s = _hx_data_load;
     while (d < _hx_data_end)                    /* HX's .data: the host's crt0 copies only its own */
         *d++ = *s++;
+#endif                                          /* (the add-on: the host set up its RAM, hb_module.h "BLUETOOTH") */
     host = h;
     for (i = 0; i < HX_KEPT; i++)
         kept[i] = rec[i];
-    complete = ble_vm_scan(vm_rd, 0, &info, &vm, 0, 0);
+    info.area = 0;
+    complete = h->board ? 0 : ble_vm_scan(vm_rd, 0, &info, &vm, 0, 0);   /* (the SMK-37: the host's copy, kept[8..]) */
     rf_src = (uint8_t)ble_rf_choose(complete, &vm, info.area, kept + 8, &use, &save);
     if (save)
         kept_new = 1;
@@ -270,6 +279,12 @@ static uint32_t hx_init(const hx_host_t *h, const uint8_t rec[HX_KEPT], uint32_t
     return hx_state();
 }
 
+#if HX_MODULE
+__attribute__((section(".hb_desc"), used))
+const hx_api_t hb_module = {
+#else
 __attribute__((section(".hx_head"), used))
-const hx_api_t hx_head = {HX_MAGIC, 0, 0, HX_ABI, hx_init, hx_set, hx_poll, hx_out, hx_state, hx_kept, hx_stop, hx_diag,
+const hx_api_t hx_head = {
+#endif
+    HX_MAGIC, 0, 0, HX_ABI, hx_init, hx_set, hx_poll, hx_out, hx_state, hx_kept, hx_stop, hx_diag,
                           hx_tick, hx_scan, hx_list, hx_pick, hx_cstatus, hx_rec};

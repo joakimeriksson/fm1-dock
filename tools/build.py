@@ -233,7 +233,6 @@ def build_app():
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
             ("cc", "-c", FW / "hal" / "fm1_cpu1.S", "-o", OUT / "fm1_cpu1.o"),
             ("cc", *flags, "-c", FW / "src" / f"{HOST}.c", "-o", OUT / f"{HOST}.o"),
-            ("cc", *flags, "-Ifirmware/src/ble", "-c", FW / "src" / "ble" / "hx.c", "-o", OUT / "hx.o"),
             # the fallback sound: modules/sine as part of the host (its descriptor renamed)
             ("cc", *CFLAGS, "-Ifirmware/dock", "-DHB_DESC=const hb_module_t hb_builtin_sine",
              "-c", SRC / "modules" / "sine" / "sine.c", "-o", OUT / "sine_builtin.o")]
@@ -241,12 +240,10 @@ def build_app():
     elf = OUT / f"{APP}.elf"
     ld = FW / "app.ld"
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", ld, OUT / "crt0.o", OUT / "fm1_vec.o",
-       OUT / "fm1_isr.o", OUT / "fm1_cpu1.o", OUT / f"{HOST}.o", OUT / "hx.o", OUT / "sine_builtin.o", "-o", elf)
-    for sect in ("text.bin", "data.bin", "ramtext.bin", "c1text.bin", "hx_text.bin", "hx_data.bin"):
+       OUT / "fm1_isr.o", OUT / "fm1_cpu1.o", OUT / f"{HOST}.o", OUT / "sine_builtin.o", "-o", elf)
+    for sect in ("text.bin", "data.bin", "ramtext.bin", "c1text.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
-                               ("common/bin/objcopy", "-O", "binary", "-j", ".hx", elf, OUT / "hx_text.bin"),
-                               ("common/bin/objcopy", "-O", "binary", "-j", ".hx_data", elf, OUT / "hx_data.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".c1_text", elf, OUT / "c1text.bin"),
@@ -273,15 +270,8 @@ def build_app():
             img += blob
     img += b"\xff" * (-len(img) % 4)
     (OUT / "host.bin").write_bytes(img)
-    # HX: its header's size and CRC (src/ble/hx.h; the CRC is dock.c's crc_upd, zlib's)
-    hx = bytearray((OUT / "hx_text.bin").read_bytes())
-    if (OUT / "hx_data.bin").exists():          # its .data's load image, where the linker put it
-        hx += b"\xff" * (symv("_hx_data_load") - HX_XIP - len(hx)) + (OUT / "hx_data.bin").read_bytes()
-    if symv("hx_head") != HX_XIP or symv("_hx_end") != HX_XIP + len(hx) or len(hx) > HX_SIZE:
-        raise SystemExit(f"HX: {len(hx)} B, header at {symv('hx_head'):#x}, end {symv('_hx_end'):#x}: not as hx.h")
-    struct.pack_into("<II", hx, 4, len(hx), zlib.crc32(bytes(hx[16:])))
-    (OUT / "hx.bin").write_bytes(hx)
-    return bytes(img), syms, dis, rt, bytes(hx)
+    # (BLE-MIDI is an add-on from 1.1, modules/ble: no HX in the image; its 40 KiB are the built-ins' and the room's)
+    return bytes(img), syms, dis, rt, b""
 
 
 def pack_slots(host, modules, hx):
@@ -420,8 +410,7 @@ def main():
     ap.add_argument("--only", action="store_true", help="build only the modules listed (--modules), not every module "
                     "as a file to deploy: a development build in a fraction of the time")
     ap.add_argument("--no-package", action="store_true", help="no .fwsc (and no SDK needed): the app and its XIP image")
-    ap.add_argument("--no-ble", action="store_true", help="no BLE-MIDI (HX) in the image: no BLUETOOTH line, its "
-                    "40 KiB free for modules")
+    ap.add_argument("--no-ble", action="store_true", help="(as every build from 1.1: BLE-MIDI is the add-on modules/ble)")
     ap.add_argument("--name", help="the outputs' name (build/NAME.bin, .fwsc, .syms): a solo app's")
     ap.add_argument("--app-name", help="the name on the crash and USB rescue screens")
     ap.add_argument("--identity", help="the package identity (FM-1_9NN) in place of fm1-dock's")
@@ -460,7 +449,8 @@ def main():
                 print(f"warning: SDK {rel} differs from AC79NN_SDK_V1.2.1; the package will not match the reference")
     OUT.mkdir(parents=True, exist_ok=True)
     import hbmod
-    every = sorted(d for d in (SRC / "modules").iterdir() if d.is_dir() and d.name != "lib" and any(d.glob("*.c")))
+    every = sorted(d for d in (SRC / "modules").iterdir() if d.is_dir() and d.name != "lib" and
+                   (any(d.glob("*.c")) or (d / "module.cfg").exists()))   # (modules/ble: its source is firmware/src/ble)
     names = ",".join(PACKAGE) if a.modules is None else a.modules
     dirs = [Path(d).resolve() if "/" in d else SRC / "modules" / d
             for d in names.split(",") if d and d != "none"]    # --modules none: an empty dock, only the sine
@@ -481,10 +471,6 @@ def main():
         mods = list(ex.map(hbmod.build_module, dirs))
         if not a.name and not a.only:           # the others as files to deploy (tools/dock.py deploy, the tests)
             list(ex.map(hbmod.build_module, [d for d in every if d not in dirs]))
-    if (a.pack or a.name) and hx and not a.no_ble:   # (a solo app: its module and its data take HX's place)
-        print("note     a solo app (--name / --pack): no BLE-MIDI in this image")
-    if a.no_ble or a.pack or a.name:
-        hx = b""
     img = pack_slots(host, mods, hx)
     if a.pack:                                  # the module's data after the last module (its own end + a scan)
         img += b"\xff" * (-(APP_XIP + len(img)) % 0x1000) + a.pack.read_bytes()
@@ -494,8 +480,6 @@ def main():
     (OUT / f"{APP}.bin").write_bytes(img)
     (OUT / f"{APP}_xip.bin").write_bytes(b"\0" * 0x120 + img)
     print(f"host     {OUT / 'host.bin'}  {len(host)} B of {SLOT_TABLE - APP_XIP}")
-    print(f"hx       {OUT / 'hx.bin'}  {len(hx)} B of {HX_SIZE} (BLE-MIDI, flash {HX_XIP - 0x02000000 + 0x4000:#x})"
-          if hx else "hx       none (--no-ble)")
     print(f"app      {OUT / (APP + '.bin')}  {len(img)} B of {APP_SLOT}, {len(mods)} modules")
     print(f"fm1-emu  {OUT / (APP + '_xip.bin')}  (fm1-live --bin)")
     if a.no_package:

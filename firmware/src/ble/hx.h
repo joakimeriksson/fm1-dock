@@ -75,6 +75,8 @@ typedef struct {
 typedef struct {
     int (*flash_read)(uint32_t off, void *dst, uint32_t n);   /* SPI, as stored -> 0 ok */
     int (*midi_in)(uint32_t pkt);               /* TIMER5: into the host's MIDI ring -> 1 taken */
+    uint32_t board;                             /* (ABI 4) hb_module.h HB_BOARD_*: on the SMK-37 the host finds the
+                                                 * radio's trims in its stock VM and gives HX the copy (kept[8..]) */
 } hx_host_t;
 
 typedef struct {
