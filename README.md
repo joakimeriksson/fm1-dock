@@ -25,8 +25,8 @@
 </p>
 
 fm1-dock is installed once. The synths are modules in its flash: hold HOME, pick another one, play. No reinstall.
-Fifteen synths so far, each its author's own code: three come with it (and a sine), twelve more go in from the page
-with one click, and out again. Every one can be tried first, without an FM-1: its card's **Try it** runs it in the emulator on the page. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
+Thirty synths to pick from, each its author's own code, and eight effects to put under them: they go in from the page
+with one click, and out again (the Standard package comes with CS-1, Scintilla and OberVave in). Every one can be tried first, without an FM-1: its card's **Try it** runs it in the emulator on the page. Your own module deploys the same way, over USB in seconds, and when something goes wrong, the log, the
 crash record and the render load are one click away in the browser. It also runs on the M-Vave SMK-37 keyboards.
 
 <p align="center">
@@ -77,7 +77,16 @@ its own package; the installers refuse an FM-1 package on an SMK-37, and the oth
 Back to any other firmware, or the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
 Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing firmware is at your own risk.
 
+## New in 1.0.1
+
+- **The TRS jack, fixed.** One stray byte on the line (a cable plugged in, a unit starting) made the FM-1 take the
+  jack's MIDI only in bursts, seconds apart, until it was restarted. A byte like that is passed over now.
+- **The SMK-37's 3.5 mm jack is MIDI out**: what goes out over USB and Bluetooth goes out of it too, so a TRS cable
+  into an FM-1 plays the FM-1 from the SMK-37 (the driver is Vector37's, by M. Geisler).
+
 ## New in 1.0
+
+**[The 1.0 video](https://www.youtube.com/watch?v=pHscJCtCjJo)**: thirty synths and eight effects, one tune through them all, in the emulator.
 
 One firmware, many synths, now with room for them and effects under them.
 
@@ -226,8 +235,8 @@ RAM needs it. The originals are linked; their manuals apply.
 | **ORRERY** | Joakim Eriksson | a band: strings, a lead on the keys, bass and drums | 176 KiB | The seventies' synths of a Jarre record playing together: the Eminent 310's strings through a Small Stone, an ARP 2600 lead, a second 2600 with its sequencer for the bass, the Korg Mini Pops 7, a tape echo, an effects box and a reverb, in seventeen setups. A preview, not yet played on an FM-1. [Its source](https://github.com/joakimeriksson/orrery-fm1). |
 | **VECTOR37** | M. Geisler (genkigenki) | 8 | 196 KiB, and its wavetables: the data pack V37-WT, 103 KiB | An orbiting overtone synth after the Beetlecrab Vector, vector synthesis as the Prophet VS and the Wavestation had it: four corners, each two overtone or wavetable generators, a blend and a filter, mixed by a moon circling a sun along a path you shape; 32 factory sounds, your own in a bank. Its voices run on both cores. Its delay and reverb are out (the dock's EFFECT plays under it). On the FM-1: SAVE stores the sound in your bank (held + PRESETS picks the slot), EDIT + SAVE randomizes, PRESETS steps through your sounds too, and a planet's filter knobs come first. The page adds it with its pack and removes the two together; with the tools, `tools/dock.py deploy` it before its pack. [The original](https://github.com/genkigenki/Vector37). |
 
-The added modules share 296 KiB of flash on an FM-1 (416 KiB on an SMK-37, in two areas), plus, from 1.0, the room the package's
-built-in synths leave below it: with the Empty dock 744 KiB in all on an FM-1, with Standard 472. The page's meter shows
+The added modules share the add-on room: on an FM-1 472 KiB in all with Standard and 744 KiB with the Empty dock (296 KiB
+in the add-on area, the rest the room the package's built-in synths leave below it), on an SMK-37 448 KiB in two areas. The page's meter shows
 what fits before you add one. An update keeps that room: a package whose built-ins would need the room of an added
 synth is refused (the page and the FM-1 name the ones to remove first). FM-1 SID, MONK-1, DUB-1, GATOR, ORRERY and Niagara Drift are large: with one of them added, only
 smaller ones fit beside it. The new modules of 0.8 have been played on an FM-1, both cores running: at their worst ARTIHIVE took 64 % of a block, PROPHET 53 %, Niagara Drift 33 %, Scintilla 46 % (its second core 35 %), with no overruns. Niagara Drift (156 KiB) leaves too little room in one piece for B3 ORGAN beside it and PROPHET: the free room can be split, and the page's meter shows the largest piece.
