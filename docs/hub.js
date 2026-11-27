@@ -39,7 +39,7 @@ const SIGNED_FROM = [0, 7];                     // releases built and attested o
 const PAGE = 4096;                               // a module takes whole 4 KiB flash sectors
 const LARGE = 150 * 1024, LARGE_TAG = "large";   // an add-on that needs about half of an FM-1's deploy area on its own
 const KINDS = [["any", "Every kind"], ["analog", "Analog"], ["digital", "Digital & chip"], ["ambient", "Ambient & texture"],
-  ["keys", "Keys & acoustic"], ["effect", "Effects"]];
+  ["keys", "Keys & acoustic"], ["effect", "Effects"], ["bluetooth", "Bluetooth"]];
 const VIDEO = [   // the tunes in the video, as FM-1 SID played them there
   { title: "Arkanoid", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Arkanoid.sid" },
   { title: "Wizball", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Wizball.sid", song: 7 },
@@ -294,7 +294,9 @@ function renderDevice() {
     ${i ? `<tr><th>Hardware</th><td>${esc(i.model)} · ${esc(i.soc)}, ${i.cores} CPU core${i.cores > 1 ? "s" : ""} · flash
       <span class="mono">${esc(i.flashId)}</span>${i.flashSize ? `, ${kib(i.flashSize)}` : ""}</td></tr>` : ""}
     <tr><th>Modules</th><td><div class="dev-mods">${mods}</div></td></tr>
-    <tr><th>Room for add-ons</th><td>${kib(d.hello.free)} free of ${kib(roomOf(d))}${i ? `, the largest piece ${kib(i.largest)}` : ""}</td></tr></table>`;
+    <tr><th>Room for add-ons</th><td>${kib(d.hello.free)} free of ${kib(roomOf(d))}${i ? `, the largest piece ${kib(i.largest)}` : ""}</td></tr></table>
+    ${i && i.bleOn && i.bleAdded === false ? `<p class="say">Bluetooth is ON on this ${esc(name)}, but from fm1-dock 1.1 it is an
+      add-on: add <a href="#mod-ble"><b>BLUETOOTH</b></a> from the catalog to have Bluetooth MIDI again.</p>` : ""}`;
 }
 
 function renderRelease() {

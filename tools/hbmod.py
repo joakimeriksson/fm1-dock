@@ -53,6 +53,8 @@ MOD_RT, MOD_RT_SIZE = 0x01C04000, 0x4000
 PROBE_RAM, PROBE_RAM_SIZE, PROBE_FILE = 0x01C60000, 0x14000, 0x30000
 HB_F_PROBE = 0x100
 HB_F_FX = 0x800                                 # an effect (hb_module.h "Effects"): kind = effect, modules/fx.ld
+HB_F_BLE = 0x2000                               # BLUETOOTH (hb_module.h "BLUETOOTH"): kind = ble, modules/ble.ld
+BLE_RAM, BLE_RAM_SIZE, BLE_RT, BLE_RT_SIZE = 0x01C18000, 0x2000, 0x01C03F00, 0x100
 HB_F_PACK = 0x1000                              # a data pack (hb_module.h "Data packs"): data only, found by name
 PACK_MAX = MOD_RAM_SIZE                         # a .dock is received into the module RAM: a pack's file up to 272 KiB
 FX_RAM, FX_RAM_SIZE = 0x01C1A000, 0x6000
@@ -152,9 +154,9 @@ def symbols(syms):
             if re.match(r"^[0-9a-f]{8} ", ln) and len(ln.split()) >= 3}
 
 
-def link(objs, out, base, libs=(), probe=False, fx=False):
+def link(objs, out, base, libs=(), probe=False, fx=False, ble=False):
     ld = out / f"module_{base:08x}.ld"
-    ld.write_text((PROBES / "probe.ld" if probe else MODS / ("fx.ld" if fx else "module.ld")).read_text().replace("@BASE@", f"{base:#010x}"))
+    ld.write_text((PROBES / "probe.ld" if probe else MODS / ("ble.ld" if ble else "fx.ld" if fx else "module.ld")).read_text().replace("@BASE@", f"{base:#010x}"))
     elf = out / f"module_{base:08x}.elf"
     tc_root = build.toolchain()
     paths = []
@@ -201,8 +203,9 @@ def build_module(d):
     cfg = read_cfg(d)
     probe = cfg["kind"] == "probe"
     fx = cfg["kind"] == "effect"
-    if cfg["kind"] not in ("module", "probe", "effect"):
-        raise SystemExit(f"hbmod: {d.name}: kind = {cfg['kind']}? (module, effect or probe)")
+    ble = cfg["kind"] == "ble"
+    if cfg["kind"] not in ("module", "probe", "effect", "ble"):
+        raise SystemExit(f"hbmod: {d.name}: kind = {cfg['kind']}? (module, effect, ble or probe)")
     outdir = SRC / "build" / "probes" if probe else OUTDIR
     out = outdir / (d.stem if d.is_file() else d.name)
     out.mkdir(parents=True, exist_ok=True)
@@ -233,8 +236,8 @@ def build_module(d):
     build.tc_all(*[("cxx", *flags, *cfg["cxxflags"].split(), *own.get(s, []), "-c", s, "-o", o) if s.suffix == ".cc"
                    else ("cc", *flags, *own.get(s, []), "-c", s, "-o", o) for s, o in zip(srcs, objs)])
     libs = cfg["libs"].split()
-    elf_a, img_a, sym, syms, desc, (code, data, rt) = link(objs, out, BASE_A, libs, probe, fx)
-    _, img_b, _, _, desc_b, _ = link(objs, out, BASE_B, libs, probe, fx)
+    elf_a, img_a, sym, syms, desc, (code, data, rt) = link(objs, out, BASE_A, libs, probe, fx, ble)
+    _, img_b, _, _, desc_b, _ = link(objs, out, BASE_B, libs, probe, fx, ble)
     if any(n in sym for n in ("__init_array_start", "__ctors_start")) or ".init_array" in build.tc(
             "common/bin/objdump", "-h", elf_a):
         raise SystemExit("hbmod: static constructors (.init_array): a module has nobody to run them; "
@@ -243,20 +246,21 @@ def build_module(d):
     errors = []
     if desc != 0 or desc_b != 0:
         errors.append(f"the descriptor is at {desc:#x}, not at the start of the image")
-    ram, ram_size = (PROBE_RAM, PROBE_RAM_SIZE) if probe else (FX_RAM, FX_RAM_SIZE) if fx else (MOD_RAM, MOD_RAM_SIZE)
+    ram, ram_size = (PROBE_RAM, PROBE_RAM_SIZE) if probe else (FX_RAM, FX_RAM_SIZE) if fx else \
+        (BLE_RAM, BLE_RAM_SIZE) if ble else (MOD_RAM, MOD_RAM_SIZE)
     if fx and rt:
         errors.append("an effect has no .ram_text")
     if sym["_hb_data_start"] != ram:
         errors.append(".data does not start the module RAM")
-    if sym["_hb_rt_start"] != MOD_RT:
+    if sym["_hb_rt_start"] != (BLE_RT if ble else MOD_RT):
         errors.append(".ram_text does not start the module RAM text")
     ram_end = sym["_hb_bss_end"]
     if ram_end - ram > ram_size:
         errors.append(f"RAM {ram_end - ram} B > {ram_size}")
     if probe and image_offset(len(relocs)) + len(img_a) > PROBE_FILE:
         errors.append(f"a probe's file may be {PROBE_FILE} B")
-    if rt > MOD_RT_SIZE:
-        errors.append(f".ram_text {rt} B > {MOD_RT_SIZE}")
+    if rt > (BLE_RT_SIZE if ble else MOD_RT_SIZE):
+        errors.append(f".ram_text {rt} B > {BLE_RT_SIZE if ble else MOD_RT_SIZE}")
     dis = build.tc("common/bin/objdump", "-d", elf_a)
     (out / "module.dis").write_text(dis)
     (out / "module.syms").write_text(syms)      # (its statics' addresses in the module RAM: tests read a RAM dump)
@@ -271,7 +275,7 @@ def build_module(d):
     if errors:
         raise SystemExit("hbmod: checks failed")
     # (RAM addresses are fixed, HB_MOD_RAM: only flash addresses are relocated, in .data's image too)
-    h = {"magic": HB_MAGIC, "abi": HB_ABI, "flags": HB_F_PROBE if probe else HB_F_FX if fx else 0, "name": cfg["name"],
+    h = {"magic": HB_MAGIC, "abi": HB_ABI, "flags": HB_F_PROBE if probe else HB_F_FX if fx else HB_F_BLE if ble else 0, "name": cfg["name"],
          "version": int(cfg["version"]), "code_size": code, "data_size": data, "bss_size": ram_end - ram - data,
          "rt_size": rt, "worst_cycles": 0, "desc": desc, "base": BASE_A, "n_relocs": len(relocs), "reserved": 0, "crc": 0}
     blob = pack(h, relocs, img_a)

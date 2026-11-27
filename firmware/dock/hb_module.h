@@ -317,6 +317,19 @@ typedef struct hb_fx {
 } hb_fx_t;
 #define HB_FX const hb_fx_t hb_module __attribute__((section(".hb_desc"), used))
 
+/* BLUETOOTH: BLE-MIDI as an add-on (1.1; before it a fixed slot of every image): an hb_file_t flagged HB_F_BLE
+ * (tools/hbmod.py `kind = ble`, modules/ble.ld, modules/ble), at most one in the dock. Its descriptor is HX's
+ * (firmware/src/ble/hx.h hx_api_t) at the start of its image; it runs in place from flash beside whatever synth plays,
+ * its interrupts its own, with RAM of its own: .data + .bss at HB_BLE_RAM, .ram_text at HB_BLE_RT, both the host's
+ * (a synth keeps all of HB_MOD_RAM). The host sets them up at boot, before HX's init; added or removed, the unit
+ * restarts. */
+#define HB_F_BLE        0x2000u                 /* hb_file_t.flags */
+#define HB_BLE_RAM      0x01C18000u             /* its .data + .bss */
+#define HB_BLE_RAM_SIZE 0x2000u
+#define HB_BLE_RT       0x01C03F00u             /* its .ram_text: the last of the host's RAM for code (app.ld RAMTEXT),
+                                                 * inside the window code may run from (dock.c hb_pc_limits) */
+#define HB_BLE_RT_SIZE  0x100u
+
 /* (0.9 and before: the boot slot, a whole firmware fm1-dock started at power-on, flagged HB_F_BOOT; removed. A file
  * with these flags is refused, and a table entry for one is forgotten) */
 #define HB_F_BOOT       0x200u                  /* hb_file_t.flags */

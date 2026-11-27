@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Felucca memory map.
  * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120),
- * up to fm1-dock's slot table at 0x02014000 (flash 0x18000); HX right after it (flash 0x19000).
+ * up to fm1-dock's slot table at 0x02014000 (flash 0x18000); the built-ins right after it.
  * 0x01C00000..0x01C04000 holds .ram_text (code that must run while the flash
  * is busy: the flash driver) and .c1_text (the second core's waiting loop,
  * hal/fm1_cpu1.h); 0x01C04000..0x01C08000 is a module's .ram_text.
@@ -14,20 +14,14 @@
 MEMORY
 {
     XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x13EE0
-    HX     (rx)  : ORIGIN = 0x02015000, LENGTH = 0xA000   /* flash 0x19000: BLE-MIDI (src/ble/hx.h) */
-    RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x4000
-    RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 72K   /* (to 0x01C1A000: then an effect's RAM, HB_FX_RAM, 24 KiB) */
+    RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x3F00   /* (its last 256 B: BLUETOOTH's .ram_text, HB_BLE_RT) */
+    RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 64K   /* (to 0x01C18000: then BLUETOOTH's RAM, HB_BLE_RAM, 8 KiB, and an
+                                                        * effect's, HB_FX_RAM, 24 KiB) */
     POOL   (rw)  : ORIGIN = 0x01C20000, LENGTH = 0x10000
     NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D40
 }
 SECTIONS
 {
-    /* HX (src/ble/hx.h): its header first, its code and constants; its .data loaded behind them, copied by
-     * HX itself (crt0 copies only the host's); its .bss, .noinit and .ram_text are the host's sections' */
-    .hx : { KEEP(*(.hx_head)) *hx.o(.text* .rodata*) . = ALIGN(4); } > HX
-    .hx_data : { . = ALIGN(4); _hx_data_start = .; *hx.o(.data* .sdata*) . = ALIGN(4); _hx_data_end = .; } > RAM AT > HX
-    _hx_data_load = LOADADDR(.hx_data);
-    _hx_end = LOADADDR(.hx_data) + SIZEOF(.hx_data);
     .text : { KEEP(*(.text.crt0)) *(.text*) *(.rodata*) . = ALIGN(4); _etext = .; } > XIP
     .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); } > RAMTEXT AT > XIP
     _rt_load = LOADADDR(.ram_text);
