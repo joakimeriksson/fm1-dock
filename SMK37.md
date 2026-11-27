@@ -126,6 +126,9 @@ What is known, and how (fm1-emu runs the stock firmwares of both on the same chi
 ## Not yet on the SMK-37
 
 - **MIDI in from a jack**: the SMK-37 has none (the FM-1's MIDI in pin is a key matrix row there). USB-MIDI works.
+  Its 3.5 mm jack is MIDI **out**: it sends what USB-MIDI and BLE-MIDI send (the keys, pads, faders, wheels and
+  the module's MIDI), with or without a computer, on the OPTIONS channel; a TRS cable into an FM-1's MIDI IN plays it.
+  The driver is Vector37's (M. Geisler): UART1 TX on PC7, 31250 baud.
 - **Solo apps** (FM-1 SID as its own firmware).
 - The first click of a knob after power-on may not count (the encoder decoder settles on it).
 
