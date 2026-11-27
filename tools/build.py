@@ -220,7 +220,7 @@ HOST = "dock"
 PACKAGE = ["cs1", "scintilla", "obervave"]   # the modules in the package (all of modules/ no longer fits its app slot)                       # the host's source: firmware/src/dock.c
 SLOT_TABLE = 0x02014000             # firmware/src/dock.c HB_TABLE_AT (flash 0x18000), both boards
 HX_XIP = 0x02015000                 # firmware/src/ble/hx.h HX_AT (flash 0x19000): BLE-MIDI, a unit of its own, after the table
-HX_SIZE = 0xA000
+HX_SIZE = 0x10000
 
 
 def build_app():

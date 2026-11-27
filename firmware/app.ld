@@ -14,7 +14,7 @@
 MEMORY
 {
     XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x13EE0
-    HX     (rx)  : ORIGIN = 0x02015000, LENGTH = 0xA000   /* flash 0x19000: BLE-MIDI (src/ble/hx.h) */
+    HX     (rx)  : ORIGIN = 0x02015000, LENGTH = 0x10000  /* flash 0x19000: BLE-MIDI (src/ble/hx.h) */
     RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x4000
     RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 72K   /* (to 0x01C1A000: then an effect's RAM, HB_FX_RAM, 24 KiB) */
     POOL   (rw)  : ORIGIN = 0x01C20000, LENGTH = 0x10000

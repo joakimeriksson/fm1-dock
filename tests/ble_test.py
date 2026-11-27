@@ -40,8 +40,9 @@ ac e4 e4 30 30 30 27 27 56 56 c8 c8 ca ff ff ff""")
 
 
 def toggle(at):
-    """the list (HOME), down to its last line (BLUETOOTH), SEL, then HOME: at .. at + 650 ms"""
-    return f"{at}:8,{at + 50}:8^,{at + 200}:e6:40,{at + 400}:3,{at + 450}:3^,{at + 600}:8,{at + 650}:8^"
+    """the list (HOME), down to its last line (BLUETOOTH), SEL: its page; SEL on ON / OFF, then HOME twice: at .. at + 1050 ms"""
+    return (f"{at}:8,{at + 50}:8^,{at + 200}:e6:40,{at + 400}:3,{at + 450}:3^,{at + 600}:3,{at + 650}:3^,"
+            f"{at + 800}:8,{at + 850}:8^,{at + 1000}:8,{at + 1050}:8^")
 
 
 def run(case, keys, ms, flash=None, binp=et.APP):

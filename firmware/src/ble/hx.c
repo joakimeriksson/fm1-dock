@@ -13,6 +13,10 @@
  * finds the same device after a power-off, and the radio's trims copy (ble_vm.c). */
 #define BLE_API static
 #define BLE_DEVICE_NAME "FM1-DOCK"
+#define BLE_NAME_SEP " "
+#ifndef BLE_CENTRAL
+#define BLE_CENTRAL 3                           /* MINIMAL: connecting out without pairing (SMK-37, FM-1, controllers) */
+#endif
 #define FM1_IRQ_UNIT 1                          /* hal/fm1_irq.h: registers and attach only (the host has the rest) */
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
 #include "hx.h"
@@ -39,6 +43,8 @@ static uint8_t was_conn, on, up, rf_src, held_boot, kept_new;
 static uint8_t held[16][16];                    /* the notes a central has on: bit per note, per channel (TIMER5's) */
 static uint8_t kept[HX_KEPT];
 static struct ble_rf_trims use;
+#include "hx_dev.c"                             /* DEVICES: connecting out (BLE_CENTRAL) */
+_Static_assert(HX_DEVREC == BLE_DEV_STORE_SIZE, "the device record");
 
 BLE_API void ble_app_state(void)                /* the BLE interrupts, or the main loop with them held */
 {
@@ -180,6 +186,8 @@ static void hx_set(uint32_t want)               /* the main loop */
         return;                                 /* (no trims, or a failed boot: only the setting) */
     if (!up)
         return;
+    if (!on)
+        rc_none();                              /* (our central link and the search end) */
     fm1_ble_irqs_hold(1);
     ble_enable((int)on);
     if (!on)
@@ -263,4 +271,5 @@ static uint32_t hx_init(const hx_host_t *h, const uint8_t rec[HX_KEPT], uint32_t
 }
 
 __attribute__((section(".hx_head"), used))
-const hx_api_t hx_head = {HX_MAGIC, 0, 0, HX_ABI, hx_init, hx_set, hx_poll, hx_out, hx_state, hx_kept, hx_stop, hx_diag};
+const hx_api_t hx_head = {HX_MAGIC, 0, 0, HX_ABI, hx_init, hx_set, hx_poll, hx_out, hx_state, hx_kept, hx_stop, hx_diag,
+                          hx_tick, hx_scan, hx_list, hx_pick, hx_cstatus, hx_rec};

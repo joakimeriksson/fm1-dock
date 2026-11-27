@@ -495,6 +495,7 @@ static st_t st;
 static uint32_t st_dirty, st_changed;
 
 #define BLE_KEY 0x454C4248u                     /* "HBLE": BLE-MIDI's record (ble_rec), never a module's key */
+#define BLED_KEY 0x444C4248u                    /* "HBLD": BLUETOOTH's DEVICES (hx.h HX_DEVREC: LAST, the choice) */
 /* In flash: the record 0.9 and before have, as they have it (the first ST_RECS_OLD module records, its own length and
  * CRC: going back to one of them keeps it), then the further records with a CRC of theirs, in the same sector. */
 #define ST_OLD ((uint32_t)__builtin_offsetof(st_t, rec) + ST_RECS_OLD * (uint32_t)sizeof(st_rec_t))
@@ -776,6 +777,12 @@ static void ble_start(uint32_t failed)          /* HX's first code: only once BL
     fm1_guard_lock_top();
     hx_live = 1;
     fm1_irq_on();
+    {                                           /* DEVICES: LAST and the choice (zeros: none, NONE) */
+        uint8_t d[HX_DEVREC];
+        if (rec_load(BLED_KEY, d, sizeof d))
+            memset(d, 0, sizeof d);
+        hx->rec(d, 1);
+    }
 }
 
 #if BOARD_SMK37
@@ -837,10 +844,16 @@ static void ble_set(uint32_t on)                /* the main loop */
     ble_rec[0] = (uint8_t)on;
     rec_save(BLE_KEY, ble_rec, sizeof ble_rec);
 }
-static void ble_main(void)                      /* the main loop: what HX wants kept */
+static void ble_main(void)                      /* the main loop: what HX wants kept; connecting out (DEVICES) */
 {
-    if (hx_live && hx->kept(ble_rec + 4))
+    uint8_t d[HX_DEVREC];
+    if (!hx_live)
+        return;
+    if (hx->kept(ble_rec + 4))
         rec_save(BLE_KEY, ble_rec, sizeof ble_rec);
+    hx->tick();
+    if (hx->rec(d, 0))
+        rec_save(BLED_KEY, d, sizeof d);
 }
 /* the link's changes in the log, the first 16 of a boot: the state and the CONNECT_INDs (seen <<
  * 24 | taken << 16 | refused << 8 | why), and after a link the close (count << 24 | by << 20 | reason << 12 | the
@@ -1880,6 +1893,92 @@ static uint32_t fx_page_input(uint32_t *row, const int32_t *en, uint32_t b)   /*
     }
     if (any)
         draw_fx_page(*row);
+    return 0;
+}
+
+/* BLUETOOTH's page (SEL on its line): ON / OFF, then DEVICES (hx.h, ABI 4): NONE, LAST, the BLE-MIDI devices heard nearby
+ * (the radio scans while the page is open). SEL on a device connects to it: ready, it is LAST, which the FM-1 connects
+ * to again by itself while BLUETOOTH is ON; NONE: no connecting out (a computer can still connect to the FM-1) */
+#define BT_ROWS 6u                              /* the rows on screen (ON / OFF and the devices scroll under it) */
+static hx_dev_t bt_dev[HX_DEV_ROWS];
+static uint32_t bt_n;                           /* the devices' rows now */
+static void draw_bt_page(uint32_t row)
+{
+    static const char *const BARS[4] = {"", ".", "..", "..."};
+    char line[40];
+    uint32_t r, first, cs, b = ble_state();
+    bt_n = hx_live ? hx->list(bt_dev, HX_DEV_ROWS) : 0;
+    if (bt_n > HX_DEV_ROWS) bt_n = HX_DEV_ROWS;
+    first = row >= BT_ROWS ? row - BT_ROWS + 1u : 0;
+    lcd_fill(0, HB_TOP, 240, 240 - HB_TOP, C_BLACK);
+    draw_text_box(0, 30, 240, &FONT_S, "BLUETOOTH", C_OFF, 1);
+    for (r = first; r < first + BT_ROWS && r < 1u + bt_n; r++) {
+        cv_begin(240, 20, r == row ? RGB(40, 30, 60) : C_BLACK);
+        if (r == 0) {
+            cv_text(12, 3, &FONT_S, "BLUETOOTH", r == row ? C_ACC : C_WHITE);
+            cv_text(150, 3, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
+                    b == HX_S_MISSING || b == HX_S_NOCAL || b == HX_S_HELD ? C_BAD : b >= HX_S_LINK ? C_ACC : C_OFF);
+        } else {
+            const hx_dev_t *d = &bt_dev[r - 1u];
+            static const char *const TAG[4] = {"", "LAST", "...", "ON"};
+            line[0] = d->chosen ? '*' : ' ';
+            line[1] = ' ';
+            memcpy(line + 2, d->name, sizeof d->name);
+            cv_text(8, 3, &FONT_S, line, r == row ? C_ACC : C_WHITE);
+            cv_text(176, 3, &FONT_S, TAG[d->tag & 3u], d->tag == HX_TAG_CONNECTED ? C_ACC : C_OFF);
+            cv_text(214, 3, &FONT_S, BARS[d->bars & 3u], C_OFF);
+        }
+        cv_blit(0, 50u + (r - first) * 21u);
+    }
+    if (b == HX_S_OFF || b == HX_S_MISSING)
+        draw_text_box(0, 100, 240, &FONT_S, "SEL: ON, THEN THE DEVICES", C_OFF, 1);
+    else if (bt_n <= 2u && hx_live)
+        draw_text_box(0, 50u + (1u + bt_n) * 21u, 240, &FONT_S, "SEARCHING...", C_OFF, 1);
+    cs = hx_live ? hx->cstatus(line, sizeof line) : HX_CS_NONE;
+    if (cs != HX_CS_NONE)
+        draw_text_box(0, 190, 240, &FONT_S, line, cs == HX_CS_BAD ? C_BAD : cs == HX_CS_GOOD ? C_ACC : C_WHITE, 1);
+#if BOARD_SMK37
+    draw_text_box(0, 212, 240, &FONT_S, "SCALE: PICK    PATCH: BACK", C_OFF, 1);
+#else
+    draw_text_box(0, 212, 240, &FONT_S, "SEL: PICK    HOME: BACK", C_OFF, 1);
+#endif
+}
+static void bt_page_open(int open)
+{
+    if (hx_live)
+        hx->scan(open && ble_state() != HX_S_OFF ? 1u : 0u);
+}
+static uint32_t bt_page_input(uint32_t *row, const int32_t *en, uint32_t b)   /* 1: back to OPTIONS */
+{
+    static uint32_t t_drawn;
+    int32_t mv = en[ENC_SELECT] + en[ENC_PRESETS];
+    uint32_t redraw = fm1_ms - t_drawn >= 500u;   /* (the list moves by itself: redrawn twice a second) */
+    if (b & (1u << BTN_HOME)) {
+        bt_page_open(0);
+        return 1;
+    }
+    if (mv) {
+        int32_t r = (int32_t)*row + mv;
+        *row = r < 0 ? 0 : r > (int32_t)bt_n ? bt_n : (uint32_t)r;
+        redraw = 1;
+    }
+    if (b & (1u << BTN_SEL | 1u << BTN_PLAY)) {
+        if (*row == 0) {
+            ble_set(ble_state() == HX_S_OFF);   /* BLUETOOTH ON / OFF */
+            bt_page_open(1);                    /* (ON: the scan starts; OFF: stops) */
+        } else if (hx_live && ble_state() != HX_S_OFF) {
+            hx->pick(*row - 1u);
+        }
+        redraw = 1;
+    }
+    if (redraw) {
+        t_drawn = fm1_ms;
+        draw_bt_page(*row);
+        if (*row > bt_n) {
+            *row = bt_n;
+            draw_bt_page(*row);
+        }
+    }
     return 0;
 }
 
@@ -3134,7 +3233,7 @@ static void app_main(void)
     uint32_t prev = 0, k, full = 1, picker = 0, sel = 0, t_top = 0, held_any = 0, t_notes = 0, safe = 0;
     uint32_t home_t0 = 0, home_alone = 0, home_eaten = 0;   /* HOME held alone 1.5 s: the picker (HB_F_PANEL) */
     uint32_t ble_drawn = HX_S_MISSING + 1u, cc7_drawn = 127u;   /* (the OPTIONS lines as drawn) */
-    uint32_t eqp = 0, eq_row = 0, eq_said = 0;  /* a page open (1 the EQ's, 2 ABOUT, 3 the effect's), its line; the EQ's failure logged */
+    uint32_t eqp = 0, eq_row = 0, eq_said = 0;  /* a page open (1 the EQ's, 2 ABOUT, 3 the effect's, 4 BLUETOOTH's), its line; the EQ's failure logged */
     uint32_t fx_said = 0;                       /* the effect dropped, logged */
     uint32_t sheld = 0, t_press = 0;            /* the sensed keys held (bit k); the pressure's last round */
     int32_t oct_drawn = 99;
@@ -3408,6 +3507,8 @@ static void app_main(void)
             continue;
         }
         if (deploy_tick()) {                    /* a deploy: the module may have changed */
+            if (eqp == 4u)
+                bt_page_open(0);        /* (the scan stops with the page) */
             picker = eqp = 0;
             full = 1;
             if (!rx.on)
@@ -3419,6 +3520,8 @@ static void app_main(void)
             hb_log_u32("too slow: stopped", cur);
             mods[cur].state = M_SLOW;
             start_module(0);
+            if (eqp == 4u)
+                bt_page_open(0);        /* (the scan stops with the page) */
             picker = eqp = 0;
             full = 1;
             lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -3447,7 +3550,7 @@ static void app_main(void)
                 turn += en[e];                  /* (the module's knobs: MIDI CH's value, else nothing meanwhile) */
             if (eqp) {                          /* the page takes them all */
                 if (eqp == 2u ? about_input(&eq_row, en, b) : eqp == 3u ? fx_page_input(&eq_row, en, b)
-                    : eq_page_input(&eq_row, en, b)) {
+                    : eqp == 4u ? bt_page_input(&eq_row, en, b) : eq_page_input(&eq_row, en, b)) {
                     eqp = 0;
                     draw_picker(sel);
                 }
@@ -3477,6 +3580,11 @@ static void app_main(void)
                 eqp = 2;                        /* ABOUT */
                 eq_row = 0;
                 draw_about(0);
+            } else if (hx && sel == n_mods + N_OPTS_HOST && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {
+                eqp = 4;                        /* BLUETOOTH: ON / OFF and DEVICES */
+                eq_row = 0;
+                bt_page_open(1);
+                draw_bt_page(0);
             } else if (sel >= n_mods && ((b & (1u << BTN_SEL | 1u << BTN_PLAY)) || (turn && (sel == n_mods + O_CH || (BOARD_SMK37 && sel == n_mods + O_PADS))))) {
                 uint32_t o = sel - n_mods;      /* an option changed; OPTIONS stays */
                 if (o == O_LOCAL || o == O_CH)  /* the keys held: let go as they were played */

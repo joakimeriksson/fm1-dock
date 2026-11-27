@@ -23,7 +23,7 @@
 #include <stdint.h>
 
 #define HX_MAGIC 0x31584248u                    /* "HBX1" */
-#define HX_ABI 3u
+#define HX_ABI 4u                               /* 4: DEVICES (connecting out, hx_dev.c) */
 #define HX_DIAG_N 6u                            /* (ABI 3) diag's words */
 /* (fm1-dock) the two BLE interrupts' priority: above the audio (3) and TIMER5 (4). Stock's 2 is
  * below both: the audio interrupt (a module's render, and with two cores the wait for core 1's job) held a
@@ -49,7 +49,7 @@
 #endif
 #define HX_AT 0x19000u                          /* flash: right after the slot table (dock.c HB_TABLE_AT), before the
                                                  * built-ins, on both boards: at most 40 KiB (to 0x23000) */
-#define HX_SIZE 0xA000u
+#define HX_SIZE 0x10000u                        /* (dev: the central role measured) */
 #define HX_XIP (0x02000000u + HX_AT - 0x4000u)
 #define HX_KEPT 112u                            /* the settings record: [0..7] the address, [8..107] the trims copy */
 
@@ -61,6 +61,16 @@ enum {
     HX_S_LINK = 4,                              /* a central connected */
     HX_S_READY = 5                              /* ... and listening to the MIDI notifications */
 };
+
+/* (ABI 4) DEVICES: a row of the list (hx_dev.c), the status line's tone, the device record the host keeps */
+enum { HX_TAG_NONE = 0, HX_TAG_LAST = 1, HX_TAG_CONNECTING = 2, HX_TAG_CONNECTED = 3 };
+enum { HX_CS_NONE = 0, HX_CS_INFO = 1, HX_CS_GOOD = 2, HX_CS_BAD = 3 };
+typedef struct {
+    char name[17];                              /* as advertised (terminated); row 0 "NONE" */
+    uint8_t tag, chosen, bars;                  /* HX_TAG_*; NONE or LAST is the choice; signal 0..3 (0: not heard) */
+} hx_dev_t;
+#define HX_DEVREC 70u                           /* LAST and the choice (ble_store.h BLE_DEV_STORE_SIZE) */
+#define HX_DEV_ROWS 10u                         /* NONE, LAST, 8 nearby */
 
 typedef struct {
     int (*flash_read)(uint32_t off, void *dst, uint32_t n);   /* SPI, as stored -> 0 ok */
@@ -83,5 +93,11 @@ typedef struct {
                                                  * d[2] connection packets received << 16 | ours acknowledged (all
                                                  * links since the radio started); (ABI 3) d[3..5] the radio's
                                                  * start-up calibration (hx.c hx_diag) */
+    void (*tick)(void);                         /* (ABI 4) the main loop: scan reports, connecting out */
+    void (*scan)(uint32_t open);                /* the DEVICES page open: the radio scans */
+    uint32_t (*list)(hx_dev_t *rows, uint32_t max);   /* -> how many rows */
+    void (*pick)(uint32_t row);                 /* SEL on a row: NONE, LAST, or connect to a nearby device */
+    uint32_t (*cstatus)(char *out, uint32_t room);    /* the status line -> HX_CS_* */
+    int (*rec)(uint8_t raw[HX_DEVREC], uint32_t dir); /* dir 1: set at start-up; 0: the changed record -> 1 */
 } hx_api_t;
 #endif
