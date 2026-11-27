@@ -18,6 +18,8 @@ complete source under the same licence too.
 | Terminus font 8x16 (ter-u16n), rendered into `firmware/gen/felucca_font.h` | SIL OFL 1.1 | `assets/fonts/Terminus-LICENSE.txt` |
 | JieLi AC79 SDK: `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin` are read from your SDK checkout at build time and placed in the package; no SDK files are in this tree | Apache-2.0 | <https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK> |
 
+The site's installer uses Felucca's web update protocol unchanged: `docs/js/fm1ota.js` and `docs/js/fm1pkg.js` are Copyright (C) 2026 Leo Kuroshita, Hügelton Instruments, GPL-3.0-only (taken from Felucca through Clipper, isod89). The logo (`tools/gen_logo.py`, `firmware/src/organ_logo.h`, `docs/logo*.png`) is drawn by that script; its lettering is Poppins (SIL OFL 1.1).
+
 `firmware/src/midi_uart.c` and `firmware/hal/fm1_uart.h` (TRS MIDI IN) are Copyright (C) 2026 Leo Kuroshita, Hügelton Instruments, GPL-3.0, taken from Felucca; `tests/midi_uart_test.c` is a host test for it.
 
 ## setBfree

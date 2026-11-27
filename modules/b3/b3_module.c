@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* B3 ORGAN: R-Jeb's tonewheel organ for the FM-1 (github.com/R-Jeb/setBfree-fm1, v0.2 7014954), modelled on setBfree
+/* B3 ORGAN: R-Jeb's tonewheel organ for the FM-1 (github.com/R-Jeb/setBfree-fm1, v0.6.1 d2dc753), modelled on setBfree
  * (91 wheels, nine drawbars, setBfree's tapering and leakage, key click, vibrato and chorus, percussion, overdrive,
  * reverb and a Leslie; its 110 programs and default controllers), as a fm1-dock module: its own app (b3/b3.c, split
  * by take.py: app_init, app_loop) on fm1-dock's host (b3/platform.c, from b3_platform.inc). The organ renders in the
@@ -14,7 +14,11 @@ static void render(int32_t *out, uint32_t n)
 }
 
 static void ui(uint32_t ev, int32_t arg) { hbf_event(ev, arg); }
-static void midi(uint32_t st, uint32_t d1, uint32_t d2) { hbf_midi(st, d1, d2); }
+static void midi(uint32_t st, uint32_t d1, uint32_t d2)
+{
+    if (st < 0xF8u && hbf_mq_w - hbf_mq_r >= HBF_MQ) midi_in_overflow = 1;   /* (about to be dropped) */
+    hbf_midi(st, d1, d2);
+}
 static void note(uint32_t ch, uint32_t key, uint32_t vel) { hbf_midi(0x90u | (ch & 15u), key, vel); }
 static void cc(uint32_t ch, uint32_t num, uint32_t val) { hbf_midi(0xB0u | (ch & 15u), num, val); }
 
@@ -22,10 +26,10 @@ static void draw(uint32_t full)
 {
     if (full) {                                 /* (back from the module list: the screen and the LEDs again) */
         lcd_fill(0, 0, 240, 240, C_BLACK);
-        draw_text_box(0, 4, 120, &FONT_S, "B3 ORGAN v" APP_VER, C_ACC, 0);
-        for (i = 0; i < NB; i++)
-            drawn_db[i] = 99;
-        status_key = ~0u;
+        drawn_screen = 99;
+        logo_drawn = 0;
+        for (i = 0; i < 22u; i++)
+            hash[i] = 0xFFFFFFFFu;
         t_load = 0;
         b3_leds_resend();
     }
@@ -36,6 +40,7 @@ static void draw(uint32_t full)
 static int init(const hb_host_t *h)
 {
     H = h;
+    b3_c1 = HB_HOST_HAS(H, c1_wait) && H->c1_run != 0 && H->c1_wait != 0;
     app_init();
     b3_leds_resend();
     H->log("b3: B3 ORGAN " APP_VER);

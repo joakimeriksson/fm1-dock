@@ -12,7 +12,7 @@
 #define APP_NAME "B3 ORGAN"
 #endif
 #ifndef APP_VER
-#define APP_VER "0.2"
+#define APP_VER "0.6.1"
 #endif
 #define FS 44100u
 #define HALF_FRAMES 256u
@@ -64,5 +64,23 @@ static int settings_save(const void *p, uint32_t n)
     H->save(p, n);
     return 0;
 }
+
+/* ---- the app's own data (B3's user programs, up to 1 KiB): the module's bank, the host's own flash area for it */
+static int data_load(void *p, uint32_t n) { return n <= 1024u && H->bank_load ? H->bank_load(p, n) : -1; }
+static int data_save(const void *p, uint32_t n) { return n <= 1024u && H->bank_save ? H->bank_save(p, n) : -1; }
+
+/* ---- B3's own SysEx (its editor, F0 7D ..): the dock has no way to hand a module a SysEx frame, so none comes */
+static int sysex_get(const uint8_t **p, uint32_t *n) { (void)p; (void)n; return 0; }
+static void sysex_done(void) {}
+static int sysex_send(const uint8_t *p, uint32_t n) { (void)p; (void)n; return -1; }
+
+/* ---- the second core: the odd tonewheels (organ_split), on the host's c1_run / c1_wait when it has them */
+static int b3_c1;                               /* set by init: the host lends core 1 */
+#define fm1_c1_on (b3_c1 != 0)                  /* (what the screen's CORES shows) */
+#define ORGAN_C1_RUN(fn, arg) (b3_c1 && H->c1_run((fn), (arg)))
+#define ORGAN_C1_WAIT() (H->c1_wait())
+
+/* ---- MIDI in: hb_fm1.h's queue drops a message when it is full; B3 releases the MIDI notes then */
+static volatile uint8_t midi_in_overflow;
 
 static void platform_poll(void) {}              /* (the host polls USB, the keys, MIDI) */
