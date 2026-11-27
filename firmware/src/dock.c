@@ -83,6 +83,10 @@ static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #define OTA_KEEP_ADDONS 1                       /* ota.c: an update over add-ons in the image's room is refused */
 #include "platform.c"
 #include "fm1_uart.h"
+#if BOARD_SMK37
+#include "smk_uart_tx.h"
+#include "smk_midi_out.h"                    /* the 3.5 mm jack: MIDI out (Vector37's), the same stream as USB and BLE */
+#endif
 #include "hb_module.h"
 #include "sense.c"
 #include "eq.c"
@@ -744,7 +748,14 @@ static int ble_midi_in(uint32_t pkt)            /* TIMER5: the USB-MIDI ring's o
     return 1;
 }
 static const hx_host_t hx_host = {ble_flash_read, ble_midi_in};
-static void ble_out(uint32_t pkt) { if (hx_live) hx->out(pkt); }
+static void ble_out(uint32_t pkt)
+{
+#if BOARD_SMK37
+    smo_put(pkt);                               /* the TRS jack (smk_midi_out.h), with or without BLE and USB */
+#endif
+    if (hx_live)
+        hx->out(pkt);
+}
 static void ble_poll(void) { if (hx_live) hx->poll(); }
 static uint8_t ble_held;                        /* ON saved, but this boot does not start it (safe boot, a failed boot) */
 static uint8_t eq_held;                         /* the EQ saved ON, but this boot does not run it (the same two cases) */
@@ -1486,8 +1497,16 @@ static void __attribute__((unused)) din_pull(void)   /* (unused on the SMK-37: n
 {
     for (;;) {
         uint32_t b = din_ring[din_r];
-        if (b == 0xFFu)
-            return;
+        if (b == 0xFFu) {
+            if (din_ring[(din_r + 1u) % DIN_RING] == 0xFFu)
+                return;                         /* nothing new */
+            din_r = (din_r + 1u) % DIN_RING;    /* a 0xFF received (line noise: a cable plugged in, a unit starting),
+                                                 * passed over once the byte after it has landed, as Melodee's
+                                                 * midi_uart.c does. Taken for empty, the reader waited there until
+                                                 * the DMA came round the ring: the jack's notes in bursts of ~256
+                                                 * bytes, seconds apart, from then on */
+            continue;
+        }
         din_ring[din_r] = 0xFFu;
         din_r = (din_r + 1u) % DIN_RING;
         if (b >= 0xF8u) {                       /* real time, anywhere (between a message's bytes too) */
@@ -1509,6 +1528,8 @@ static void hb_early_init(void)
         din_ring[i] = 0xFFu;
 #if !BOARD_SMK37                                /* (the SMK-37 has no MIDI in: PH8 is a row of its key matrix) */
     fm1_uart1_midi_init(din_ring, DIN_RING);
+#else
+    smk_uart1_tx_init();                        /* its jack is MIDI out: UART1 TX on PC7 */
 #endif
 }
 
@@ -1521,6 +1542,8 @@ static void t5_poll(void)
 #if !BOARD_SMK37
     fm1_uart1_rx_take();
     din_pull();
+#else
+    smo_tick();                                 /* the TRS jack: one byte when the last has gone */
 #endif
     ble_poll();
 }
